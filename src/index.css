@@ -1,32 +1,277 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
-/* ---- Light Liquid Glass util sinifləri ---- */
-.glass-light{
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  min-width: 0;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Clean admin surface tokens */
+.surface-page {
+  background: #f5f7fb;
+  --scrollbar-track: rgba(255, 255, 255, .92);
+  --scrollbar-thumb: rgba(148, 163, 184, .62);
+  --scrollbar-thumb-hover: rgba(100, 116, 139, .9);
+}
+
+.surface-page-dark {
+  background: #0f172a;
+  --scrollbar-track: rgba(30, 41, 59, .92);
+  --scrollbar-thumb: rgba(100, 116, 139, .72);
+  --scrollbar-thumb-hover: rgba(148, 163, 184, .88);
+}
+
+.surface-page,
+.surface-page-dark,
+.surface-page *,
+.surface-page-dark * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.surface-page *::-webkit-scrollbar,
+.surface-page-dark *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.surface-page *::-webkit-scrollbar-track,
+.surface-page-dark *::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+.erp-panel-body::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--scrollbar-track) 82%, transparent);
+}
+
+.surface-page *::-webkit-scrollbar-thumb,
+.surface-page-dark *::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+.surface-page *::-webkit-scrollbar-thumb:hover,
+.surface-page-dark *::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.surface-page *::-webkit-scrollbar-corner,
+.surface-page-dark *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.glass-panel,
+.glass-header,
+.glass-control {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .06);
+}
+
+.glass-panel-dark,
+.glass-header-dark,
+.glass-control-dark {
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, .22);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .20);
+}
+
+.glass-panel:not(.absolute):not(.fixed),
+.glass-panel-dark:not(.absolute):not(.fixed),
+.glass-header:not(.absolute):not(.fixed),
+.glass-header-dark:not(.absolute):not(.fixed),
+.glass-control:not(.absolute):not(.fixed),
+.glass-control-dark:not(.absolute):not(.fixed) {
   position: relative;
-  background: rgba(255,255,255,.55);
-  border: 1px solid rgba(255,255,255,.75);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  backdrop-filter: blur(16px) saturate(160%);
-  border-radius: 20px;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.60),      /* üst parıltı */
-    0 12px 30px rgba(2,6,23,.08);             /* yumşaq kölgə */
-}
-.glass-light::before{
-  content:"";
-  position:absolute; inset:0; border-radius:inherit;
-  /* künclərdə işıq ləkəsi */
-  background:
-    radial-gradient(140% 100% at 0% 0%, rgba(255,255,255,.45), transparent 60%),
-    radial-gradient(120% 120% at 100% 100%, rgba(255,255,255,.18), transparent 55%);
-  pointer-events:none;
 }
 
-/* widget fonu (çox zəif rəngli ləkələr) */
-.bg-liquid{
-  background:
-    radial-gradient(600px 360px at 12% -8%, rgba(56,189,248,.14), transparent 60%),
-    radial-gradient(560px 340px at 110% 0%, rgba(99,102,241,.14), transparent 60%),
-    radial-gradient(520px 320px at -6% 110%, rgba(52,211,153,.12), transparent 60%),
-    #f8fafc; /* əsas açıq fon */
+.glass-panel > .absolute,
+.glass-panel-dark > .absolute {
+  position: absolute;
+}
+
+.glass-panel > .fixed,
+.glass-panel-dark > .fixed {
+  position: fixed;
+}
+
+.product-detail-shell.glass-panel {
+  background: #f8fafc;
+  border-color: rgba(203, 213, 225, .9);
+  box-shadow: 0 22px 52px rgba(15, 23, 42, .18);
+}
+
+.product-detail-shell.glass-panel-dark {
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, .24);
+}
+
+.surface-primary {
+  background: #4f46e5;
+  color: #ffffff;
+  border: 1px solid #4338ca;
+  box-shadow: 0 10px 20px rgba(79, 70, 229, .22);
+  transition: transform .16s ease, background .16s ease, box-shadow .16s ease;
+}
+
+.surface-primary:hover {
+  background: #4338ca;
+  box-shadow: 0 12px 24px rgba(79, 70, 229, .26);
+}
+
+.surface-primary:active {
+  transform: translateY(1px);
+}
+
+.surface-nav-active {
+  background: rgba(99, 102, 241, .10);
+  box-shadow: none;
+  color: #4f46e5;
+}
+
+.glass-control-dark.surface-nav-active {
+  background: rgba(129, 140, 248, .14);
+  box-shadow: none;
+  color: #e0e7ff;
+}
+
+.glass-row-hover {
+  transition: background .16s ease;
+}
+
+.glass-row-hover:hover {
+  background: #f8fafc;
+}
+
+.glass-row-hover-dark {
+  transition: background .16s ease;
+}
+
+.glass-row-hover-dark:hover {
+  background: rgba(255, 255, 255, .06);
+}
+
+.surface-popover.glass-panel {
+  background: #ffffff;
+}
+
+.surface-popover.glass-panel-dark {
+  background: #1e293b;
+}
+
+.glass-logo {
+  filter: drop-shadow(0 8px 14px rgba(79, 125, 220, .14));
+}
+
+.glass-light {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .06);
+}
+
+.bg-surface {
+  background: inherit;
+}
+
+.erp-panel-body {
+  flex: 1 1 0;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior-x: contain;
+}
+
+.erp-data-table {
+  min-width: max(100%, 1180px);
+  table-layout: fixed;
+}
+
+.erp-col-select {
+  width: 48px;
+}
+
+.erp-col-photo {
+  width: 64px;
+}
+
+.erp-col-name {
+  width: 280px;
+}
+
+.erp-col-standard {
+  width: 132px;
+}
+
+.erp-panel-body table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.erp-panel-body th,
+.erp-panel-body td {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-panel-body .erp-select-cell {
+  width: 48px;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+}
+
+.erp-panel-body .erp-select-checkbox {
+  display: block;
+  margin-inline: auto;
+}
+
+.erp-panel-body thead th {
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.erp-modal-shell {
+  height: min(760px, 90vh);
+}
+
+.erp-drawer-shell {
+  height: 100vh;
+  min-height: 100vh;
+}
+
+@media (max-width: 767px) {
+  .surface-page,
+  .surface-page-dark {
+    min-height: 100dvh;
+  }
+
+  .glass-panel,
+  .glass-panel-dark,
+  .glass-header,
+  .glass-header-dark,
+  .glass-control,
+  .glass-control-dark {
+    box-shadow: 0 8px 18px rgba(15, 23, 42, .05);
+  }
+
+  .erp-modal-shell {
+    height: calc(100dvh - 1rem);
+  }
 }

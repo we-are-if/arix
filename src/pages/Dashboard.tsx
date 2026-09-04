@@ -1,4 +1,3 @@
-import React from "react";
 import {
   AreaChart,
   Area,
@@ -120,7 +119,7 @@ export default function Dashboard({ colors }: { colors: Colors }) {
                 axisLine={{ stroke: colors.grid }}
               />
               <Tooltip
-                formatter={(v: any) =>
+                formatter={(v: unknown) =>
                   Number(v).toLocaleString("az-Latn-AZ")
                 }
               />
