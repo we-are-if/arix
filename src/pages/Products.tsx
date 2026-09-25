@@ -2775,11 +2775,11 @@ function ProductDetailPanel({
   );
   const sectionClass = cx(
     "rounded-2xl border p-5 shadow-sm",
-    isDark ? "border-white/10 bg-white/5 shadow-black/10" : "border-slate-200/80 bg-slate-50/85 shadow-slate-200/45"
+    isDark ? "border-white/10 bg-white/5 shadow-black/10" : "border-slate-200 bg-white shadow-slate-200/55"
   );
   const mutedPanelClass = cx(
     "rounded-xl border px-3.5 py-3",
-    isDark ? "border-white/10 bg-slate-950/20" : "border-slate-200/75 bg-white/80"
+    isDark ? "border-white/10 bg-slate-950/20" : "border-slate-200 bg-white"
   );
   const subtleRowClass = isDark ? "bg-slate-950/20" : "bg-white/75";
   const detailLabelClass = cx("text-[13px] leading-5", isDark ? "text-slate-400" : "text-slate-500");
@@ -3044,7 +3044,7 @@ function ProductDetailPanel({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className={cx("min-h-0 flex-1 overflow-y-auto p-4", isDark ? "bg-slate-950/10" : "bg-slate-50/80")}>
           {tab === "overview" && (
             <div className="space-y-4">
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -3772,7 +3772,7 @@ function ProductLedgerTable({ entries, unit, isDark }: { entries: ProductLedgerE
   };
 
   return (
-    <div className={cx("overflow-x-auto rounded-xl border", border, isDark ? "bg-slate-950/10" : "bg-white/80")}>
+    <div className={cx("overflow-x-auto rounded-xl border", border, isDark ? "bg-slate-950/10" : "bg-white")}>
       <table className="min-w-[1180px] w-full text-sm">
         <thead className={isDark ? "bg-white/5 text-slate-300" : "bg-slate-100/90 text-slate-700"}>
           <tr>
