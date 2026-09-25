@@ -41,6 +41,10 @@ type ApiDocumentLine = {
   price?: number;
   discount?: number;
   total?: number;
+  unitCost?: number;
+  costTotal?: number;
+  grossProfit?: number;
+  marginPercent?: number;
   warehouse?: string;
 };
 
@@ -253,13 +257,15 @@ export default function Reports({ isDark }: { isDark: boolean }) {
       const allocated = item.costAllocations?.reduce((inner, row) => inner + (row.amount ?? 0), 0) ?? 0;
       return sum + (allocated || docAmount(item));
     }, 0);
-    const cogs = sales.reduce((sum, document) => {
+    const documentCogs = (document: ApiDocument) => {
       const lineCost = (document.lines ?? []).reduce((lineSum, line) => {
-        const unitCost = line.productId == null ? 0 : productCostById.get(Number(line.productId)) ?? 0;
+        if (line.costTotal != null) return lineSum + line.costTotal;
+        const unitCost = line.unitCost ?? (line.productId == null ? 0 : productCostById.get(Number(line.productId)) ?? 0);
         return lineSum + (line.qty ?? 0) * unitCost;
       }, 0);
-      return sum + (lineCost || docAmount(document) * 0.68);
-    }, 0);
+      return lineCost || docAmount(document) * 0.68;
+    };
+    const cogs = sales.reduce((sum, document) => sum + documentCogs(document), 0);
     const profit = revenue - cogs;
     const stockValue = products.reduce((sum, product) => {
       const qty = (product.warehouses?.antrepo ?? 0) + (product.warehouses?.depo ?? 0);
@@ -274,15 +280,16 @@ export default function Reports({ isDark }: { isDark: boolean }) {
     });
     const monthly = monthKeys.map((key) => {
       const monthDocuments = periodDocuments.filter((document) => monthKey(docDate(document)) === key);
-      const monthSales = monthDocuments.filter((document) => document.type === "sale").reduce((sum, item) => sum + docAmount(item), 0);
+      const monthSaleDocuments = monthDocuments.filter((document) => document.type === "sale");
+      const monthSales = monthSaleDocuments.reduce((sum, item) => sum + docAmount(item), 0);
       const monthPurchases = monthDocuments.filter((document) => document.type === "purchase").reduce((sum, item) => sum + docAmount(item), 0);
-      const monthCosts = monthDocuments.filter((document) => document.relationshipType === "landedCost").reduce((sum, item) => sum + docAmount(item), 0);
+      const monthCogs = monthSaleDocuments.reduce((sum, item) => sum + documentCogs(item), 0);
       return {
         key,
         name: monthLabel(key),
         satış: monthSales,
         alış: monthPurchases,
-        mənfəət: monthSales - monthSales * 0.68 - monthCosts,
+        mənfəət: monthSales - monthCogs,
       };
     });
 

@@ -489,7 +489,7 @@ export default function ProductCreatePanel({
             {section === "price" && (
               <FormSection title="Qiymətlər">
                 <div className="grid gap-3 md:grid-cols-3">
-                  <label><span className="mb-1 block text-xs font-medium">Başlanğıc maya dəyəri</span><input className={ui.input} value={form.maya} onChange={handleChange("maya")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Təchizatçı alış qiyməti</span><input className={ui.input} value={form.alis} onChange={handleChange("alis")} inputMode="decimal" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Standart satış qiyməti</span><input className={ui.input} value={form.qiymet} onChange={handleChange("qiymet")} inputMode="decimal" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Topdan satış qiyməti</span><input className={ui.input} value={form.wholesalePrice} onChange={handleChange("wholesalePrice")} inputMode="decimal" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Artım, %</span><input className={ui.input} value={form.markup} onChange={handleChange("markup")} inputMode="decimal" /></label>
@@ -508,7 +508,7 @@ export default function ProductCreatePanel({
                     {activeStores.length === 0 && <div className={cx("px-4 py-4 text-sm", ui.textSubtle)}>Aktiv mağaza yaradılmayıb.</div>}
                   </div>
                 )}
-                <p className={cx("mt-4 text-xs", ui.textSubtle)}>Mağaza qiyməti boş qalarsa ümumi standart qiymət tətbiq edilir. Müştəriyə xüsusi qiymətlər müştəri kartının “Satış qiymətləri” bölməsində idarə olunur.</p>
+                <p className={cx("mt-4 text-xs", ui.textSubtle)}>Təchizatçı alış qiyməti birbaşa mal qiymətidir. Faktiki maya alış sənədi anbara daxil olduqda və ona nəqliyyat, gömrük, antrepo kimi xərclər bağlandıqda avtomatik hesablanır. Mağaza qiyməti boş qalarsa ümumi standart qiymət tətbiq edilir.</p>
               </FormSection>
             )}
 

@@ -1119,7 +1119,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       barcode: values.barkod.trim() || values.gtin.trim() || undefined,
       vahid: values.vahid.trim() || (values.type === "service" ? "xidmət" : "əd"),
       sale_price: salePrice,
-      cost: parseOptionalNumber(values.maya) ?? purchasePrice,
+      cost: values.initialStock ? purchasePrice : undefined,
       purchase_price: purchasePrice,
       categoryIds,
       country: values.country.trim() || undefined,
@@ -2021,8 +2021,8 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
               {detailColVisible("country") && renderHeader("country", "ÖLKƏ")}
               {detailColVisible("supplier") && renderHeader("supplier", "TƏCHİZATÇI")}
               {detailColVisible("sale_price") && renderHeader("sale_price", "SATIŞ QİYMƏTİ", "right")}
-              {detailColVisible("cost") && renderHeader("cost", "MAYA DƏYƏRİ", "right")}
-              {detailColVisible("purchase_price") && renderHeader("purchase_price", "ALIŞ QİYMƏTİ", "right")}
+              {detailColVisible("cost") && renderHeader("cost", "ORTA MAYA", "right")}
+              {detailColVisible("purchase_price") && renderHeader("purchase_price", "SON ALIŞ", "right")}
               {detailColVisible("created") && renderHeader("created", "YARADILDI")}
               {detailColVisible("discount") && renderHeader("discount", "ENDİRİM", "right")}
               {detailColVisible("min_stock") && renderHeader("min_stock", "MİN. QALIQ", "right")}
@@ -2540,8 +2540,6 @@ function ProductDetailPanel({
       const storePrice = item.storePrices?.[store.name];
       return [store.name, storePrice == null || storePrice === item.sale_price ? "" : String(storePrice)];
     })),
-    purchase: item.purchase_price == null ? "" : String(item.purchase_price),
-    cost: item.cost == null ? "" : String(item.cost),
     minStock: item.minStock == null ? "" : String(item.minStock),
     supplier: item.supplier ?? "",
     expirationDate: item.expirationDate ?? "",
@@ -2667,8 +2665,6 @@ function ProductDetailPanel({
           .filter((entry): entry is [string, number] => entry[1] != null && entry[1] !== parseOptionalNumber(edit.sale))
       ),
       cardProfile: { ...product.cardProfile, wholesalePrice: parseOptionalNumber(edit.wholesale) },
-      purchase_price: parseOptionalNumber(edit.purchase),
-      cost: parseOptionalNumber(edit.cost),
       minStock: parseOptionalNumber(edit.minStock),
       supplier: edit.supplier.trim() || undefined,
       expirationDate: edit.expirationDate || undefined,
@@ -2860,10 +2856,11 @@ function ProductDetailPanel({
                   <div className="space-y-2">
                     {[
                       ["Satış qiyməti", toCurrency(effectiveSale)],
-                      ["Alış qiyməti", toCurrency(effectivePurchase)],
-                      ["Maya dəyəri", toCurrency(effectiveCost)],
+                      ["Son təchizatçı alış qiyməti", toCurrency(effectivePurchase)],
+                      ["Orta maya dəyəri", toCurrency(effectiveCost)],
+                      ["Mənfəət / vahid", toCurrency(marginValue)],
                       ["Markup", formatPercent(markup)],
-                      ["Mənfəətlilik", formatPercent(marginality)],
+                      ["Marja", formatPercent(marginality)],
                     ].map(([label, value]) => (
                       <div key={label} className={cx("flex items-center justify-between rounded-lg px-3 py-2.5", subtleRowClass)}>
                         <span className={detailLabelClass}>{label}</span>
@@ -2965,8 +2962,6 @@ function ProductDetailPanel({
                     </select>
                     <input className={inputClass} value={edit.supplier} onChange={(e) => setEdit((v) => ({ ...v, supplier: e.target.value }))} placeholder="Təchizatçı" />
                     <input className={inputClass} value={edit.expirationDate} onChange={(e) => setEdit((v) => ({ ...v, expirationDate: e.target.value }))} type="date" />
-                    <input className={inputClass} value={edit.purchase} onChange={(e) => setEdit((v) => ({ ...v, purchase: e.target.value }))} placeholder="Alış" />
-                    <input className={inputClass} value={edit.cost} onChange={(e) => setEdit((v) => ({ ...v, cost: e.target.value }))} placeholder="Maya" />
                     <input className={inputClass} value={edit.sale} onChange={(e) => setEdit((v) => ({ ...v, sale: e.target.value }))} placeholder="Satış" />
                     <input className={inputClass} value={edit.minStock} onChange={(e) => setEdit((v) => ({ ...v, minStock: e.target.value }))} placeholder="Minimal qalıq" />
                     <textarea className={cx(inputClass, "h-24 py-2 md:col-span-4")} value={edit.description} onChange={(e) => setEdit((v) => ({ ...v, description: e.target.value }))} placeholder="Təsvir" />
@@ -2999,7 +2994,7 @@ function ProductDetailPanel({
                   </div>
                   <span className={cx("rounded-full px-2.5 py-1 text-xs", isDark ? "bg-indigo-400/15 text-indigo-100" : "bg-indigo-50 text-indigo-700")}>Köhnə sənədlər dəyişmir</span>
                 </div>
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                   <label>
                     <span className={detailLabelClass}>Standart satış qiyməti</span>
                     {editMode ? <input className={cx(inputClass, "mt-1 w-full")} value={edit.sale} onChange={(e) => setEdit((value) => ({ ...value, sale: e.target.value }))} inputMode="decimal" /> : <div className={cx("mt-1 text-lg font-semibold tabular-nums", detailValueClass)}>{toCurrency(product.sale_price)}</div>}
@@ -3009,10 +3004,19 @@ function ProductDetailPanel({
                     {editMode ? <input className={cx(inputClass, "mt-1 w-full")} value={edit.wholesale} onChange={(e) => setEdit((value) => ({ ...value, wholesale: e.target.value }))} inputMode="decimal" /> : <div className={cx("mt-1 text-lg font-semibold tabular-nums", detailValueClass)}>{toCurrency(profile?.wholesalePrice)}</div>}
                   </label>
                   <div>
-                    <span className={detailLabelClass}>Maya dəyəri</span>
-                    <div className={cx("mt-1 text-lg font-semibold tabular-nums", detailValueClass)}>{toCurrency(product.cost)}</div>
+                    <span className={detailLabelClass}>Son alış qiyməti</span>
+                    <div className={cx("mt-1 text-lg font-semibold tabular-nums", detailValueClass)}>{toCurrency(effectivePurchase)}</div>
+                  </div>
+                  <div>
+                    <span className={detailLabelClass}>Orta maya dəyəri</span>
+                    <div className={cx("mt-1 text-lg font-semibold tabular-nums", detailValueClass)}>{toCurrency(effectiveCost)}</div>
+                  </div>
+                  <div>
+                    <span className={detailLabelClass}>Mənfəət / marja</span>
+                    <div className={cx("mt-1 text-lg font-semibold tabular-nums", marginValue >= 0 ? "text-emerald-600" : "text-rose-600")}>{toCurrency(marginValue)} · {formatPercent(marginality)}</div>
                   </div>
                 </div>
+                <p className={cx("mt-4 text-xs", ui.textSubtle)}>Alış qiyməti alış sənədindən, orta maya isə həmin sənədə bağlanan əlavə xərclərdən avtomatik formalaşır. Satış qiyməti ilə orta maya arasındakı fərq mənfəətdir.</p>
               </section>
 
               <section className={sectionClass}>
@@ -3849,8 +3853,8 @@ function ParamsPanel({
     id==="foto"?"Foto":id==="kod"?"Kod":id==="taxes"?"Vergilər":id==="barcode"?"Bar-kod":
     id==="artikel"?"SKU / Artikul":id==="vahid"?"Ölçü vahidi":id==="plu"?"PLU kod":
     id==="expiration"?"İstifadə müddəti":id==="category"?"Kateqoriya":id==="country"?"Ölkə":
-    id==="supplier"?"Təchizatçı":id==="sale_price"?"Satış qiyməti":id==="cost"?"Maya dəyəri":
-    id==="purchase_price"?"Alışın qiyməti":id==="created"?"Yaradıldı":id==="discount"?"Endirim":
+    id==="supplier"?"Təchizatçı":id==="sale_price"?"Satış qiyməti":id==="cost"?"Orta maya dəyəri":
+    id==="purchase_price"?"Son təchizatçı alış qiyməti":id==="created"?"Yaradıldı":id==="discount"?"Endirim":
     "Minimal qalıq";
   const toggleCol = (id: ColId) => {
     if (columnDisabled(id)) return;

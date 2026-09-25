@@ -913,13 +913,19 @@ function collectDocumentContainers(db) {
       let grossKg = 0;
       let rollCount = 0;
       const productIds = new Set();
+      const productQuantities = {};
       for (const pallet of container.pallets ?? []) {
         for (const roll of pallet.rolls ?? []) {
-          qty += numberValue(roll.qty);
+          const rollQty = numberValue(roll.qty);
+          qty += rollQty;
           netKg += numberValue(roll.netKg);
           grossKg += numberValue(roll.grossKg);
           rollCount += 1;
-          if (roll.productId) productIds.add(Number(roll.productId));
+          if (roll.productId) {
+            const productId = Number(roll.productId);
+            productIds.add(productId);
+            productQuantities[productId] = numberValue(productQuantities[productId]) + rollQty;
+          }
         }
       }
       containers.push({
@@ -935,6 +941,7 @@ function collectDocumentContainers(db) {
         netKg,
         grossKg,
         productIds: Array.from(productIds),
+        productQuantities,
       });
     }
   }
@@ -1608,6 +1615,16 @@ function applyLandedCost(db, document) {
     const ratio = container.qty / totalQty;
     const allocatedAmount = Number((amount * ratio).toFixed(4));
     const unitCost = container.qty > 0 ? Number((allocatedAmount / container.qty).toFixed(6)) : 0;
+    const productAllocations = Object.entries(container.productQuantities ?? {}).map(([productId, productQty]) => {
+      const qtyValue = numberValue(productQty);
+      const productAmount = container.qty > 0 ? Number((allocatedAmount * (qtyValue / container.qty)).toFixed(4)) : 0;
+      return {
+        productId: Number(productId),
+        qty: qtyValue,
+        amount: productAmount,
+        unitCost: qtyValue > 0 ? Number((productAmount / qtyValue).toFixed(6)) : 0,
+      };
+    });
     return {
       id: randomUUID(),
       documentId: document.id,
@@ -1624,6 +1641,7 @@ function applyLandedCost(db, document) {
       netKg: container.netKg,
       grossKg: container.grossKg,
       unitCost,
+      productAllocations,
       formula: `${allocatedAmount.toFixed(2)} / ${container.qty.toFixed(2)} = ${unitCost.toFixed(4)}`,
       appliesFrom: document.documentDate ?? document.createdAt,
       createdAt: new Date().toISOString(),
@@ -1632,6 +1650,38 @@ function applyLandedCost(db, document) {
   document.costAllocations = adjustments;
   document.relationshipType = "landedCost";
   db.landedCostAdjustments.unshift(...adjustments);
+  const affectedPurchaseIds = new Set(adjustments.map((item) => String(item.purchaseDocumentId)));
+  for (const purchaseId of affectedPurchaseIds) {
+    const purchaseDocument = db.documents.find((item) => String(item.id) === purchaseId && item.type === "purchase");
+    if (!purchaseDocument) continue;
+    for (const line of purchaseDocument.lines ?? []) {
+      const productId = Number(line.productId);
+      const lineQty = numberValue(line.qty);
+      const extraAmount = db.landedCostAdjustments
+        .filter((item) => String(item.purchaseDocumentId) === purchaseId)
+        .flatMap((item) => item.productAllocations ?? [])
+        .filter((item) => Number(item.productId) === productId)
+        .reduce((sum, item) => sum + numberValue(item.amount), 0);
+      const directPurchasePrice = numberValue(line.directPurchasePrice ?? line.price);
+      const additionalUnitCost = lineQty > 0 ? extraAmount / lineQty : 0;
+      line.directPurchasePrice = directPurchasePrice;
+      line.additionalUnitCost = Number(additionalUnitCost.toFixed(6));
+      line.unitCost = Number((directPurchasePrice + additionalUnitCost).toFixed(6));
+      line.costTotal = Number((lineQty * line.unitCost).toFixed(4));
+    }
+  }
+  const newExpenseByProduct = new Map();
+  adjustments.flatMap((item) => item.productAllocations ?? []).forEach((item) => {
+    const productId = Number(item.productId);
+    newExpenseByProduct.set(productId, (newExpenseByProduct.get(productId) ?? 0) + numberValue(item.amount));
+  });
+  for (const [productId, expenseAmount] of newExpenseByProduct) {
+    const product = db.products.find((item) => Number(item.id) === Number(productId));
+    if (!product) continue;
+    const stockQty = productTotalStock(product);
+    if (stockQty <= 0) continue;
+    product.cost = Number((numberValue(product.cost ?? product.purchasePrice) + expenseAmount / stockQty).toFixed(6));
+  }
   return adjustments;
 }
 
@@ -1826,6 +1876,10 @@ function productStock(product, warehouse) {
   return Number(product.warehouses?.[warehouse] ?? 0);
 }
 
+function productTotalStock(product) {
+  return Object.values(product.warehouses ?? {}).reduce((sum, value) => sum + Math.max(0, numberValue(value)), 0);
+}
+
 function changeStock(product, warehouse, diff) {
   product.warehouses = product.warehouses ?? { antrepo: 0, depo: 0 };
   product.warehouses[warehouse] = Number(product.warehouses[warehouse] ?? 0) + diff;
@@ -1850,6 +1904,32 @@ function applyDocumentStock(db, document) {
     if (product.type === "service") continue;
     const qty = Number(line.qty ?? 0);
     if (!Number.isFinite(qty) || qty <= 0) return { ok: false, error: `${product.name} üçün miqdar düzgün deyil` };
+
+    if (kind === "purchase") {
+      const previousQty = productTotalStock(product);
+      const directPurchasePrice = numberValue(line.price);
+      const additionalUnitCost = numberValue(line.additionalUnitCost);
+      const unitCost = directPurchasePrice + additionalUnitCost;
+      const previousUnitCost = numberValue(product.cost ?? product.purchasePrice ?? directPurchasePrice);
+      line.directPurchasePrice = directPurchasePrice;
+      line.additionalUnitCost = additionalUnitCost;
+      line.unitCost = unitCost;
+      line.costTotal = Number((qty * unitCost).toFixed(4));
+      product.purchasePrice = directPurchasePrice;
+      product.cost = previousQty + qty > 0
+        ? Number(((previousQty * previousUnitCost + qty * unitCost) / (previousQty + qty)).toFixed(6))
+        : unitCost;
+    }
+
+    if (kind === "sale") {
+      const unitCost = numberValue(line.unitCost ?? product.cost ?? product.purchasePrice);
+      const revenue = Math.max(0, numberValue(line.total) || qty * numberValue(line.price) - numberValue(line.discount));
+      const costTotal = qty * unitCost;
+      line.unitCost = unitCost;
+      line.costTotal = Number(costTotal.toFixed(4));
+      line.grossProfit = Number((revenue - costTotal).toFixed(4));
+      line.marginPercent = revenue > 0 ? Number((((revenue - costTotal) / revenue) * 100).toFixed(4)) : 0;
+    }
 
     if (stockHandledByRollSelection && kind === "sale") {
       changeStock(product, account, -qty);

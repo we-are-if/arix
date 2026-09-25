@@ -45,6 +45,8 @@ type ApiProduct = {
   type: string;
   unit: string;
   salePrice?: number;
+  purchasePrice?: number;
+  cost?: number;
   storePrices?: Record<string, number>;
   warehouses?: {
     antrepo?: number;
@@ -572,8 +574,13 @@ const clonePalletDraft = (pallet: PalletDraft, index: number): PalletDraft => ({
   rolls: pallet.rolls.map((roll) => ({ ...roll, id: draftId() })),
 });
 
-const mapApiProduct = (product: ApiProduct, store = "ERSA DEPO"): ProductLine => {
-  const standardPrice = Number(product.storePrices?.[store] ?? product.salePrice ?? 0);
+const mapApiProduct = (product: ApiProduct, store = "ERSA DEPO", kind: DocumentCreateKind = "sale"): ProductLine => {
+  const isPurchasePrice = kind === "purchase" || kind === "purchaseReturn";
+  const standardPrice = Number(
+    isPurchasePrice
+      ? product.purchasePrice ?? product.cost ?? 0
+      : product.storePrices?.[store] ?? product.salePrice ?? 0
+  );
   return {
   id: product.id,
   name: product.name,
@@ -584,7 +591,7 @@ const mapApiProduct = (product: ApiProduct, store = "ERSA DEPO"): ProductLine =>
   stock: Number(product.warehouses?.depo ?? product.warehouses?.antrepo ?? 0),
   price: standardPrice,
   standardPrice,
-  priceSource: "Mağaza standartı",
+  priceSource: isPurchasePrice ? "Son təchizatçı alış qiyməti" : "Mağaza standartı",
   priceStore: store,
   warehouses: {
     antrepo: Number(product.warehouses?.antrepo ?? 0),
@@ -1333,7 +1340,7 @@ export default function DocumentCreatePanel({
     requestJson<{ data: ApiProduct[] }>("/api/products")
       .then((payload) => {
         if (cancelled || !Array.isArray(payload.data)) return;
-        const nextProducts: ProductLine[] = payload.data.map((product) => mapApiProduct(product, documentAccount));
+        const nextProducts: ProductLine[] = payload.data.map((product) => mapApiProduct(product, documentAccount, kind));
         setAvailableProducts(nextProducts);
         const nextSelectedProducts = isEditing && editingDocument?.lines?.length
           ? mapDocumentLinesToProducts(editingDocument, nextProducts)
