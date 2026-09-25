@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
+import { buildProductLedger } from "./productLedger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
@@ -1992,6 +1993,14 @@ async function handleInventoryLots(req, res, url) {
   return send(res, 200, { data: lotAccountingForProduct(db, productId) });
 }
 
+async function handleProductLedger(req, res, url) {
+  if (req.method !== "GET") return notFound(res);
+  const productId = Number(url.searchParams.get("productId") ?? 0);
+  if (!productId) return send(res, 400, { error: "productId tələb olunur" });
+  const db = await readDb();
+  return send(res, 200, { data: buildProductLedger(db, productId) });
+}
+
 function normalizeWarehouse(value) {
   const text = String(value ?? "").toLowerCase();
   if (text.includes("antrepo")) return "antrepo";
@@ -2124,6 +2133,7 @@ const server = createServer(async (req, res) => {
     if (parts[1] === "test-data" && parts[2] === "movement-purchases") return await handleTestMovementPurchases(req, res);
     if (parts[1] === "landed-costs") return await handleLandedCosts(req, res);
     if (parts[1] === "inventory-lots") return await handleInventoryLots(req, res, url);
+    if (parts[1] === "product-ledger") return await handleProductLedger(req, res, url);
 
     return notFound(res);
   } catch (error) {

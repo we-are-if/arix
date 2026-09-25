@@ -342,6 +342,43 @@ const EMPTY_LOT_ACCOUNTING: ProductLotAccounting = {
   costEvents: [],
   recalculations: [],
 };
+type ProductLedgerEntry = {
+  id: string;
+  documentId: string;
+  documentCode: string;
+  kind: string;
+  label: string;
+  effectiveAt: string;
+  account: string;
+  fromAccount?: string | null;
+  toAccount?: string | null;
+  counterparty: string;
+  employee: string;
+  qty: number;
+  inQty: number;
+  outQty: number;
+  delta: number;
+  unitCost?: number | null;
+  price?: number | null;
+  total?: number | null;
+  costTotal?: number | null;
+  grossProfit?: number | null;
+  description?: string;
+  balance: number;
+};
+type ProductLedger = {
+  entries: ProductLedgerEntry[];
+  summary: {
+    currentBalance: number;
+    openingBalance: number;
+    inQty: number;
+    outQty: number;
+  };
+};
+const EMPTY_PRODUCT_LEDGER: ProductLedger = {
+  entries: [],
+  summary: { currentBalance: 0, openingBalance: 0, inQty: 0, outQty: 0 },
+};
 type StockMovement = {
   id: number;
   productId: number;
@@ -1119,6 +1156,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   const [groupCreateKind, setGroupCreateKind] = useState<"folder" | "category" | null>(null);
   const [detailProductId, setDetailProductId] = useState<number | null>(null);
   const [detailLotAccounting, setDetailLotAccounting] = useState<ProductLotAccounting>(EMPTY_LOT_ACCOUNTING);
+  const [detailLedger, setDetailLedger] = useState<ProductLedger>(EMPTY_PRODUCT_LEDGER);
   const [moveOpen, setMoveOpen] = useState(false);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
   const csvInputRef = useRef<HTMLInputElement | null>(null);
@@ -1133,16 +1171,22 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
 
   const loadProductLotsFromApi = useCallback(async (productId: number) => {
     try {
-      const payload = await requestJson<{ data: ProductLotAccounting }>(`/api/inventory-lots?productId=${productId}`);
-      setDetailLotAccounting({ ...EMPTY_LOT_ACCOUNTING, ...payload.data });
+      const [lotsPayload, ledgerPayload] = await Promise.all([
+        requestJson<{ data: ProductLotAccounting }>(`/api/inventory-lots?productId=${productId}`),
+        requestJson<{ data: ProductLedger }>(`/api/product-ledger?productId=${productId}`),
+      ]);
+      setDetailLotAccounting({ ...EMPTY_LOT_ACCOUNTING, ...lotsPayload.data });
+      setDetailLedger({ ...EMPTY_PRODUCT_LEDGER, ...ledgerPayload.data });
     } catch {
       setDetailLotAccounting(EMPTY_LOT_ACCOUNTING);
+      setDetailLedger(EMPTY_PRODUCT_LEDGER);
     }
   }, []);
 
   useEffect(() => {
     if (detailProductId == null) {
       setDetailLotAccounting(EMPTY_LOT_ACCOUNTING);
+      setDetailLedger(EMPTY_PRODUCT_LEDGER);
       return;
     }
     void loadProductLotsFromApi(detailProductId);
@@ -1764,7 +1808,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         ["containers", "Konteynerlər"],
         ["rolls", "Rulolar"],
         ["variants", "Variantlar"],
-        ["inventory", "Hərəkətlər"],
+        ["inventory", "Fəaliyyət tarixçəsi"],
         ["history", "Tarixçə"],
       ] as const)
     : tabs;
@@ -2360,6 +2404,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         audit={detailAudit}
         movements={movements.filter((movement) => movement.productId === detailProduct.id)}
         lotAccounting={detailLotAccounting}
+        ledger={detailLedger}
         isDark={isDark}
         stockMode={companySettings.stockMode}
         onClose={() => setDetailProductId(null)}
@@ -2640,6 +2685,7 @@ function ProductDetailPanel({
   audit,
   movements,
   lotAccounting,
+  ledger,
   isDark,
   stockMode,
   onClose,
@@ -2660,6 +2706,7 @@ function ProductDetailPanel({
   audit: AuditEntry[];
   movements: StockMovement[];
   lotAccounting: ProductLotAccounting;
+  ledger: ProductLedger;
   isDark: boolean;
   stockMode: StockMode;
   onClose: () => void;
@@ -2702,11 +2749,21 @@ function ProductDetailPanel({
   });
   const [variantForm, setVariantForm] = useState({ name: "", barcode: "", antrepo: "", depo: "", purchase: "", cost: "", sale: "" });
   const [bundleForm, setBundleForm] = useState({ productId: "", qty: "1" });
+  const [activityFilters, setActivityFilters] = useState(() => {
+    const end = new Date();
+    const start = new Date(end);
+    start.setFullYear(start.getFullYear() - 1);
+    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10), account: "", kind: "", employee: "" };
+  });
 
   useEffect(() => {
     setEdit(buildEditState(product));
     setEditMode(false);
     setTab("overview");
+    const end = new Date();
+    const start = new Date(end);
+    start.setFullYear(start.getFullYear() - 1);
+    setActivityFilters({ start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10), account: "", kind: "", employee: "" });
   }, [buildEditState, product]);
   useEffect(() => {
     if (stockMode === "simple" && (tab === "containers" || tab === "rolls")) setTab("stock");
@@ -2789,15 +2846,18 @@ function ProductDetailPanel({
     toNum(row.qty),
     toCurrency(row.qty * row.cost),
   ]);
-  const inventoryHistoryRows = movements.map((row) => [
-    new Date(row.at).toLocaleString("az-Latn-AZ"),
-    row.type === "purchase" ? "Alış" : row.type === "sale" ? "Satış" : row.type === "return" ? "Geri qaytarma" : row.type === "transfer" ? "Transfer" : "Düzəliş",
-    toNum(row.qty),
-    row.type === "transfer"
-      ? `${row.from === "depo" ? "ERSA DEPO" : "ERSA ANTREPO"} → ${row.to === "depo" ? "ERSA DEPO" : "ERSA ANTREPO"}`
-      : row.place === "depo" ? "ERSA DEPO" : "ERSA ANTREPO",
-    row.note || "—",
-  ]);
+  const activityAccounts = Array.from(new Set(ledger.entries.map((entry) => entry.account).filter(Boolean))).sort();
+  const activityKinds = Array.from(new Map(ledger.entries.map((entry) => [entry.kind, entry.label])).entries());
+  const activityEmployees = Array.from(new Set(ledger.entries.map((entry) => entry.employee).filter(Boolean))).sort();
+  const filteredLedgerEntries = ledger.entries.filter((entry) => {
+    const date = entry.effectiveAt.slice(0, 10);
+    if (activityFilters.start && date < activityFilters.start) return false;
+    if (activityFilters.end && date > activityFilters.end) return false;
+    if (activityFilters.account && entry.account !== activityFilters.account) return false;
+    if (activityFilters.kind && entry.kind !== activityFilters.kind) return false;
+    if (activityFilters.employee && entry.employee !== activityFilters.employee) return false;
+    return true;
+  });
   const bundleTotal = bundleItems.reduce((sum, item) => {
     const found = products.find((row) => row.id === item.productId);
     return sum + (found?.sale_price ?? 0) * item.qty;
@@ -2851,7 +2911,7 @@ function ProductDetailPanel({
         ["containers", "Konteynerlər"],
         ["rolls", "Rulolar"],
         ["variants", "Variantlar"],
-        ["inventory", "Hərəkətlər"],
+        ["inventory", "Fəaliyyət tarixçəsi"],
         ["history", "Tarixçə"],
       ] as const)
       : ([
@@ -2860,7 +2920,7 @@ function ProductDetailPanel({
           ["lots", "Partiyalar"],
           ["stock", "Qalıq"],
           ["variants", "Variantlar"],
-          ["inventory", "Hərəkətlər"],
+          ["inventory", "Fəaliyyət tarixçəsi"],
           ["history", "Tarixçə"],
         ] as const);
   const bondedSummary = {
@@ -3564,28 +3624,77 @@ function ProductDetailPanel({
 
           {tab === "inventory" && (
             <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ["Cari qalıq", `${toNum(ledger.summary.currentBalance)} ${product.vahid ?? ""}`],
+                  ["Ümumi mədaxil", toNum(ledger.summary.inQty)],
+                  ["Ümumi məxaric", toNum(ledger.summary.outQty)],
+                  ["Göstərilən əməliyyatlar", toNum(filteredLedgerEntries.length)],
+                ].map(([label, value]) => (
+                  <div key={label} className={sectionClass}>
+                    <div className={cx("text-[12px] font-semibold", ui.textSubtle)}>{label}</div>
+                    <div className="mt-2 text-xl font-semibold tabular-nums">{value}</div>
+                  </div>
+                ))}
+              </div>
               <section className={sectionClass}>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Inventory history</div>
-                  <div className={cx("text-xs", ui.textSubtle)}>Alış, satış, transfer və düzəliş hərəkətləri</div>
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Fəaliyyət tarixçəsi</div>
+                    <p className={cx("mt-1 text-xs", ui.textSubtle)}>Məhsulun alışdan satışa qədər bütün sənəd və maya hərəkətləri.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActivityFilters({ start: "", end: "", account: "", kind: "", employee: "" })}
+                    className={cx("h-9 rounded-lg border px-3 text-sm", ui.borderSoft, isDark ? "hover:bg-white/10" : "hover:bg-white")}
+                  >
+                    Filtrləri təmizlə
+                  </button>
                 </div>
+                <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  <label>
+                    <span className={detailLabelClass}>Başlanğıc tarixi</span>
+                    <input type="date" className={cx(inputClass, "mt-1 w-full")} value={activityFilters.start} onChange={(event) => setActivityFilters((value) => ({ ...value, start: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span className={detailLabelClass}>Son tarix</span>
+                    <input type="date" className={cx(inputClass, "mt-1 w-full")} value={activityFilters.end} onChange={(event) => setActivityFilters((value) => ({ ...value, end: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span className={detailLabelClass}>Hesab / anbar</span>
+                    <select className={cx(inputClass, "mt-1 w-full")} value={activityFilters.account} onChange={(event) => setActivityFilters((value) => ({ ...value, account: event.target.value }))}>
+                      <option value="">Hamısı</option>
+                      {activityAccounts.map((account) => <option key={account} value={account}>{account}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className={detailLabelClass}>Növ</span>
+                    <select className={cx(inputClass, "mt-1 w-full")} value={activityFilters.kind} onChange={(event) => setActivityFilters((value) => ({ ...value, kind: event.target.value }))}>
+                      <option value="">Hamısı</option>
+                      {activityKinds.map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className={detailLabelClass}>Əməkdaş</span>
+                    <select className={cx(inputClass, "mt-1 w-full")} value={activityFilters.employee} onChange={(event) => setActivityFilters((value) => ({ ...value, employee: event.target.value }))}>
+                      <option value="">Hamısı</option>
+                      {activityEmployees.map((employee) => <option key={employee} value={employee}>{employee}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <ProductLedgerTable entries={filteredLedgerEntries} unit={product.vahid ?? ""} isDark={isDark} />
+              </section>
+              {ledger.entries.length === 0 && movements.length > 0 && (
+                <section className={sectionClass}>
+                  <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Inventory history</div>
+                  <div className={cx("mb-3 text-xs", ui.textSubtle)}>Yalnız lokal olaraq saxlanmış köhnə hərəkətlər</div>
                 <SimpleTable
                   headers={["Tarix", "Əməliyyat", "Miqdar", "Anbar", "Qeyd"]}
-                  rows={inventoryHistoryRows}
+                  rows={movements.map((row) => [new Date(row.at).toLocaleString("az-Latn-AZ"), row.type, toNum(row.qty), row.place ?? row.from ?? "—", row.note || "—"])}
                   isDark={isDark}
                 />
-              </section>
-              <section className={sectionClass}>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Cari barkod qalıqları</div>
-                  <div className={cx("text-xs", ui.textSubtle)}>Tarixçə ilə yanaşı cari partiya vəziyyəti</div>
-                </div>
-                <SimpleTable
-                  headers={["Barkod", "Variant", "Anbar", "Alış", "Satış", "Qalıq", "Maya dəyəri"]}
-                  rows={barcodeRows}
-                  isDark={isDark}
-                />
-              </section>
+                </section>
+              )}
             </div>
           )}
 
@@ -3646,6 +3755,57 @@ function PriceHistoryList({ audit, isDark, compact = false }: { audit: AuditEntr
         {expandedId === entry.id && entry.changes?.length ? <AuditChanges changes={entry.changes} isDark={isDark} /> : null}
       </div>)}
       {rows.length === 0 && <div className={cx("py-3 text-sm", ui.textSubtle)}>Hələ qiymət dəyişikliyi yoxdur.</div>}
+    </div>
+  );
+}
+
+function ProductLedgerTable({ entries, unit, isDark }: { entries: ProductLedgerEntry[]; unit: string; isDark: boolean }) {
+  const border = isDark ? "border-white/10" : "border-slate-200/80";
+  const subtle = isDark ? "text-slate-400" : "text-slate-500";
+  const badgeClass = (kind: string) => {
+    if (kind === "purchase" || kind === "openingBalance") return isDark ? "border-sky-400/30 bg-sky-400/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-700";
+    if (kind === "sale") return isDark ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : "border-emerald-300 bg-emerald-50 text-emerald-700";
+    if (kind === "export") return isDark ? "border-violet-400/30 bg-violet-400/10 text-violet-200" : "border-violet-300 bg-violet-50 text-violet-700";
+    if (kind === "movement") return isDark ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-200" : "border-cyan-300 bg-cyan-50 text-cyan-700";
+    if (kind.endsWith("Cost")) return isDark ? "border-amber-400/30 bg-amber-400/10 text-amber-200" : "border-amber-300 bg-amber-50 text-amber-700";
+    return isDark ? "border-rose-400/30 bg-rose-400/10 text-rose-200" : "border-rose-300 bg-rose-50 text-rose-700";
+  };
+
+  return (
+    <div className={cx("overflow-x-auto rounded-xl border", border, isDark ? "bg-slate-950/10" : "bg-white/80")}>
+      <table className="min-w-[1180px] w-full text-sm">
+        <thead className={isDark ? "bg-white/5 text-slate-300" : "bg-slate-100/90 text-slate-700"}>
+          <tr>
+            {[
+              ["Tarix", "text-left"], ["Sənəd", "text-left"], ["Hesab / istiqamət", "text-left"],
+              ["Maya", "text-right"], ["Qiymət", "text-right"], ["Mədaxil", "text-right"],
+              ["Məxaric", "text-right"], ["Qalıq", "text-right"], ["Əməkdaş", "text-left"],
+            ].map(([label, align]) => <th key={label} className={cx("whitespace-nowrap px-3 py-3 text-[12px] font-semibold", align)}>{label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={entry.id} className={cx("border-t align-top", border, isDark ? "text-slate-100 hover:bg-white/[0.03]" : "text-slate-700 hover:bg-slate-50/80")}>
+              <td className="whitespace-nowrap px-3 py-3 text-[12px] font-medium">{new Date(entry.effectiveAt).toLocaleString("az-Latn-AZ")}</td>
+              <td className="min-w-[230px] px-3 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={cx("rounded-md border px-2 py-1 text-[11px] font-semibold", badgeClass(entry.kind))}>{entry.label}</span>
+                  <span className="text-xs font-semibold">#{entry.documentCode}</span>
+                </div>
+                {(entry.counterparty || entry.description) && <div className={cx("mt-1 max-w-[280px] truncate text-[11px]", subtle)}>{entry.counterparty || entry.description}</div>}
+              </td>
+              <td className="whitespace-nowrap px-3 py-3 text-[12px]">{entry.account}</td>
+              <td className="whitespace-nowrap px-3 py-3 text-right font-medium tabular-nums">{toUnitCost(entry.unitCost)}</td>
+              <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">{toUnitCost(entry.price)}</td>
+              <td className="whitespace-nowrap px-3 py-3 text-right font-medium tabular-nums text-emerald-600">{entry.inQty > 0 ? `+${toNum(entry.inQty)}` : "—"}</td>
+              <td className="whitespace-nowrap px-3 py-3 text-right font-medium tabular-nums text-rose-600">{entry.outQty > 0 ? `-${toNum(entry.outQty)}` : "—"}</td>
+              <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums">{toNum(entry.balance)} {unit}</td>
+              <td className="whitespace-nowrap px-3 py-3 text-[12px]">{entry.employee}</td>
+            </tr>
+          ))}
+          {entries.length === 0 && <tr><td colSpan={9} className={cx("px-4 py-10 text-center text-sm", subtle)}>Seçilən filtrlərə uyğun əməliyyat yoxdur.</td></tr>}
+        </tbody>
+      </table>
     </div>
   );
 }
