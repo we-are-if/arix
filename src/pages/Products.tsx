@@ -187,6 +187,15 @@ type ProductCardProfile = {
   tariffCode?: string;
   supplierCode?: string;
   supplierProductCode?: string;
+  supplierSources?: {
+    supplierId: number;
+    supplierName: string;
+    productCode?: string;
+    purchasePrice?: number;
+    currency: "TRY" | "USD" | "EUR" | "AZN";
+    leadTimeDays?: number;
+    isPrimary: boolean;
+  }[];
   alternativeProductIds?: number[];
   features?: string;
   note?: string;
@@ -256,6 +265,7 @@ type CompanyStore = {
   status: "active" | "inactive";
   createdAt: string;
 };
+type SupplierOption = { id: number; name: string };
 type Group = { id: number; name: string; parentId: number | null };
 type Category = { id: number; name: string; parentId: number | null };
 type FolderId = number | "unassigned" | null;
@@ -657,18 +667,21 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   });
   const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
   const [stores, setStores] = useState<CompanyStore[]>(DEFAULT_STORES);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const loadProductsFromApi = useCallback(async () => {
     try {
-      const [productsPayload, groupsPayload, categoriesPayload, storesPayload] = await Promise.all([
+      const [productsPayload, groupsPayload, categoriesPayload, storesPayload, suppliersPayload] = await Promise.all([
         requestJson<{ data: ApiProduct[] }>("/api/products"),
         requestJson<{ data: Group[] }>("/api/product-groups"),
         requestJson<{ data: Category[] }>("/api/categories"),
         requestJson<{ data: CompanyStore[] }>("/api/stores"),
+        requestJson<{ data: SupplierOption[] }>("/api/counterparties?kind=supplier"),
       ]);
       if (Array.isArray(productsPayload.data)) setRows(productsPayload.data.map(mapApiProduct));
       if (Array.isArray(groupsPayload.data)) setGroups(groupsPayload.data);
       if (Array.isArray(categoriesPayload.data)) setCategories(categoriesPayload.data.map((item) => ({ ...item, parentId: item.parentId ?? null })));
       if (Array.isArray(storesPayload.data) && storesPayload.data.length) setStores(storesPayload.data);
+      if (Array.isArray(suppliersPayload.data)) setSuppliers(suppliersPayload.data);
     } catch {
       /* keep local demo data when API is not running */
     }
@@ -695,10 +708,12 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     };
     window.addEventListener("arix:products-updated", onProductsUpdated);
     window.addEventListener("arix:stores-updated", onStoresUpdated);
+    window.addEventListener("arix:counterparties-updated", onStoresUpdated);
     window.addEventListener("arix:company-settings-updated", onCompanySettingsUpdated);
     return () => {
       window.removeEventListener("arix:products-updated", onProductsUpdated);
       window.removeEventListener("arix:stores-updated", onStoresUpdated);
+      window.removeEventListener("arix:counterparties-updated", onStoresUpdated);
       window.removeEventListener("arix:company-settings-updated", onCompanySettingsUpdated);
     };
   }, [loadCompanySettings, loadProductsFromApi]);
@@ -1096,6 +1111,15 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       tariffCode: values.tariffCode.trim() || undefined,
       supplierCode: values.supplierCode.trim() || undefined,
       supplierProductCode: values.supplierProductCode.trim() || undefined,
+      supplierSources: values.supplierSources.map((source) => ({
+        supplierId: Number(source.supplierId),
+        supplierName: suppliers.find((supplier) => String(supplier.id) === source.supplierId)?.name ?? "",
+        productCode: source.productCode.trim() || undefined,
+        purchasePrice: parseOptionalNumber(source.purchasePrice),
+        currency: source.currency,
+        leadTimeDays: parseOptionalNumber(source.leadTimeDays),
+        isPrimary: source.isPrimary,
+      })).filter((source) => Number.isFinite(source.supplierId)),
       alternativeProductIds: values.alternativeProductIds.map(Number).filter(Number.isFinite),
       features: values.xususiyyetler.trim() || undefined,
       note: values.note.trim() || undefined,
@@ -2161,6 +2185,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       groups={groups}
       stores={stores}
       products={rows.map((row) => ({ id: row.id, name: row.ad, code: row.kod }))}
+      suppliers={suppliers}
       onClose={() => setCreateOpen(false)}
       onSubmit={handleCreate}
     />
@@ -2674,7 +2699,7 @@ function ProductDetailPanel({
     ["Marka", profile?.brand],
     ["İkinci vahid", profile?.secondaryUnit && `${profile.secondaryUnit}${profile.conversionRate ? ` · əmsal ${toNum(profile.conversionRate)}` : ""}`],
     ["Rulo pasportu", profile?.rollWidthMm || profile?.defaultRollLengthMt ? `${toNum(profile?.rollWidthMm)} mm · ${toNum(profile?.defaultRollLengthMt)} mt` : undefined],
-    ["Net / brüt", profile?.netWeightKg || profile?.grossWeightKg ? `${toNum(profile?.netWeightKg)} / ${toNum(profile?.grossWeightKg)} kg` : undefined],
+    ["Təchizat mənbələri", profile?.supplierSources?.length ? profile.supplierSources.map((source) => source.supplierName).filter(Boolean).join(", ") : undefined],
     ["Barkod növü", profile?.barcodeType === "weight" ? "KG barkodu" : profile?.barcodeType === "quantity" ? "Ədəd barkodu" : profile?.barcodeType === "plu" ? "PLU barkodu" : profile?.barcodeType === "fixed" ? "Sabit barkod" : undefined],
     ["Rəf yeri", profile?.shelfLocation],
     ["Stok həddi", profile?.maxStock != null ? `${toNum(product.minStock)} – ${toNum(profile.maxStock)}` : undefined],

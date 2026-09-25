@@ -68,6 +68,7 @@ type ProductCreateForm = {
   supplier: string;
   supplierCode: string;
   supplierProductCode: string;
+  supplierSources: SupplierSourceForm[];
   antrepo: string;
   depo: string;
   warehouseStocks: Record<string, string>;
@@ -86,6 +87,16 @@ type ProductCreateForm = {
   modifikasiya: boolean;
   initialStock: boolean;
   expirationDate: string;
+};
+
+export type SupplierSourceForm = {
+  id: string;
+  supplierId: string;
+  productCode: string;
+  purchasePrice: string;
+  currency: "TRY" | "USD" | "EUR" | "AZN";
+  leadTimeDays: string;
+  isPrimary: boolean;
 };
 
 export type ProductFormValues = ProductCreateForm & {
@@ -111,6 +122,11 @@ type ProductOption = {
   code?: string;
 };
 
+type SupplierOption = {
+  id: number;
+  name: string;
+};
+
 type Props = {
   visible: boolean;
   isDark?: boolean;
@@ -120,6 +136,7 @@ type Props = {
   groups?: GroupOption[];
   stores?: StoreOption[];
   products?: ProductOption[];
+  suppliers?: SupplierOption[];
   onClose: () => void;
   onSubmit?: (values: ProductFormValues) => void;
 };
@@ -171,6 +188,7 @@ const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm 
   supplier: "",
   supplierCode: "",
   supplierProductCode: "",
+  supplierSources: [],
   antrepo: "",
   depo: "",
   warehouseStocks: {},
@@ -193,6 +211,16 @@ const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm 
 
 const generateNumericCode = (length = 13) =>
   Array.from({ length }, () => Math.floor(Math.random() * 10)).join("");
+
+const createSupplierSource = (isPrimary = false): SupplierSourceForm => ({
+  id: `supplier-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  supplierId: "",
+  productCode: "",
+  purchasePrice: "",
+  currency: "USD",
+  leadTimeDays: "",
+  isPrimary,
+});
 
 function ToggleControl({
   checked,
@@ -258,6 +286,7 @@ export default function ProductCreatePanel({
   groups = [],
   stores = [],
   products = [],
+  suppliers = [],
   onClose,
   onSubmit,
 }: Props) {
@@ -265,7 +294,7 @@ export default function ProductCreatePanel({
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const [tab, setTab] = useState<ProductFormValues["type"]>(defaultType);
-  const [section, setSection] = useState<"basic" | "codes" | "measure" | "stock" | "price" | "tax" | "extra">("basic");
+  const [section, setSection] = useState<"basic" | "codes" | "measure" | "stock" | "suppliers" | "price" | "tax" | "extra">("basic");
   const [form, setForm] = useState<ProductCreateForm>(() => emptyForm(defaultGroupId, defaultCode));
 
   useEffect(() => {
@@ -317,7 +346,19 @@ export default function ProductCreatePanel({
 
   const handleSave = () => {
     if (!form.ad.trim()) return;
-    onSubmit?.({ type: tab, ...form });
+    const supplierSources = form.supplierSources.filter((source) => source.supplierId);
+    const primarySource = supplierSources.find((source) => source.isPrimary) ?? supplierSources[0];
+    const primarySupplier = suppliers.find((supplier) => String(supplier.id) === primarySource?.supplierId);
+    onSubmit?.({
+      type: tab,
+      ...form,
+      supplierSources,
+      supplier: primarySupplier?.name ?? "",
+      supplierCode: primarySource?.supplierId ?? "",
+      supplierProductCode: primarySource?.productCode.trim() ?? "",
+      leadTimeDays: primarySource?.leadTimeDays ?? form.leadTimeDays,
+      alis: form.alis || primarySource?.purchasePrice || "",
+    });
     onClose();
   };
 
@@ -329,8 +370,9 @@ export default function ProductCreatePanel({
   const sectionTabs = [
     { id: "basic", label: "Əsas məlumat" },
     { id: "codes", label: "Kodlar və barkod" },
-    { id: "measure", label: "Ölçü və rulo", productOnly: true },
+    { id: "measure", label: "Rulo parametrləri", productOnly: true },
     { id: "stock", label: "Stok", productOnly: true },
+    { id: "suppliers", label: "Təchizatçılar", productOnly: true },
     { id: "price", label: "Qiymətlər" },
     { id: "tax", label: "Vergi" },
     { id: "extra", label: "Əlavə" },
@@ -454,23 +496,47 @@ export default function ProductCreatePanel({
             )}
 
             {section === "measure" && tab !== "service" && (
-              <FormSection title="Ölçü vahidi və rulo pasportu">
-                <div className="grid gap-3 md:grid-cols-4">
+              <FormSection title="Vahid və rulo qaydaları">
+                <div className="grid gap-3 md:grid-cols-3">
                   <label><span className="mb-1 block text-xs font-medium">Əsas vahid</span><select className={ui.input} value={form.vahid} onChange={handleChange("vahid")}><option value="əd">əd</option><option value="mt">mt</option><option value="rulo">rulo</option><option value="palet">palet</option><option value="kg">kg</option><option value="m²">m²</option><option value="dəst">dəst</option></select></label>
                   <label><span className="mb-1 block text-xs font-medium">İkinci vahid</span><select className={ui.input} value={form.secondaryUnit} onChange={handleChange("secondaryUnit")}><option value="">Yoxdur</option><option value="mt">mt</option><option value="rulo">rulo</option><option value="palet">palet</option><option value="kg">kg</option><option value="m²">m²</option></select></label>
                   <label><span className="mb-1 block text-xs font-medium">Çevirmə əmsalı</span><input className={ui.input} value={form.conversionRate} onChange={handleChange("conversionRate")} placeholder="1 rulo = 100 mt" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Rulo eni, mm</span><input className={ui.input} value={form.rollWidthMm} onChange={handleChange("rollWidthMm")} inputMode="decimal" placeholder="1220" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Standart rulo, mt</span><input className={ui.input} value={form.defaultRollLengthMt} onChange={handleChange("defaultRollLengthMt")} inputMode="decimal" placeholder="100" /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Boy, sm</span><input className={ui.input} value={form.lengthCm} onChange={handleChange("lengthCm")} inputMode="decimal" /></label>
-                  <label><span className="mb-1 block text-xs font-medium">En, sm</span><input className={ui.input} value={form.widthCm} onChange={handleChange("widthCm")} inputMode="decimal" /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Dərinlik, sm</span><input className={ui.input} value={form.depthCm} onChange={handleChange("depthCm")} inputMode="decimal" /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Net çəki, kg</span><input className={ui.input} value={form.netWeightKg} onChange={handleChange("netWeightKg")} inputMode="decimal" /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Brüt çəki, kg</span><input className={ui.input} value={form.grossWeightKg} onChange={handleChange("grossWeightKg")} inputMode="decimal" /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Ümumi çəki, kg</span><input className={ui.input} value={form.weightKg} onChange={handleChange("weightKg")} inputMode="decimal" /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Həcm, m³</span><input className={ui.input} value={form.volumeM3} onChange={handleChange("volumeM3")} inputMode="decimal" /></label>
                 </div>
+                <p className={cx("mt-4 text-xs", ui.textSubtle)}>Faktiki rulo metrajı, net və brüt çəki alış sənədində hər rulo və partiya üçün ayrıca daxil edilir.</p>
                 <div className="mt-5 grid gap-4 md:grid-cols-2"><ToggleControl {...toggleProps} checked={form.weighted} onChange={(next) => setField("weighted", next)} label="Çəki ilə satılır" /><ToggleControl {...toggleProps} checked={form.packageEnabled} onChange={(next) => setField("packageEnabled", next)} label="Qablaşdırma vahidi əlavə et" hint="Qutu, paket və ya palet çevirməsi üçün" /></div>
                 {form.packageEnabled && <div className="mt-4 grid gap-3 md:grid-cols-2"><label><span className="mb-1 block text-xs font-medium">Qablaşdırma adı</span><input className={ui.input} value={form.packageName} onChange={handleChange("packageName")} /></label><label><span className="mb-1 block text-xs font-medium">İçindəki miqdar</span><input className={ui.input} value={form.packageQty} onChange={handleChange("packageQty")} inputMode="decimal" /></label></div>}
+              </FormSection>
+            )}
+
+            {section === "suppliers" && tab !== "service" && (
+              <FormSection title="Təchizat mənbələri">
+                <div className="flex items-start justify-between gap-4">
+                  <p className={cx("max-w-2xl text-sm", ui.textSubtle)}>Eyni məhsul fərqli təchizatçılardan fərqli kod, valyuta və qiymətlə alına bilər. Buradakı qiymət təklif qiymətidir; faktiki alış qiyməti alış sənədində saxlanılır.</p>
+                  <button
+                    type="button"
+                    onClick={() => setField("supplierSources", [...form.supplierSources, createSupplierSource(form.supplierSources.length === 0)])}
+                    className="surface-primary h-9 shrink-0 rounded-lg px-3 text-sm"
+                  >
+                    + Təchizatçı
+                  </button>
+                </div>
+                {suppliers.length === 0 && <div className={cx("mt-5 rounded-lg border px-4 py-3 text-sm", ui.softBox)}>Əvvəlcə Kontragentlər → Təchizatçılar bölməsində təchizatçı yaradın.</div>}
+                <div className="mt-5 space-y-3">
+                  {form.supplierSources.map((source, index) => (
+                    <div key={source.id} className={cx("grid items-end gap-3 rounded-xl border p-3 md:grid-cols-[minmax(170px,1.4fr)_1fr_120px_92px_92px_40px]", ui.borderSoft, isDark ? "bg-white/5" : "bg-slate-50/75")}>
+                      <label><span className="mb-1 block text-xs font-medium">Təchizatçı</span><select className={ui.input} value={source.supplierId} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, supplierId: e.target.value } : item))}><option value="">Seçin</option>{suppliers.map((supplier) => <option key={supplier.id} value={String(supplier.id)}>{supplier.name}</option>)}</select></label>
+                      <label><span className="mb-1 block text-xs font-medium">Məhsul kodu</span><input className={ui.input} value={source.productCode} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, productCode: e.target.value } : item))} placeholder="Təchizatçı SKU" /></label>
+                      <label><span className="mb-1 block text-xs font-medium">Təklif qiyməti</span><input className={ui.input} value={source.purchasePrice} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, purchasePrice: e.target.value } : item))} inputMode="decimal" placeholder="0.00" /></label>
+                      <label><span className="mb-1 block text-xs font-medium">Valyuta</span><select className={ui.input} value={source.currency} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, currency: e.target.value as SupplierSourceForm["currency"] } : item))}><option value="TRY">TRY</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="AZN">AZN</option></select></label>
+                      <label><span className="mb-1 block text-xs font-medium">Müddət, gün</span><input className={ui.input} value={source.leadTimeDays} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, leadTimeDays: e.target.value } : item))} inputMode="numeric" /></label>
+                      <button type="button" aria-label="Təchizatçını sil" title="Sil" onClick={() => { const remaining = form.supplierSources.filter((item) => item.id !== source.id); if (source.isPrimary && remaining.length) remaining[0] = { ...remaining[0], isPrimary: true }; setField("supplierSources", remaining); }} className={cx("flex h-10 w-10 items-center justify-center rounded-lg border text-lg text-rose-500", ui.borderSoft)}>×</button>
+                      <label className="flex items-center gap-2 text-xs md:col-span-6"><input type="radio" name="primarySupplier" checked={source.isPrimary} onChange={() => setField("supplierSources", form.supplierSources.map((item) => ({ ...item, isPrimary: item.id === source.id })))} /><span>{source.isPrimary ? "Əsas təchizatçı" : `${index + 1}. alternativ mənbə`}</span></label>
+                    </div>
+                  ))}
+                  {form.supplierSources.length === 0 && suppliers.length > 0 && <div className={cx("rounded-lg border border-dashed px-4 py-8 text-center text-sm", ui.borderSoft, ui.textSubtle)}>Bu məhsula hələ təchizatçı bağlanmayıb.</div>}
+                </div>
               </FormSection>
             )}
 
@@ -492,13 +558,13 @@ export default function ProductCreatePanel({
             {section === "price" && (
               <FormSection title="Qiymətlər">
                 <div className="grid gap-3 md:grid-cols-3">
-                  <label><span className="mb-1 block text-xs font-medium">Alış qiyməti</span><input className={ui.input} value={form.alis} onChange={handleChange("alis")} inputMode="decimal" /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Maya dəyəri</span><input className={ui.input} value={form.maya} onChange={handleChange("maya")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Başlanğıc maya dəyəri</span><input className={ui.input} value={form.maya} onChange={handleChange("maya")} inputMode="decimal" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Standart satış qiyməti</span><input className={ui.input} value={form.qiymet} onChange={handleChange("qiymet")} inputMode="decimal" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Topdan satış qiyməti</span><input className={ui.input} value={form.wholesalePrice} onChange={handleChange("wholesalePrice")} inputMode="decimal" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Artım, %</span><input className={ui.input} value={form.markup} onChange={handleChange("markup")} inputMode="decimal" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Endirim, %</span><input className={ui.input} value={form.endirim} onChange={handleChange("endirim")} inputMode="decimal" /></label>
                 </div>
+                <p className={cx("mt-4 text-xs", ui.textSubtle)}>Alış qiymətləri təchizatçıya görə saxlanılır və alış sənədində faktiki məbləğlə yenilənir.</p>
                 <div className="mt-5 grid gap-4 md:grid-cols-2"><ToggleControl {...toggleProps} checked={form.freePrice} onChange={(next) => setField("freePrice", next)} label="Sərbəst satış qiyməti" hint="Sənəddə qiymət dəyişdirilə bilər" /><ToggleControl {...toggleProps} checked={form.storePrices} onChange={(next) => setField("storePrices", next)} label="Mağazalara görə fərqli qiymət" /></div>
               </FormSection>
             )}
@@ -511,12 +577,8 @@ export default function ProductCreatePanel({
             )}
 
             {section === "extra" && (
-              <FormSection title="Təchizat və əlavə məlumatlar">
+              <FormSection title="Əlavə məlumatlar">
                 <div className="grid gap-3 md:grid-cols-3">
-                  <label><span className="mb-1 block text-xs font-medium">Əsas təchizatçı</span><input className={ui.input} value={form.supplier} onChange={handleChange("supplier")} /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Təchizatçı kodu</span><input className={ui.input} value={form.supplierCode} onChange={handleChange("supplierCode")} /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Təchizatçıdakı məhsul kodu</span><input className={ui.input} value={form.supplierProductCode} onChange={handleChange("supplierProductCode")} /></label>
-                  <label><span className="mb-1 block text-xs font-medium">Tədarük müddəti, gün</span><input className={ui.input} value={form.leadTimeDays} onChange={handleChange("leadTimeDays")} inputMode="numeric" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Rəf ömrü, gün</span><input className={ui.input} value={form.shelfLifeDays} onChange={handleChange("shelfLifeDays")} inputMode="numeric" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Zəmanət, ay</span><input className={ui.input} value={form.warrantyMonths} onChange={handleChange("warrantyMonths")} inputMode="numeric" /></label>
                   <label><span className="mb-1 block text-xs font-medium">İstifadə müddəti</span><input className={ui.input} value={form.expirationDate} onChange={handleChange("expirationDate")} type="date" /></label>
