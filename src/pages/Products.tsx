@@ -261,7 +261,15 @@ type Category = { id: number; name: string; parentId: number | null };
 type FolderId = number | "unassigned" | null;
 type FolderRow = { id: Exclude<FolderId, null>; kind: "group" | "unassigned"; name: string; products: Product[] };
 type AuditChange = { field: string; scope?: string; oldValue: string; newValue: string };
-type AuditEntry = { id: number; productId: number; action: string; detail: string; at: string; changes?: AuditChange[] };
+type AuditEntry = { id: number | string; productId: number; action: string; detail: string; at: string; changes?: AuditChange[] };
+type ApiProductPriceHistory = {
+  id: number | string;
+  productId: number;
+  action: string;
+  detail: string;
+  at: string;
+  changes?: { field: string; scope?: string; oldValue?: number | null; newValue?: number | null }[];
+};
 type StockMovement = {
   id: number;
   productId: number;
@@ -644,6 +652,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     try { const raw = localStorage.getItem(STORAGE.audit); return raw ? JSON.parse(raw) as AuditEntry[] : []; }
     catch { return []; }
   });
+  const [priceAudit, setPriceAudit] = useState<AuditEntry[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>(() => {
     try { const raw = localStorage.getItem(STORAGE.movements); return raw ? JSON.parse(raw) as StockMovement[] : []; }
     catch { return []; }
@@ -675,6 +684,28 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     }
   }, []);
 
+  const loadPriceHistoryFromApi = useCallback(async () => {
+    try {
+      const payload = await requestJson<{ data: ApiProductPriceHistory[] }>("/api/product-price-history");
+      if (!Array.isArray(payload.data)) return;
+      setPriceAudit(payload.data.map((entry) => ({
+        id: entry.id,
+        productId: Number(entry.productId),
+        action: entry.action,
+        detail: entry.detail,
+        at: entry.at,
+        changes: entry.changes?.map((change) => ({
+          field: change.field,
+          scope: change.scope,
+          oldValue: change.oldValue == null ? "—" : toCurrency(change.oldValue),
+          newValue: change.newValue == null ? "—" : toCurrency(change.newValue),
+        })),
+      })));
+    } catch {
+      /* local price audit remains visible when the API is unavailable */
+    }
+  }, []);
+
   const loadCompanySettings = useCallback(async () => {
     try {
       const payload = await requestJson<{ data: CompanySettings }>("/api/company-settings");
@@ -686,9 +717,14 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
 
   useEffect(() => {
     void loadProductsFromApi();
+    void loadPriceHistoryFromApi();
     void loadCompanySettings();
     const onProductsUpdated = () => void loadProductsFromApi();
     const onStoresUpdated = () => void loadProductsFromApi();
+    const onDocumentsUpdated = () => {
+      void loadProductsFromApi();
+      void loadPriceHistoryFromApi();
+    };
     const onCompanySettingsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<CompanySettings>).detail;
       if (detail) setCompanySettings({ ...DEFAULT_COMPANY_SETTINGS, ...detail });
@@ -696,13 +732,15 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     };
     window.addEventListener("arix:products-updated", onProductsUpdated);
     window.addEventListener("arix:stores-updated", onStoresUpdated);
+    window.addEventListener("arix:documents-updated", onDocumentsUpdated);
     window.addEventListener("arix:company-settings-updated", onCompanySettingsUpdated);
     return () => {
       window.removeEventListener("arix:products-updated", onProductsUpdated);
       window.removeEventListener("arix:stores-updated", onStoresUpdated);
+      window.removeEventListener("arix:documents-updated", onDocumentsUpdated);
       window.removeEventListener("arix:company-settings-updated", onCompanySettingsUpdated);
     };
-  }, [loadCompanySettings, loadProductsFromApi]);
+  }, [loadCompanySettings, loadPriceHistoryFromApi, loadProductsFromApi]);
 
   /* state */
   const [q, setQ] = useState("");
@@ -1013,6 +1051,12 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   const csvInputRef = useRef<HTMLInputElement | null>(null);
   const nextProductCode = useMemo(() => String(Math.max(0, ...rows.map((row) => row.id)) + 1).padStart(5, "0"), [rows]);
   const detailProduct = useMemo(() => rows.find((row) => row.id === detailProductId) ?? null, [detailProductId, rows]);
+  const detailAudit = useMemo(() => {
+    if (detailProductId == null) return [];
+    const serverEntries = priceAudit.filter((entry) => entry.productId === detailProductId);
+    const localEntries = audit.filter((entry) => entry.productId === detailProductId);
+    return [...serverEntries, ...localEntries].sort((a, b) => b.at.localeCompare(a.at));
+  }, [audit, detailProductId, priceAudit]);
 
   const defaultCreateGroupId = typeof currentFolder === "number" ? currentFolder : null;
   const openCreate = (target: CreateTarget) => {
@@ -1241,6 +1285,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       daysSinceChange: 0,
     } : null;
     setRows((prev) => prev.map((row) => row.id === productId && next ? next : row));
+    let priceSavedToApi = false;
     if (next) {
       try {
         const payload = await requestJson<{ data: ApiProduct }>(`/api/products/${productId}`, {
@@ -1254,16 +1299,20 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
           }),
         });
         setRows((prev) => prev.map((row) => row.id === productId ? { ...row, ...mapApiProduct(payload.data) } : row));
+        priceSavedToApi = priceChanges.length > 0;
+        if (priceSavedToApi) await loadPriceHistoryFromApi();
       } catch {
         // Local state remains available when the API is temporarily offline.
       }
     }
-    logAudit(
-      productId,
-      priceChanges.length ? "Qiymət dəyişikliyi" : "Redaktə",
-      priceChanges.length ? `${priceChanges.length} qiymət sahəsi yeniləndi` : auditDetail,
-      priceChanges.length ? priceChanges : undefined
-    );
+    if (!priceSavedToApi) {
+      logAudit(
+        productId,
+        priceChanges.length ? "Qiymət dəyişikliyi" : "Redaktə",
+        priceChanges.length ? `${priceChanges.length} qiymət sahəsi yeniləndi` : auditDetail,
+        priceChanges.length ? priceChanges : undefined
+      );
+    }
   };
 
   const deleteProducts = async (ids: number[]) => {
@@ -2215,7 +2264,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         stores={stores}
         variants={variants.filter((variant) => variant.productId === detailProduct.id)}
         bundleItems={bundleItems.filter((item) => item.bundleId === detailProduct.id)}
-        audit={audit.filter((entry) => entry.productId === detailProduct.id)}
+        audit={detailAudit}
         movements={movements.filter((movement) => movement.productId === detailProduct.id)}
         isDark={isDark}
         stockMode={companySettings.stockMode}
@@ -3050,7 +3099,7 @@ function ProductDetailPanel({
 
               <section className={sectionClass}>
                 <div className={cx("mb-3 text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Son qiymət dəyişiklikləri</div>
-                <PriceHistoryList audit={audit.filter((entry) => entry.action === "Qiymət dəyişikliyi")} isDark={isDark} compact />
+                <PriceHistoryList audit={audit.filter((entry) => entry.changes?.length)} isDark={isDark} compact />
               </section>
             </div>
           )}
@@ -3386,12 +3435,12 @@ function AuditChanges({ changes, isDark }: { changes: AuditChange[]; isDark: boo
 
 function PriceHistoryList({ audit, isDark, compact = false }: { audit: AuditEntry[]; isDark: boolean; compact?: boolean }) {
   const ui = makeUI(isDark);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | string | null>(null);
   const rows = compact ? audit.slice(0, 5) : audit;
   return (
     <div className="space-y-2">
       {rows.map((entry) => <div key={entry.id} className={cx("overflow-hidden rounded-lg border", ui.borderSoft)}>
-        <button type="button" onClick={() => setExpandedId((value) => value === entry.id ? null : entry.id)} className="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-sm"><span><span className="font-medium">{entry.detail}</span><span className={cx("ml-2 text-xs", ui.textSubtle)}>{new Date(entry.at).toLocaleString("az-Latn-AZ")}</span></span><span className={cx("text-xs", ui.textSubtle)}>{expandedId === entry.id ? "Gizlət" : "Bax"}</span></button>
+        <button type="button" onClick={() => setExpandedId((value) => value === entry.id ? null : entry.id)} className="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-sm"><span className="min-w-0"><span className="block font-medium">{entry.action}</span><span className={cx("mt-0.5 block truncate text-xs", ui.textSubtle)}>{entry.detail} · {new Date(entry.at).toLocaleString("az-Latn-AZ")}</span></span><span className={cx("shrink-0 text-xs", ui.textSubtle)}>{expandedId === entry.id ? "Gizlət" : "Bax"}</span></button>
         {expandedId === entry.id && entry.changes?.length ? <AuditChanges changes={entry.changes} isDark={isDark} /> : null}
       </div>)}
       {rows.length === 0 && <div className={cx("py-3 text-sm", ui.textSubtle)}>Hələ qiymət dəyişikliyi yoxdur.</div>}

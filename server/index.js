@@ -164,6 +164,7 @@ function normalizeDb(db) {
   db.stockMovements ??= [];
   db.landedCostAdjustments ??= [];
   db.customerPrices ??= [];
+  db.productPriceHistory ??= [];
   db.stores = Array.isArray(db.stores) && db.stores.length
     ? db.stores.map((store, index) => ({
         id: Number(store.id) || index + 1,
@@ -253,6 +254,44 @@ function matchesSearch(item, query) {
   return JSON.stringify(item).toLowerCase().includes(query.toLowerCase());
 }
 
+function normalizePriceValue(value) {
+  if (value == null || value === "") return null;
+  return numberValue(value);
+}
+
+function appendProductPriceHistory(db, entry) {
+  const changes = (entry.changes ?? [])
+    .map((change) => ({
+      ...change,
+      oldValue: normalizePriceValue(change.oldValue),
+      newValue: normalizePriceValue(change.newValue),
+    }))
+    .filter((change) => change.oldValue !== change.newValue);
+  if (changes.length === 0) return;
+
+  db.productPriceHistory.unshift({
+    id: randomUUID(),
+    productId: Number(entry.productId),
+    action: entry.action ?? "Qiymət dəyişikliyi",
+    detail: entry.detail ?? "Məhsul qiyməti yeniləndi",
+    source: entry.source ?? "productCard",
+    documentId: entry.documentId ?? null,
+    at: entry.at ?? new Date().toISOString(),
+    changes,
+  });
+  db.productPriceHistory = db.productPriceHistory.slice(0, 5000);
+}
+
+async function handleProductPriceHistory(req, res, url) {
+  const db = await readDb();
+  if (req.method !== "GET") return notFound(res);
+  const productId = Number(url.searchParams.get("productId") ?? 0);
+  const data = db.productPriceHistory
+    .filter((entry) => !productId || Number(entry.productId) === productId)
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return send(res, 200, { data });
+}
+
 async function handleProducts(req, res, url, parts) {
   const db = await readDb();
   const id = Number(parts[1]);
@@ -279,7 +318,49 @@ async function handleProducts(req, res, url, parts) {
     const index = db.products.findIndex((item) => item.id === id);
     if (index < 0) return notFound(res);
     const body = await parseBody(req);
-    db.products[index] = { ...db.products[index], ...body, updatedAt: new Date().toISOString() };
+    const previous = db.products[index];
+    const next = { ...previous, ...body, updatedAt: new Date().toISOString() };
+    const changes = [];
+
+    if (Object.prototype.hasOwnProperty.call(body, "salePrice")) {
+      changes.push({ field: "Standart satış qiyməti", oldValue: previous.salePrice, newValue: next.salePrice });
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "purchasePrice")) {
+      changes.push({ field: "Son təchizatçı alış qiyməti", oldValue: previous.purchasePrice, newValue: next.purchasePrice });
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "cost")) {
+      changes.push({ field: "Orta maya dəyəri", oldValue: previous.cost, newValue: next.cost });
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "storePrices")) {
+      const scopes = new Set([
+        ...Object.keys(previous.storePrices ?? {}),
+        ...Object.keys(next.storePrices ?? {}),
+      ]);
+      for (const scope of scopes) {
+        changes.push({
+          field: "Mağaza satış qiyməti",
+          scope,
+          oldValue: previous.storePrices?.[scope] ?? previous.salePrice,
+          newValue: next.storePrices?.[scope] ?? next.salePrice,
+        });
+      }
+    }
+    if (body.cardProfile && Object.prototype.hasOwnProperty.call(body.cardProfile, "wholesalePrice")) {
+      changes.push({
+        field: "Topdan satış qiyməti",
+        oldValue: previous.cardProfile?.wholesalePrice,
+        newValue: next.cardProfile?.wholesalePrice,
+      });
+    }
+
+    appendProductPriceHistory(db, {
+      productId: id,
+      action: "Qiymət dəyişikliyi",
+      detail: "Məhsul kartından yeniləndi",
+      source: "productCard",
+      changes,
+    });
+    db.products[index] = next;
     await writeDb(db);
     return send(res, 200, { data: db.products[index] });
   }
@@ -1680,7 +1761,19 @@ function applyLandedCost(db, document) {
     if (!product) continue;
     const stockQty = productTotalStock(product);
     if (stockQty <= 0) continue;
+    const previousCost = product.cost;
     product.cost = Number((numberValue(product.cost ?? product.purchasePrice) + expenseAmount / stockQty).toFixed(6));
+    appendProductPriceHistory(db, {
+      productId,
+      action: "Maya dəyəri yeniləndi",
+      detail: `${category} · ${String(document.id ?? "").slice(0, 8)}`,
+      source: "landedCost",
+      documentId: document.id,
+      at: document.documentDate ?? document.createdAt,
+      changes: [
+        { field: "Orta maya dəyəri", oldValue: previousCost, newValue: product.cost },
+      ],
+    });
   }
   return adjustments;
 }
@@ -1907,6 +2000,8 @@ function applyDocumentStock(db, document) {
 
     if (kind === "purchase") {
       const previousQty = productTotalStock(product);
+      const previousPurchasePrice = product.purchasePrice;
+      const previousCost = product.cost;
       const directPurchasePrice = numberValue(line.price);
       const additionalUnitCost = numberValue(line.additionalUnitCost);
       const unitCost = directPurchasePrice + additionalUnitCost;
@@ -1919,6 +2014,18 @@ function applyDocumentStock(db, document) {
       product.cost = previousQty + qty > 0
         ? Number(((previousQty * previousUnitCost + qty * unitCost) / (previousQty + qty)).toFixed(6))
         : unitCost;
+      appendProductPriceHistory(db, {
+        productId: product.id,
+        action: "Alış qiyməti yeniləndi",
+        detail: `${document.counterpartyName || "Təchizatçı"} · ${String(document.id ?? "").slice(0, 8)}`,
+        source: "purchase",
+        documentId: document.id,
+        at: document.documentDate ?? document.createdAt,
+        changes: [
+          { field: "Son təchizatçı alış qiyməti", oldValue: previousPurchasePrice, newValue: product.purchasePrice },
+          { field: "Orta maya dəyəri", oldValue: previousCost, newValue: product.cost },
+        ],
+      });
     }
 
     if (kind === "sale") {
@@ -1967,6 +2074,7 @@ const server = createServer(async (req, res) => {
     if (parts[0] !== "api") return notFound(res);
     if (parts[1] === "health") return send(res, 200, { ok: true, service: "arix-api", time: new Date().toISOString() });
     if (parts[1] === "products") return await handleProducts(req, res, url, parts.slice(1));
+    if (parts[1] === "product-price-history") return await handleProductPriceHistory(req, res, url);
     if (parts[1] === "product-groups") return await handleSimpleCollection(req, res, "productGroups");
     if (parts[1] === "categories") return await handleSimpleCollection(req, res, "categories");
     if (parts[1] === "stores") return await handleStores(req, res, parts.slice(1));
