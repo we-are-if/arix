@@ -187,15 +187,6 @@ type ProductCardProfile = {
   tariffCode?: string;
   supplierCode?: string;
   supplierProductCode?: string;
-  supplierSources?: {
-    supplierId: number;
-    supplierName: string;
-    productCode?: string;
-    purchasePrice?: number;
-    currency: "TRY" | "USD" | "EUR" | "AZN";
-    leadTimeDays?: number;
-    isPrimary: boolean;
-  }[];
   alternativeProductIds?: number[];
   features?: string;
   note?: string;
@@ -219,7 +210,7 @@ type Product = {
   minStock?: number;
   expirationDate?: string;
   freePrice?: boolean;
-  storePrices?: boolean;
+  storePrices?: Record<string, number>;
   modified?: boolean;
   antrepo?: number;
   depo?: number;
@@ -250,7 +241,7 @@ type ApiProduct = {
   minStock?: number;
   expirationDate?: string;
   freePrice?: boolean;
-  storePrices?: boolean;
+  storePrices?: Record<string, number>;
   modified?: boolean;
   active?: boolean;
   createdAt?: string;
@@ -265,12 +256,12 @@ type CompanyStore = {
   status: "active" | "inactive";
   createdAt: string;
 };
-type SupplierOption = { id: number; name: string };
 type Group = { id: number; name: string; parentId: number | null };
 type Category = { id: number; name: string; parentId: number | null };
 type FolderId = number | "unassigned" | null;
 type FolderRow = { id: Exclude<FolderId, null>; kind: "group" | "unassigned"; name: string; products: Product[] };
-type AuditEntry = { id: number; productId: number; action: string; detail: string; at: string };
+type AuditChange = { field: string; scope?: string; oldValue: string; newValue: string };
+type AuditEntry = { id: number; productId: number; action: string; detail: string; at: string; changes?: AuditChange[] };
 type StockMovement = {
   id: number;
   productId: number;
@@ -667,21 +658,18 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   });
   const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
   const [stores, setStores] = useState<CompanyStore[]>(DEFAULT_STORES);
-  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const loadProductsFromApi = useCallback(async () => {
     try {
-      const [productsPayload, groupsPayload, categoriesPayload, storesPayload, suppliersPayload] = await Promise.all([
+      const [productsPayload, groupsPayload, categoriesPayload, storesPayload] = await Promise.all([
         requestJson<{ data: ApiProduct[] }>("/api/products"),
         requestJson<{ data: Group[] }>("/api/product-groups"),
         requestJson<{ data: Category[] }>("/api/categories"),
         requestJson<{ data: CompanyStore[] }>("/api/stores"),
-        requestJson<{ data: SupplierOption[] }>("/api/counterparties?kind=supplier"),
       ]);
       if (Array.isArray(productsPayload.data)) setRows(productsPayload.data.map(mapApiProduct));
       if (Array.isArray(groupsPayload.data)) setGroups(groupsPayload.data);
       if (Array.isArray(categoriesPayload.data)) setCategories(categoriesPayload.data.map((item) => ({ ...item, parentId: item.parentId ?? null })));
       if (Array.isArray(storesPayload.data) && storesPayload.data.length) setStores(storesPayload.data);
-      if (Array.isArray(suppliersPayload.data)) setSuppliers(suppliersPayload.data);
     } catch {
       /* keep local demo data when API is not running */
     }
@@ -708,12 +696,10 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     };
     window.addEventListener("arix:products-updated", onProductsUpdated);
     window.addEventListener("arix:stores-updated", onStoresUpdated);
-    window.addEventListener("arix:counterparties-updated", onStoresUpdated);
     window.addEventListener("arix:company-settings-updated", onCompanySettingsUpdated);
     return () => {
       window.removeEventListener("arix:products-updated", onProductsUpdated);
       window.removeEventListener("arix:stores-updated", onStoresUpdated);
-      window.removeEventListener("arix:counterparties-updated", onStoresUpdated);
       window.removeEventListener("arix:company-settings-updated", onCompanySettingsUpdated);
     };
   }, [loadCompanySettings, loadProductsFromApi]);
@@ -1009,9 +995,9 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     ].filter((item) => item.count > 0);
   }, [rows]);
 
-  const logAudit = useCallback((productId: number, action: string, detail: string) => {
+  const logAudit = useCallback((productId: number, action: string, detail: string, changes?: AuditChange[]) => {
     setAudit((prev) => [
-      { id: Date.now() + Math.floor(Math.random() * 1000), productId, action, detail, at: new Date().toISOString() },
+      { id: Date.now() + Math.floor(Math.random() * 1000), productId, action, detail, at: new Date().toISOString(), changes },
       ...prev,
     ].slice(0, 300));
   }, []);
@@ -1075,6 +1061,14 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         .filter((store) => store.status === "active")
         .map((store) => [store.key, values.type === "service" ? 0 : parseOptionalNumber(values.warehouseStocks[store.key]) ?? 0])
     );
+    const storePriceMap = values.storePrices
+      ? Object.fromEntries(
+          stores
+            .filter((store) => store.status === "active")
+            .map((store) => [store.name, parseOptionalNumber(values.storeSalePrices[store.name])])
+            .filter((entry): entry is [string, number] => entry[1] != null && entry[1] !== salePrice)
+        )
+      : {};
     const cardProfile: ProductCardProfile = {
       brand: values.brand.trim() || undefined,
       plu: values.plu.trim() || undefined,
@@ -1111,15 +1105,6 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       tariffCode: values.tariffCode.trim() || undefined,
       supplierCode: values.supplierCode.trim() || undefined,
       supplierProductCode: values.supplierProductCode.trim() || undefined,
-      supplierSources: values.supplierSources.map((source) => ({
-        supplierId: Number(source.supplierId),
-        supplierName: suppliers.find((supplier) => String(supplier.id) === source.supplierId)?.name ?? "",
-        productCode: source.productCode.trim() || undefined,
-        purchasePrice: parseOptionalNumber(source.purchasePrice),
-        currency: source.currency,
-        leadTimeDays: parseOptionalNumber(source.leadTimeDays),
-        isPrimary: source.isPrimary,
-      })).filter((source) => Number.isFinite(source.supplierId)),
       alternativeProductIds: values.alternativeProductIds.map(Number).filter(Number.isFinite),
       features: values.xususiyyetler.trim() || undefined,
       note: values.note.trim() || undefined,
@@ -1143,7 +1128,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       minStock: parseOptionalNumber(values.minimalQalq),
       expirationDate: values.expirationDate || undefined,
       freePrice: values.freePrice,
-      storePrices: values.storePrices,
+      storePrices: storePriceMap,
       modified: values.modifikasiya,
       antrepo: Number(warehouseStock.antrepo ?? 0),
       depo: Number(warehouseStock.depo ?? 0),
@@ -1172,6 +1157,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
           salePrice: newProduct.sale_price,
           cost: newProduct.cost,
           purchasePrice: newProduct.purchase_price,
+          storePrices: newProduct.storePrices,
           warehouses: newProduct.warehouseStock,
           description: newProduct.description,
           country: newProduct.country,
@@ -1227,6 +1213,22 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
 
   const updateProduct = async (productId: number, patch: Partial<Product>, auditDetail = "Məhsul kartı yeniləndi") => {
     const current = rows.find((row) => row.id === productId);
+    const priceChanges: AuditChange[] = [];
+    if (current && "sale_price" in patch && patch.sale_price !== current.sale_price) {
+      priceChanges.push({ field: "Standart satış qiyməti", oldValue: toCurrency(current.sale_price), newValue: toCurrency(patch.sale_price) });
+    }
+    if (current && "storePrices" in patch) {
+      const nextStorePrices = patch.storePrices ?? {};
+      const scopes = new Set([...Object.keys(current.storePrices ?? {}), ...Object.keys(nextStorePrices)]);
+      scopes.forEach((scope) => {
+        const oldValue = current.storePrices?.[scope] ?? current.sale_price ?? 0;
+        const newValue = nextStorePrices[scope] ?? patch.sale_price ?? current.sale_price ?? 0;
+        if (oldValue !== newValue) priceChanges.push({ field: "Mağaza satış qiyməti", scope, oldValue: toCurrency(oldValue), newValue: toCurrency(newValue) });
+      });
+    }
+    if (current && "cardProfile" in patch && patch.cardProfile?.wholesalePrice !== current.cardProfile?.wholesalePrice) {
+      priceChanges.push({ field: "Topdan satış qiyməti", oldValue: toCurrency(current.cardProfile?.wholesalePrice), newValue: toCurrency(patch.cardProfile?.wholesalePrice) });
+    }
     const next = current ? {
       ...current,
       ...patch,
@@ -1256,7 +1258,12 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         // Local state remains available when the API is temporarily offline.
       }
     }
-    logAudit(productId, "Redaktə", auditDetail);
+    logAudit(
+      productId,
+      priceChanges.length ? "Qiymət dəyişikliyi" : "Redaktə",
+      priceChanges.length ? `${priceChanges.length} qiymət sahəsi yeniləndi` : auditDetail,
+      priceChanges.length ? priceChanges : undefined
+    );
   };
 
   const deleteProducts = async (ids: number[]) => {
@@ -2185,7 +2192,6 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       groups={groups}
       stores={stores}
       products={rows.map((row) => ({ id: row.id, name: row.ad, code: row.kod }))}
-      suppliers={suppliers}
       onClose={() => setCreateOpen(false)}
       onSubmit={handleCreate}
     />
@@ -2206,6 +2212,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         products={rows}
         groups={groups}
         categories={categories}
+        stores={stores}
         variants={variants.filter((variant) => variant.productId === detailProduct.id)}
         bundleItems={bundleItems.filter((item) => item.bundleId === detailProduct.id)}
         audit={audit.filter((entry) => entry.productId === detailProduct.id)}
@@ -2484,6 +2491,7 @@ function ProductDetailPanel({
   products,
   groups,
   categories,
+  stores,
   variants,
   bundleItems,
   audit,
@@ -2502,6 +2510,7 @@ function ProductDetailPanel({
   products: Product[];
   groups: Group[];
   categories: Category[];
+  stores: CompanyStore[];
   variants: ProductVariant[];
   bundleItems: BundleItem[];
   audit: AuditEntry[];
@@ -2517,8 +2526,8 @@ function ProductDetailPanel({
   onRemoveBundleItem: (id: number) => void;
 }) {
   const ui = makeUI(isDark);
-  const [tab, setTab] = useState<"overview" | "stock" | "containers" | "rolls" | "variants" | "bundle" | "inventory" | "history">("overview");
-  const buildEditState = (item: Product) => ({
+  const [tab, setTab] = useState<"overview" | "prices" | "stock" | "containers" | "rolls" | "variants" | "bundle" | "inventory" | "history">("overview");
+  const buildEditState = useCallback((item: Product) => ({
     ad: item.ad,
     kod: item.kod ?? "",
     artikel: item.artikel ?? "",
@@ -2526,13 +2535,18 @@ function ProductDetailPanel({
     groupId: item.groupId == null ? "" : String(item.groupId),
     categoryId: item.categoryIds?.[0] == null ? "" : String(item.categoryIds[0]),
     sale: item.sale_price == null ? "" : String(item.sale_price),
+    wholesale: item.cardProfile?.wholesalePrice == null ? "" : String(item.cardProfile.wholesalePrice),
+    storePrices: Object.fromEntries(stores.map((store) => {
+      const storePrice = item.storePrices?.[store.name];
+      return [store.name, storePrice == null || storePrice === item.sale_price ? "" : String(storePrice)];
+    })),
     purchase: item.purchase_price == null ? "" : String(item.purchase_price),
     cost: item.cost == null ? "" : String(item.cost),
     minStock: item.minStock == null ? "" : String(item.minStock),
     supplier: item.supplier ?? "",
     expirationDate: item.expirationDate ?? "",
     description: item.description ?? "",
-  });
+  }), [stores]);
   const [editMode, setEditMode] = useState(false);
   const [edit, setEdit] = useState(() => buildEditState(product));
   const [movement, setMovement] = useState({
@@ -2550,7 +2564,7 @@ function ProductDetailPanel({
     setEdit(buildEditState(product));
     setEditMode(false);
     setTab("overview");
-  }, [product]);
+  }, [buildEditState, product]);
   useEffect(() => {
     if (stockMode === "simple" && (tab === "containers" || tab === "rolls")) setTab("stock");
   }, [stockMode, tab]);
@@ -2646,6 +2660,13 @@ function ProductDetailPanel({
       groupId: edit.groupId ? Number(edit.groupId) : null,
       categoryIds: edit.categoryId ? [Number(edit.categoryId)] : [],
       sale_price: parseOptionalNumber(edit.sale),
+      storePrices: Object.fromEntries(
+        stores
+          .filter((store) => store.status === "active")
+          .map((store) => [store.name, parseOptionalNumber(edit.storePrices[store.name])])
+          .filter((entry): entry is [string, number] => entry[1] != null && entry[1] !== parseOptionalNumber(edit.sale))
+      ),
+      cardProfile: { ...product.cardProfile, wholesalePrice: parseOptionalNumber(edit.wholesale) },
       purchase_price: parseOptionalNumber(edit.purchase),
       cost: parseOptionalNumber(edit.cost),
       minStock: parseOptionalNumber(edit.minStock),
@@ -2657,13 +2678,15 @@ function ProductDetailPanel({
   };
 
   const visibleTabs = product.type === "service"
-    ? ([
-        ["overview", "Kart"],
-        ["history", "Tarixçə"],
+      ? ([
+          ["overview", "Kart"],
+          ["prices", "Qiymətlər"],
+          ["history", "Tarixçə"],
       ] as const)
     : product.type === "bundle"
       ? ([
           ["overview", "Kart"],
+          ["prices", "Qiymətlər"],
           ["bundle", "Dəst tərkibi"],
           ["stock", "Qalıq"],
           ["history", "Tarixçə"],
@@ -2671,6 +2694,7 @@ function ProductDetailPanel({
       : stockMode === "bondedRolls"
       ? ([
         ["overview", "Kart"],
+        ["prices", "Qiymətlər"],
         ["stock", "Qalıq"],
         ["containers", "Konteynerlər"],
         ["rolls", "Rulolar"],
@@ -2680,6 +2704,7 @@ function ProductDetailPanel({
       ] as const)
       : ([
           ["overview", "Kart"],
+          ["prices", "Qiymətlər"],
           ["stock", "Qalıq"],
           ["variants", "Variantlar"],
           ["inventory", "Hərəkətlər"],
@@ -2699,7 +2724,6 @@ function ProductDetailPanel({
     ["Marka", profile?.brand],
     ["İkinci vahid", profile?.secondaryUnit && `${profile.secondaryUnit}${profile.conversionRate ? ` · əmsal ${toNum(profile.conversionRate)}` : ""}`],
     ["Rulo pasportu", profile?.rollWidthMm || profile?.defaultRollLengthMt ? `${toNum(profile?.rollWidthMm)} mm · ${toNum(profile?.defaultRollLengthMt)} mt` : undefined],
-    ["Təchizat mənbələri", profile?.supplierSources?.length ? profile.supplierSources.map((source) => source.supplierName).filter(Boolean).join(", ") : undefined],
     ["Barkod növü", profile?.barcodeType === "weight" ? "KG barkodu" : profile?.barcodeType === "quantity" ? "Ədəd barkodu" : profile?.barcodeType === "plu" ? "PLU barkodu" : profile?.barcodeType === "fixed" ? "Sabit barkod" : undefined],
     ["Rəf yeri", profile?.shelfLocation],
     ["Stok həddi", profile?.maxStock != null ? `${toNum(product.minStock)} – ${toNum(profile.maxStock)}` : undefined],
@@ -2962,6 +2986,68 @@ function ProductDetailPanel({
                   </div>
                 </section>
               )}
+            </div>
+          )}
+
+          {tab === "prices" && (
+            <div className="space-y-4">
+              <section className={sectionClass}>
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Satış qiymətləri</div>
+                    <p className={cx("mt-1 text-xs", ui.textSubtle)}>Mağaza qiyməti yoxdursa standart qiymət tətbiq edilir.</p>
+                  </div>
+                  <span className={cx("rounded-full px-2.5 py-1 text-xs", isDark ? "bg-indigo-400/15 text-indigo-100" : "bg-indigo-50 text-indigo-700")}>Köhnə sənədlər dəyişmir</span>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label>
+                    <span className={detailLabelClass}>Standart satış qiyməti</span>
+                    {editMode ? <input className={cx(inputClass, "mt-1 w-full")} value={edit.sale} onChange={(e) => setEdit((value) => ({ ...value, sale: e.target.value }))} inputMode="decimal" /> : <div className={cx("mt-1 text-lg font-semibold tabular-nums", detailValueClass)}>{toCurrency(product.sale_price)}</div>}
+                  </label>
+                  <label>
+                    <span className={detailLabelClass}>Topdan satış qiyməti</span>
+                    {editMode ? <input className={cx(inputClass, "mt-1 w-full")} value={edit.wholesale} onChange={(e) => setEdit((value) => ({ ...value, wholesale: e.target.value }))} inputMode="decimal" /> : <div className={cx("mt-1 text-lg font-semibold tabular-nums", detailValueClass)}>{toCurrency(profile?.wholesalePrice)}</div>}
+                  </label>
+                  <div>
+                    <span className={detailLabelClass}>Maya dəyəri</span>
+                    <div className={cx("mt-1 text-lg font-semibold tabular-nums", detailValueClass)}>{toCurrency(product.cost)}</div>
+                  </div>
+                </div>
+              </section>
+
+              <section className={sectionClass}>
+                <div className={cx("mb-3 text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Mağazalara görə qiymət</div>
+                <div className={cx("overflow-hidden rounded-xl border", ui.borderSoft)}>
+                  <div className={cx("grid grid-cols-[minmax(0,1fr)_180px_110px] px-4 py-2 text-xs font-semibold", isDark ? "bg-white/5" : "bg-slate-100/80")}><span>Mağaza</span><span>Satış qiyməti</span><span>Mənbə</span></div>
+                  {stores.filter((store) => store.status === "active").map((store) => {
+                    const storedPrice = product.storePrices?.[store.name];
+                    const effectivePrice = storedPrice ?? product.sale_price;
+                    const custom = storedPrice != null && storedPrice !== product.sale_price;
+                    return (
+                      <div key={store.id} className={cx("grid grid-cols-[minmax(0,1fr)_180px_110px] items-center gap-3 border-t px-4 py-2", ui.borderSoft)}>
+                        <span className="text-sm font-medium">{store.name}</span>
+                        {editMode ? <input className={cx(inputClass, "w-full")} value={edit.storePrices[store.name] ?? ""} onChange={(e) => setEdit((value) => ({ ...value, storePrices: { ...value.storePrices, [store.name]: e.target.value } }))} inputMode="decimal" placeholder={edit.sale || "0.00"} /> : <span className="text-sm font-semibold tabular-nums">{toCurrency(effectivePrice)}</span>}
+                        <span className={cx("text-xs", custom ? "text-indigo-600" : ui.textSubtle)}>{custom ? "Mağaza" : "Standart"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className={sectionClass}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Müştəriyə xüsusi qiymətlər</div>
+                    <p className={cx("mt-1 text-xs", ui.textSubtle)}>Müştəri + mağaza qiyməti mağaza standartından daha yüksək üstünlüyə malikdir.</p>
+                  </div>
+                  <a href="/contacts/customers" className={cx("rounded-lg border px-3 py-2 text-sm font-medium", ui.borderSoft, isDark ? "hover:bg-white/10" : "hover:bg-white")}>Müştəri qiymətlərinə keç</a>
+                </div>
+              </section>
+
+              <section className={sectionClass}>
+                <div className={cx("mb-3 text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Son qiymət dəyişiklikləri</div>
+                <PriceHistoryList audit={audit.filter((entry) => entry.action === "Qiymət dəyişikliyi")} isDark={isDark} compact />
+              </section>
             </div>
           )}
 
@@ -3257,9 +3343,10 @@ function ProductDetailPanel({
 
 function HistoryList({ audit, movements, isDark }: { audit: AuditEntry[]; movements: StockMovement[]; isDark: boolean }) {
   const ui = makeUI(isDark);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const items = [
-    ...audit.map((entry) => ({ id: `a-${entry.id}`, title: entry.action, detail: entry.detail, at: entry.at })),
-    ...movements.map((movement) => ({ id: `m-${movement.id}`, title: "Anbar hərəkəti", detail: `${movement.type} · ${movement.qty}`, at: movement.at })),
+    ...audit.map((entry) => ({ id: `a-${entry.id}`, title: entry.action, detail: entry.detail, at: entry.at, changes: entry.changes })),
+    ...movements.map((movement) => ({ id: `m-${movement.id}`, title: "Anbar hərəkəti", detail: `${movement.type} · ${movement.qty}`, at: movement.at, changes: undefined as AuditChange[] | undefined })),
   ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
@@ -3267,16 +3354,43 @@ function HistoryList({ audit, movements, isDark }: { audit: AuditEntry[]; moveme
       <div className="mb-2 text-sm font-semibold">Tarixçə</div>
       <div className="space-y-2">
         {items.map((item) => (
-          <div key={item.id} className={cx("rounded-lg px-3 py-2 text-sm", isDark ? "bg-white/5" : "bg-slate-50")}>
-            <div className="flex justify-between gap-3">
-              <span className="font-medium">{item.title}</span>
-              <span className={cx("text-xs", ui.textSubtle)}>{new Date(item.at).toLocaleString("az-Latn-AZ")}</span>
-            </div>
-            <div className={cx("text-xs", ui.textSubtle)}>{item.detail}</div>
+          <div key={item.id} className={cx("rounded-lg text-sm", isDark ? "bg-white/5" : "bg-slate-50")}>
+            <button type="button" onClick={() => item.changes?.length && setExpandedId((value) => value === item.id ? null : item.id)} className="w-full px-3 py-2 text-left">
+              <div className="flex justify-between gap-3">
+                <span className="font-medium">{item.title}</span>
+                <span className={cx("text-xs", ui.textSubtle)}>{new Date(item.at).toLocaleString("az-Latn-AZ")}</span>
+              </div>
+              <div className={cx("mt-0.5 flex items-center justify-between gap-3 text-xs", ui.textSubtle)}><span>{item.detail}</span>{item.changes?.length ? <span>{expandedId === item.id ? "Gizlət" : "Dəyişikliyi göstər"}</span> : null}</div>
+            </button>
+            {expandedId === item.id && item.changes?.length ? <AuditChanges changes={item.changes} isDark={isDark} /> : null}
           </div>
         ))}
         {items.length === 0 && <div className={cx("text-sm", ui.textSubtle)}>Hələ tarixçə yoxdur.</div>}
       </div>
+    </div>
+  );
+}
+
+function AuditChanges({ changes, isDark }: { changes: AuditChange[]; isDark: boolean }) {
+  return (
+    <div className={cx("border-t px-3 py-2", isDark ? "border-white/10" : "border-slate-200")}>
+      <div className="grid grid-cols-[minmax(0,1fr)_120px_20px_120px] gap-2 text-[11px] font-semibold uppercase text-slate-500"><span>Sahə</span><span>Əvvəl</span><span /><span>Sonra</span></div>
+      {changes.map((change, index) => <div key={`${change.field}-${change.scope ?? ""}-${index}`} className="grid grid-cols-[minmax(0,1fr)_120px_20px_120px] items-center gap-2 py-1.5 text-xs"><span className="font-medium">{change.scope ? `${change.field} · ${change.scope}` : change.field}</span><span className="tabular-nums text-slate-500">{change.oldValue}</span><span>→</span><span className="font-semibold tabular-nums text-indigo-600">{change.newValue}</span></div>)}
+    </div>
+  );
+}
+
+function PriceHistoryList({ audit, isDark, compact = false }: { audit: AuditEntry[]; isDark: boolean; compact?: boolean }) {
+  const ui = makeUI(isDark);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const rows = compact ? audit.slice(0, 5) : audit;
+  return (
+    <div className="space-y-2">
+      {rows.map((entry) => <div key={entry.id} className={cx("overflow-hidden rounded-lg border", ui.borderSoft)}>
+        <button type="button" onClick={() => setExpandedId((value) => value === entry.id ? null : entry.id)} className="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-sm"><span><span className="font-medium">{entry.detail}</span><span className={cx("ml-2 text-xs", ui.textSubtle)}>{new Date(entry.at).toLocaleString("az-Latn-AZ")}</span></span><span className={cx("text-xs", ui.textSubtle)}>{expandedId === entry.id ? "Gizlət" : "Bax"}</span></button>
+        {expandedId === entry.id && entry.changes?.length ? <AuditChanges changes={entry.changes} isDark={isDark} /> : null}
+      </div>)}
+      {rows.length === 0 && <div className={cx("py-3 text-sm", ui.textSubtle)}>Hələ qiymət dəyişikliyi yoxdur.</div>}
     </div>
   );
 }

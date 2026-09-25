@@ -60,6 +60,7 @@ type ProductCreateForm = {
   markup: string;
   freePrice: boolean;
   storePrices: boolean;
+  storeSalePrices: Record<string, string>;
   endirim: string;
   vergi: string;
   taxFree: boolean;
@@ -68,7 +69,6 @@ type ProductCreateForm = {
   supplier: string;
   supplierCode: string;
   supplierProductCode: string;
-  supplierSources: SupplierSourceForm[];
   antrepo: string;
   depo: string;
   warehouseStocks: Record<string, string>;
@@ -87,16 +87,6 @@ type ProductCreateForm = {
   modifikasiya: boolean;
   initialStock: boolean;
   expirationDate: string;
-};
-
-export type SupplierSourceForm = {
-  id: string;
-  supplierId: string;
-  productCode: string;
-  purchasePrice: string;
-  currency: "TRY" | "USD" | "EUR" | "AZN";
-  leadTimeDays: string;
-  isPrimary: boolean;
 };
 
 export type ProductFormValues = ProductCreateForm & {
@@ -122,11 +112,6 @@ type ProductOption = {
   code?: string;
 };
 
-type SupplierOption = {
-  id: number;
-  name: string;
-};
-
 type Props = {
   visible: boolean;
   isDark?: boolean;
@@ -136,7 +121,6 @@ type Props = {
   groups?: GroupOption[];
   stores?: StoreOption[];
   products?: ProductOption[];
-  suppliers?: SupplierOption[];
   onClose: () => void;
   onSubmit?: (values: ProductFormValues) => void;
 };
@@ -180,6 +164,7 @@ const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm 
   markup: "",
   freePrice: false,
   storePrices: false,
+  storeSalePrices: {},
   endirim: "",
   vergi: "",
   taxFree: false,
@@ -188,7 +173,6 @@ const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm 
   supplier: "",
   supplierCode: "",
   supplierProductCode: "",
-  supplierSources: [],
   antrepo: "",
   depo: "",
   warehouseStocks: {},
@@ -211,16 +195,6 @@ const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm 
 
 const generateNumericCode = (length = 13) =>
   Array.from({ length }, () => Math.floor(Math.random() * 10)).join("");
-
-const createSupplierSource = (isPrimary = false): SupplierSourceForm => ({
-  id: `supplier-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  supplierId: "",
-  productCode: "",
-  purchasePrice: "",
-  currency: "USD",
-  leadTimeDays: "",
-  isPrimary,
-});
 
 function ToggleControl({
   checked,
@@ -286,7 +260,6 @@ export default function ProductCreatePanel({
   groups = [],
   stores = [],
   products = [],
-  suppliers = [],
   onClose,
   onSubmit,
 }: Props) {
@@ -294,7 +267,7 @@ export default function ProductCreatePanel({
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const [tab, setTab] = useState<ProductFormValues["type"]>(defaultType);
-  const [section, setSection] = useState<"basic" | "codes" | "measure" | "stock" | "suppliers" | "price" | "tax" | "extra">("basic");
+  const [section, setSection] = useState<"basic" | "codes" | "measure" | "stock" | "price" | "tax" | "extra">("basic");
   const [form, setForm] = useState<ProductCreateForm>(() => emptyForm(defaultGroupId, defaultCode));
 
   useEffect(() => {
@@ -305,6 +278,7 @@ export default function ProductCreatePanel({
       ...emptyForm(defaultGroupId, defaultCode),
       vahid: defaultType === "service" ? "xidmət" : defaultType === "bundle" ? "dəst" : "əd",
       warehouseStocks: Object.fromEntries(stores.filter((store) => store.status === "active").map((store) => [store.key, ""])),
+      storeSalePrices: Object.fromEntries(stores.filter((store) => store.status === "active").map((store) => [store.name, ""])),
     });
   }, [defaultCode, defaultGroupId, defaultType, stores, visible]);
 
@@ -346,19 +320,7 @@ export default function ProductCreatePanel({
 
   const handleSave = () => {
     if (!form.ad.trim()) return;
-    const supplierSources = form.supplierSources.filter((source) => source.supplierId);
-    const primarySource = supplierSources.find((source) => source.isPrimary) ?? supplierSources[0];
-    const primarySupplier = suppliers.find((supplier) => String(supplier.id) === primarySource?.supplierId);
-    onSubmit?.({
-      type: tab,
-      ...form,
-      supplierSources,
-      supplier: primarySupplier?.name ?? "",
-      supplierCode: primarySource?.supplierId ?? "",
-      supplierProductCode: primarySource?.productCode.trim() ?? "",
-      leadTimeDays: primarySource?.leadTimeDays ?? form.leadTimeDays,
-      alis: form.alis || primarySource?.purchasePrice || "",
-    });
+    onSubmit?.({ type: tab, ...form });
     onClose();
   };
 
@@ -372,7 +334,6 @@ export default function ProductCreatePanel({
     { id: "codes", label: "Kodlar və barkod" },
     { id: "measure", label: "Rulo parametrləri", productOnly: true },
     { id: "stock", label: "Stok", productOnly: true },
-    { id: "suppliers", label: "Təchizatçılar", productOnly: true },
     { id: "price", label: "Qiymətlər" },
     { id: "tax", label: "Vergi" },
     { id: "extra", label: "Əlavə" },
@@ -510,36 +471,6 @@ export default function ProductCreatePanel({
               </FormSection>
             )}
 
-            {section === "suppliers" && tab !== "service" && (
-              <FormSection title="Təchizat mənbələri">
-                <div className="flex items-start justify-between gap-4">
-                  <p className={cx("max-w-2xl text-sm", ui.textSubtle)}>Eyni məhsul fərqli təchizatçılardan fərqli kod, valyuta və qiymətlə alına bilər. Buradakı qiymət təklif qiymətidir; faktiki alış qiyməti alış sənədində saxlanılır.</p>
-                  <button
-                    type="button"
-                    onClick={() => setField("supplierSources", [...form.supplierSources, createSupplierSource(form.supplierSources.length === 0)])}
-                    className="surface-primary h-9 shrink-0 rounded-lg px-3 text-sm"
-                  >
-                    + Təchizatçı
-                  </button>
-                </div>
-                {suppliers.length === 0 && <div className={cx("mt-5 rounded-lg border px-4 py-3 text-sm", ui.softBox)}>Əvvəlcə Kontragentlər → Təchizatçılar bölməsində təchizatçı yaradın.</div>}
-                <div className="mt-5 space-y-3">
-                  {form.supplierSources.map((source, index) => (
-                    <div key={source.id} className={cx("grid items-end gap-3 rounded-xl border p-3 md:grid-cols-[minmax(170px,1.4fr)_1fr_120px_92px_92px_40px]", ui.borderSoft, isDark ? "bg-white/5" : "bg-slate-50/75")}>
-                      <label><span className="mb-1 block text-xs font-medium">Təchizatçı</span><select className={ui.input} value={source.supplierId} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, supplierId: e.target.value } : item))}><option value="">Seçin</option>{suppliers.map((supplier) => <option key={supplier.id} value={String(supplier.id)}>{supplier.name}</option>)}</select></label>
-                      <label><span className="mb-1 block text-xs font-medium">Məhsul kodu</span><input className={ui.input} value={source.productCode} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, productCode: e.target.value } : item))} placeholder="Təchizatçı SKU" /></label>
-                      <label><span className="mb-1 block text-xs font-medium">Təklif qiyməti</span><input className={ui.input} value={source.purchasePrice} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, purchasePrice: e.target.value } : item))} inputMode="decimal" placeholder="0.00" /></label>
-                      <label><span className="mb-1 block text-xs font-medium">Valyuta</span><select className={ui.input} value={source.currency} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, currency: e.target.value as SupplierSourceForm["currency"] } : item))}><option value="TRY">TRY</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="AZN">AZN</option></select></label>
-                      <label><span className="mb-1 block text-xs font-medium">Müddət, gün</span><input className={ui.input} value={source.leadTimeDays} onChange={(e) => setField("supplierSources", form.supplierSources.map((item) => item.id === source.id ? { ...item, leadTimeDays: e.target.value } : item))} inputMode="numeric" /></label>
-                      <button type="button" aria-label="Təchizatçını sil" title="Sil" onClick={() => { const remaining = form.supplierSources.filter((item) => item.id !== source.id); if (source.isPrimary && remaining.length) remaining[0] = { ...remaining[0], isPrimary: true }; setField("supplierSources", remaining); }} className={cx("flex h-10 w-10 items-center justify-center rounded-lg border text-lg text-rose-500", ui.borderSoft)}>×</button>
-                      <label className="flex items-center gap-2 text-xs md:col-span-6"><input type="radio" name="primarySupplier" checked={source.isPrimary} onChange={() => setField("supplierSources", form.supplierSources.map((item) => ({ ...item, isPrimary: item.id === source.id })))} /><span>{source.isPrimary ? "Əsas təchizatçı" : `${index + 1}. alternativ mənbə`}</span></label>
-                    </div>
-                  ))}
-                  {form.supplierSources.length === 0 && suppliers.length > 0 && <div className={cx("rounded-lg border border-dashed px-4 py-8 text-center text-sm", ui.borderSoft, ui.textSubtle)}>Bu məhsula hələ təchizatçı bağlanmayıb.</div>}
-                </div>
-              </FormSection>
-            )}
-
             {section === "stock" && tab !== "service" && (
               <FormSection title="Stok qaydaları və mağazalar">
                 <div className="grid gap-3 md:grid-cols-3">
@@ -564,8 +495,20 @@ export default function ProductCreatePanel({
                   <label><span className="mb-1 block text-xs font-medium">Artım, %</span><input className={ui.input} value={form.markup} onChange={handleChange("markup")} inputMode="decimal" /></label>
                   <label><span className="mb-1 block text-xs font-medium">Endirim, %</span><input className={ui.input} value={form.endirim} onChange={handleChange("endirim")} inputMode="decimal" /></label>
                 </div>
-                <p className={cx("mt-4 text-xs", ui.textSubtle)}>Alış qiymətləri təchizatçıya görə saxlanılır və alış sənədində faktiki məbləğlə yenilənir.</p>
                 <div className="mt-5 grid gap-4 md:grid-cols-2"><ToggleControl {...toggleProps} checked={form.freePrice} onChange={(next) => setField("freePrice", next)} label="Sərbəst satış qiyməti" hint="Sənəddə qiymət dəyişdirilə bilər" /><ToggleControl {...toggleProps} checked={form.storePrices} onChange={(next) => setField("storePrices", next)} label="Mağazalara görə fərqli qiymət" /></div>
+                {form.storePrices && (
+                  <div className={cx("mt-5 overflow-hidden rounded-xl border", ui.borderSoft)}>
+                    <div className={cx("grid grid-cols-[minmax(0,1fr)_180px] px-4 py-2 text-xs font-semibold", isDark ? "bg-white/5" : "bg-slate-50")}><span>Mağaza</span><span>Satış qiyməti</span></div>
+                    {activeStores.map((store) => (
+                      <label key={store.id} className={cx("grid grid-cols-[minmax(0,1fr)_180px] items-center gap-4 border-t px-4 py-2", ui.borderSoft)}>
+                        <span className="text-sm font-medium">{store.name}</span>
+                        <input className={ui.input} value={form.storeSalePrices[store.name] ?? ""} onChange={(e) => setField("storeSalePrices", { ...form.storeSalePrices, [store.name]: e.target.value })} inputMode="decimal" placeholder={form.qiymet || "Standart qiymət"} />
+                      </label>
+                    ))}
+                    {activeStores.length === 0 && <div className={cx("px-4 py-4 text-sm", ui.textSubtle)}>Aktiv mağaza yaradılmayıb.</div>}
+                  </div>
+                )}
+                <p className={cx("mt-4 text-xs", ui.textSubtle)}>Mağaza qiyməti boş qalarsa ümumi standart qiymət tətbiq edilir. Müştəriyə xüsusi qiymətlər müştəri kartının “Satış qiymətləri” bölməsində idarə olunur.</p>
               </FormSection>
             )}
 
