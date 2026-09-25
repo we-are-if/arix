@@ -7,6 +7,8 @@ const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ")
 const toNum = (n?: number) => (n == null ? "—" : n.toLocaleString("az-Latn-AZ"));
 const toCurrency = (n?: number) =>
   n == null ? "—" : n.toLocaleString("az-Latn-AZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const toUnitCost = (n?: number | null) =>
+  n == null ? "—" : n.toLocaleString("az-Latn-AZ", { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 const parseOptionalNumber = (value?: string) => {
   if (value == null || value.trim() === "") return undefined;
   const parsed = Number(value.replace(",", "."));
@@ -269,6 +271,76 @@ type ApiProductPriceHistory = {
   detail: string;
   at: string;
   changes?: { field: string; scope?: string; oldValue?: number | null; newValue?: number | null }[];
+};
+type LotCostTimelineEntry = {
+  id: string;
+  effectiveAt: string;
+  type: "purchase" | "directPurchase" | "bondedTransfer" | "bondedCost" | "depotCost";
+  sourceDocumentId: string;
+  label: string;
+  amount: number;
+  balanceQty: number;
+  unitDelta: number;
+  unitCostBefore: number;
+  unitCostAfter: number;
+};
+type PurchaseLot = {
+  id: string;
+  productId: number;
+  purchaseDocumentId: string;
+  supplierName?: string;
+  documentDate: string;
+  containerNumber?: string | null;
+  initialQty: number;
+  remainingBondedQty: number;
+  exportedQty: number;
+  movedToDepotQty: number;
+  baseUnitCost: number;
+  currentBondedUnitCost: number;
+  totalAddedCost: number;
+  costTimeline: LotCostTimelineEntry[];
+};
+type DepotLot = {
+  id: string;
+  productId: number;
+  sourcePurchaseLotId?: string | null;
+  purchaseDocumentId: string;
+  sourceMovementDocumentId?: string | null;
+  supplierName?: string;
+  availableAt: string;
+  containerNumber?: string | null;
+  initialQty: number;
+  remainingQty: number;
+  soldQty: number;
+  inheritedUnitCost: number;
+  movementCostPerUnit: number;
+  currentUnitCost: number;
+  costTimeline: LotCostTimelineEntry[];
+};
+type LotRecalculation = {
+  id: string;
+  sourceDocumentId?: string | null;
+  reason: string;
+  effectiveFrom?: string | null;
+  recalculatedAt: string;
+  changes: Array<{
+    documentId: string;
+    productId: number;
+    oldUnitCost?: number | null;
+    newUnitCost?: number | null;
+  }>;
+};
+type ProductLotAccounting = {
+  purchaseLots: PurchaseLot[];
+  depotLots: DepotLot[];
+  costEvents: LotCostTimelineEntry[];
+  recalculations: LotRecalculation[];
+};
+const EMPTY_LOT_ACCOUNTING: ProductLotAccounting = {
+  purchaseLots: [],
+  depotLots: [],
+  costEvents: [],
+  recalculations: [],
 };
 type StockMovement = {
   id: number;
@@ -1046,6 +1118,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   const [createType, setCreateType] = useState<ProductType>("product");
   const [groupCreateKind, setGroupCreateKind] = useState<"folder" | "category" | null>(null);
   const [detailProductId, setDetailProductId] = useState<number | null>(null);
+  const [detailLotAccounting, setDetailLotAccounting] = useState<ProductLotAccounting>(EMPTY_LOT_ACCOUNTING);
   const [moveOpen, setMoveOpen] = useState(false);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
   const csvInputRef = useRef<HTMLInputElement | null>(null);
@@ -1057,6 +1130,26 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     const localEntries = audit.filter((entry) => entry.productId === detailProductId);
     return [...serverEntries, ...localEntries].sort((a, b) => b.at.localeCompare(a.at));
   }, [audit, detailProductId, priceAudit]);
+
+  const loadProductLotsFromApi = useCallback(async (productId: number) => {
+    try {
+      const payload = await requestJson<{ data: ProductLotAccounting }>(`/api/inventory-lots?productId=${productId}`);
+      setDetailLotAccounting({ ...EMPTY_LOT_ACCOUNTING, ...payload.data });
+    } catch {
+      setDetailLotAccounting(EMPTY_LOT_ACCOUNTING);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (detailProductId == null) {
+      setDetailLotAccounting(EMPTY_LOT_ACCOUNTING);
+      return;
+    }
+    void loadProductLotsFromApi(detailProductId);
+    const reload = () => void loadProductLotsFromApi(detailProductId);
+    window.addEventListener("arix:documents-updated", reload);
+    return () => window.removeEventListener("arix:documents-updated", reload);
+  }, [detailProductId, loadProductLotsFromApi]);
 
   const defaultCreateGroupId = typeof currentFolder === "number" ? currentFolder : null;
   const openCreate = (target: CreateTarget) => {
@@ -2266,6 +2359,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         bundleItems={bundleItems.filter((item) => item.bundleId === detailProduct.id)}
         audit={detailAudit}
         movements={movements.filter((movement) => movement.productId === detailProduct.id)}
+        lotAccounting={detailLotAccounting}
         isDark={isDark}
         stockMode={companySettings.stockMode}
         onClose={() => setDetailProductId(null)}
@@ -2545,6 +2639,7 @@ function ProductDetailPanel({
   bundleItems,
   audit,
   movements,
+  lotAccounting,
   isDark,
   stockMode,
   onClose,
@@ -2564,6 +2659,7 @@ function ProductDetailPanel({
   bundleItems: BundleItem[];
   audit: AuditEntry[];
   movements: StockMovement[];
+  lotAccounting: ProductLotAccounting;
   isDark: boolean;
   stockMode: StockMode;
   onClose: () => void;
@@ -2575,7 +2671,7 @@ function ProductDetailPanel({
   onRemoveBundleItem: (id: number) => void;
 }) {
   const ui = makeUI(isDark);
-  const [tab, setTab] = useState<"overview" | "prices" | "stock" | "containers" | "rolls" | "variants" | "bundle" | "inventory" | "history">("overview");
+  const [tab, setTab] = useState<"overview" | "prices" | "lots" | "stock" | "containers" | "rolls" | "variants" | "bundle" | "inventory" | "history">("overview");
   const buildEditState = useCallback((item: Product) => ({
     ad: item.ad,
     kod: item.kod ?? "",
@@ -2652,6 +2748,15 @@ function ProductDetailPanel({
   const effectivePurchase = product.purchase_price ?? product.cost ?? 0;
   const effectiveCost = product.cost ?? effectivePurchase;
   const effectiveSale = product.sale_price ?? 0;
+  const activePurchaseLots = lotAccounting.purchaseLots.filter((lot) => lot.remainingBondedQty > 0.000001);
+  const activeDepotLots = lotAccounting.depotLots.filter((lot) => lot.remainingQty > 0.000001);
+  const bondedLotQty = activePurchaseLots.reduce((sum, lot) => sum + lot.remainingBondedQty, 0);
+  const depotLotQty = activeDepotLots.reduce((sum, lot) => sum + lot.remainingQty, 0);
+  const lotStockValue = activePurchaseLots.reduce((sum, lot) => sum + lot.remainingBondedQty * lot.currentBondedUnitCost, 0)
+    + activeDepotLots.reduce((sum, lot) => sum + lot.remainingQty * lot.currentUnitCost, 0);
+  const lotWeightedCost = bondedLotQty + depotLotQty > 0 ? lotStockValue / (bondedLotQty + depotLotQty) : null;
+  const lotTimeline = [...lotAccounting.costEvents].sort((a, b) => b.effectiveAt.localeCompare(a.effectiveAt));
+  const recalculatedDocumentCount = new Set(lotAccounting.recalculations.flatMap((entry) => entry.changes.map((change) => change.documentId))).size;
   const marginValue = effectiveSale - effectiveCost;
   const formatPercent = (value: number | null) => value == null ? "—" : `${value.toLocaleString("az-Latn-AZ", { maximumFractionDigits: 1 })}%`;
   const markup = effectiveCost > 0 ? (marginValue / effectiveCost) * 100 : null;
@@ -2732,6 +2837,7 @@ function ProductDetailPanel({
       ? ([
           ["overview", "Kart"],
           ["prices", "Qiymətlər"],
+          ["lots", "Partiyalar"],
           ["bundle", "Dəst tərkibi"],
           ["stock", "Qalıq"],
           ["history", "Tarixçə"],
@@ -2740,6 +2846,7 @@ function ProductDetailPanel({
       ? ([
         ["overview", "Kart"],
         ["prices", "Qiymətlər"],
+        ["lots", "Partiyalar"],
         ["stock", "Qalıq"],
         ["containers", "Konteynerlər"],
         ["rolls", "Rulolar"],
@@ -2750,6 +2857,7 @@ function ProductDetailPanel({
       : ([
           ["overview", "Kart"],
           ["prices", "Qiymətlər"],
+          ["lots", "Partiyalar"],
           ["stock", "Qalıq"],
           ["variants", "Variantlar"],
           ["inventory", "Hərəkətlər"],
@@ -3101,6 +3209,100 @@ function ProductDetailPanel({
                 <div className={cx("mb-3 text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Son qiymət dəyişiklikləri</div>
                 <PriceHistoryList audit={audit.filter((entry) => entry.changes?.length)} isDark={isDark} compact />
               </section>
+            </div>
+          )}
+
+          {tab === "lots" && (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ["Antrepo qalıq", `${toNum(bondedLotQty)} ${product.vahid ?? "mt"}`],
+                  ["Depo qalıq", `${toNum(depotLotQty)} ${product.vahid ?? "mt"}`],
+                  ["Cari stok dəyəri", toCurrency(lotStockValue)],
+                  ["Çəkili orta maya", toUnitCost(lotWeightedCost)],
+                ].map(([label, value]) => (
+                  <div key={label} className={sectionClass}>
+                    <div className={cx("text-[12px] font-semibold", ui.textSubtle)}>{label}</div>
+                    <div className="mt-2 text-xl font-semibold tabular-nums">{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <section className={sectionClass}>
+                <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Antrepo alış partiyaları</div>
+                    <p className={cx("mt-1 text-xs", ui.textSubtle)}>Hər alış və konteyner ayrıdır. İxrac sənəd tarixində bu partiyanın cari mayasını götürür.</p>
+                  </div>
+                  <span className={cx("rounded-full px-2.5 py-1 text-xs", isDark ? "bg-cyan-400/15 text-cyan-100" : "bg-cyan-50 text-cyan-700")}>{activePurchaseLots.length} aktiv partiya</span>
+                </div>
+                <SimpleTable
+                  headers={["Alış tarixi", "Təchizatçı", "Konteyner", "İlk miqdar", "Antrepo qalıq", "İxrac", "Depoya düşüm", "Birbaşa alış", "Cari antrepo maya"]}
+                  rows={lotAccounting.purchaseLots.map((lot) => [
+                    new Date(lot.documentDate).toLocaleString("az-Latn-AZ"),
+                    lot.supplierName || "—",
+                    lot.containerNumber || "—",
+                    toNum(lot.initialQty),
+                    toNum(lot.remainingBondedQty),
+                    toNum(lot.exportedQty),
+                    toNum(lot.movedToDepotQty),
+                    toUnitCost(lot.baseUnitCost),
+                    toUnitCost(lot.currentBondedUnitCost),
+                  ])}
+                  isDark={isDark}
+                />
+              </section>
+
+              <section className={sectionClass}>
+                <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Depo partiyaları</div>
+                    <p className={cx("mt-1 text-xs", ui.textSubtle)}>Depoya düşən miqdar həmin anın antrepo mayasını miras alır; yalnız həmin düşümə bağlanan xərclər üzərinə gəlir.</p>
+                  </div>
+                  <span className={cx("rounded-full px-2.5 py-1 text-xs", isDark ? "bg-emerald-400/15 text-emerald-100" : "bg-emerald-50 text-emerald-700")}>{activeDepotLots.length} aktiv partiya</span>
+                </div>
+                <SimpleTable
+                  headers={["Depoya giriş", "Təchizatçı", "Mənbə konteyner", "İlk miqdar", "Depo qalıq", "Satılıb", "Antrepodan gələn maya", "Düşüm xərci / vahid", "Cari depo maya"]}
+                  rows={lotAccounting.depotLots.map((lot) => [
+                    new Date(lot.availableAt).toLocaleString("az-Latn-AZ"),
+                    lot.supplierName || "—",
+                    lot.containerNumber || "Birbaşa alış",
+                    toNum(lot.initialQty),
+                    toNum(lot.remainingQty),
+                    toNum(lot.soldQty),
+                    toUnitCost(lot.inheritedUnitCost),
+                    toUnitCost(lot.movementCostPerUnit),
+                    toUnitCost(lot.currentUnitCost),
+                  ])}
+                  isDark={isDark}
+                />
+              </section>
+
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <section className={sectionClass}>
+                  <div className={cx("mb-3 text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Maya əlavələri</div>
+                  <SimpleTable
+                    headers={["Tarix", "Xərc", "Tətbiq edilən qalıq", "Vahidə əlavə", "Əvvəl", "Sonra"]}
+                    rows={lotTimeline.map((event) => [
+                      new Date(event.effectiveAt).toLocaleString("az-Latn-AZ"),
+                      event.label,
+                      toNum(event.balanceQty),
+                      toUnitCost(event.unitDelta),
+                      toUnitCost(event.unitCostBefore),
+                      toUnitCost(event.unitCostAfter),
+                    ])}
+                    isDark={isDark}
+                  />
+                </section>
+                <section className={sectionClass}>
+                  <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Yenidən hesablanma</div>
+                  <div className="mt-4 text-3xl font-semibold tabular-nums">{recalculatedDocumentCount}</div>
+                  <p className={cx("mt-1 text-sm", ui.textSubtle)}>Geriyə tarixli xərcdən sonra mayası yenilənmiş sənəd.</p>
+                  <div className={cx("mt-4 border-t pt-3 text-xs", ui.borderSoft, ui.textSubtle)}>
+                    Məbləğ və satış qiyməti dəyişmir. Yalnız maya, mənfəət və marja yeni tarix ardıcıllığı ilə hesablanır.
+                  </div>
+                </section>
+              </div>
             </div>
           )}
 

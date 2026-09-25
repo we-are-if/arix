@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
@@ -165,6 +166,10 @@ function normalizeDb(db) {
   db.landedCostAdjustments ??= [];
   db.customerPrices ??= [];
   db.productPriceHistory ??= [];
+  db.purchaseLots ??= [];
+  db.depotLots ??= [];
+  db.lotCostEvents ??= [];
+  db.lotRecalculations ??= [];
   db.stores = Array.isArray(db.stores) && db.stores.length
     ? db.stores.map((store, index) => ({
         id: Number(store.id) || index + 1,
@@ -1922,6 +1927,11 @@ async function handleDocuments(req, res) {
     db.documents[sourceIndex] = updatedDocument;
     const paymentDocuments = createPaymentDocuments(updatedDocument);
     db.documents.unshift(...paymentDocuments);
+    rebuildLotAccounting(db, {
+      sourceDocumentId: updatedDocument.id,
+      effectiveFrom: updatedDocument.documentDate ?? updatedDocument.createdAt,
+      reason: "Sənəd redaktəsindən sonra partiya mayası yenidən hesablandı",
+    });
     await writeDb(db);
     return send(res, 200, { data: updatedDocument, payments: paymentDocuments });
   }
@@ -1941,6 +1951,11 @@ async function handleDocuments(req, res) {
     applyLandedCost(db, document);
     const paymentDocuments = createPaymentDocuments(document);
     db.documents.unshift(...paymentDocuments, document);
+    rebuildLotAccounting(db, {
+      sourceDocumentId: document.id,
+      effectiveFrom: document.documentDate ?? document.createdAt,
+      reason: "Yeni sənəddən sonra partiya mayası yenidən hesablandı",
+    });
     await writeDb(db);
     return send(res, 201, { data: document, payments: paymentDocuments, products: stockResult.products });
   }
@@ -1957,6 +1972,24 @@ async function handleLandedCosts(req, res) {
   const db = await readDb();
   if (req.method !== "GET") return notFound(res);
   return send(res, 200, { data: db.landedCostAdjustments });
+}
+
+async function handleInventoryLots(req, res, url) {
+  const db = await readDb();
+  if (req.method !== "GET") return notFound(res);
+  const productId = Number(url.searchParams.get("productId") ?? 0);
+  if (!productId) {
+    return send(res, 200, {
+      data: {
+        purchaseLots: db.purchaseLots,
+        depotLots: db.depotLots,
+        costEvents: db.lotCostEvents,
+        recalculations: db.lotRecalculations,
+        summary: db.lotAccountingSummary,
+      },
+    });
+  }
+  return send(res, 200, { data: lotAccountingForProduct(db, productId) });
 }
 
 function normalizeWarehouse(value) {
@@ -2063,7 +2096,9 @@ function applyDocumentStock(db, document) {
   return { ok: true, products: touched };
 }
 
-await ensureDb();
+const initialDb = await ensureDb();
+rebuildLotAccounting(initialDb, { recordAudit: false });
+await writeDb(initialDb);
 
 const server = createServer(async (req, res) => {
   try {
@@ -2088,6 +2123,7 @@ const server = createServer(async (req, res) => {
     if (parts[1] === "movement-suggestions") return await handleMovementSuggestions(req, res);
     if (parts[1] === "test-data" && parts[2] === "movement-purchases") return await handleTestMovementPurchases(req, res);
     if (parts[1] === "landed-costs") return await handleLandedCosts(req, res);
+    if (parts[1] === "inventory-lots") return await handleInventoryLots(req, res, url);
 
     return notFound(res);
   } catch (error) {

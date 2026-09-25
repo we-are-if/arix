@@ -127,7 +127,7 @@ export type ApiDocumentDraft = {
 
 type ApiDocument = ApiDocumentDraft;
 
-type DocumentLinkType = "debtPayment" | "landedCost";
+type DocumentLinkType = "debtPayment" | "landedCost" | "movementCost";
 
 type LinkDocumentOption = {
   id: string;
@@ -137,6 +137,7 @@ type LinkDocumentOption = {
   total: number;
   paid: number;
   remaining: number;
+  qty: number;
   documentDate: string;
 };
 
@@ -713,7 +714,7 @@ const collectCostContainers = (documents: ApiDocument[]): CostContainerOption[] 
 const collectLinkDocuments = (documents: ApiDocument[], kind: DocumentCreateKind): LinkDocumentOption[] =>
   documents
     .filter((document) => kind === "cashOut"
-      ? ["purchase", "saleReturn"].includes(document.type ?? "")
+      ? ["purchase", "saleReturn", "movement"].includes(document.type ?? "")
       : kind === "cashIn"
         ? ["sale", "purchaseReturn"].includes(document.type ?? "")
         : false)
@@ -723,6 +724,8 @@ const collectLinkDocuments = (documents: ApiDocument[], kind: DocumentCreateKind
       const paid = Number(document.paymentSummary?.paid ?? document.payments?.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0) ?? 0);
       const title = type === "purchase"
         ? "Alış sənədi"
+        : type === "movement"
+          ? "Antrepodan depoya düşüm"
         : type === "sale"
           ? "Satış sənədi"
           : type === "purchaseReturn"
@@ -736,11 +739,18 @@ const collectLinkDocuments = (documents: ApiDocument[], kind: DocumentCreateKind
         total,
         paid,
         remaining: Math.max(0, total - paid),
+        qty: (document.lines ?? []).reduce((sum, line) => sum + Number(line.qty ?? 0), 0),
         documentDate: String(document.documentDate ?? document.createdAt ?? ""),
       };
     })
     .filter((document) => document.id)
     .sort((a, b) => b.documentDate.localeCompare(a.documentDate));
+
+const matchesDocumentLinkType = (document: LinkDocumentOption, type: DocumentLinkType) => {
+  if (type === "movementCost") return document.type === "movement";
+  if (type === "landedCost") return document.type === "purchase";
+  return document.type !== "movement";
+};
 
 export function DocumentCreateMenu({
   isDark,
@@ -1294,13 +1304,15 @@ export default function DocumentCreatePanel({
   );
   const costPreview = useMemo(() => {
     const amount = Math.abs(toDraftNumber(moneyAmount));
-    const qty = selectedCostContainers.reduce((sum, container) => sum + container.qty, 0);
+    const qty = documentLinkType === "movementCost"
+      ? Number(selectedLinkedDocument?.qty ?? 0)
+      : selectedCostContainers.reduce((sum, container) => sum + container.qty, 0);
     return {
       amount,
       qty,
       unit: qty > 0 ? amount / qty : 0,
     };
-  }, [moneyAmount, selectedCostContainers]);
+  }, [documentLinkType, moneyAmount, selectedCostContainers, selectedLinkedDocument?.qty]);
   const purchaseLandedCosts = useMemo(() => {
     const documentId = String(editingDocument?.id ?? "");
     if (!documentId) return [];
@@ -1445,8 +1457,8 @@ export default function DocumentCreatePanel({
   }, [costContainerOptions]);
 
   useEffect(() => {
-    setLinkedDocumentId((current) => current && linkDocumentOptions.some((document) => document.id === current) ? current : "");
-  }, [linkDocumentOptions]);
+    setLinkedDocumentId((current) => current && linkDocumentOptions.some((document) => document.id === current && matchesDocumentLinkType(document, documentLinkType)) ? current : "");
+  }, [documentLinkType, linkDocumentOptions]);
 
   useEffect(() => {
     if (!linkedDocumentId || documentLinkType !== "landedCost") return;
@@ -1501,6 +1513,10 @@ export default function DocumentCreatePanel({
     }
     if (kind === "cashOut" && costLinkEnabled && documentLinkType === "landedCost" && selectedCostContainers.length === 0) {
       setMessage("Maya xərci üçün ən az bir konteyner seç.");
+      return false;
+    }
+    if (kind === "cashOut" && costLinkEnabled && documentLinkType === "movementCost" && Number(selectedLinkedDocument?.qty ?? 0) <= 0) {
+      setMessage("Depoya düşüm sənədində bölüşdürüləcək miqdar tapılmadı.");
       return false;
     }
     if (isMoney && costLinkEnabled && documentLinkType === "debtPayment" && selectedLinkedDocument && Math.abs(toDraftNumber(moneyAmount)) > selectedLinkedDocument.remaining) {
@@ -1578,17 +1594,24 @@ export default function DocumentCreatePanel({
           summary: rollSummary,
         } : undefined,
         costLink: kind === "cashOut" && costLinkEnabled && documentLinkType === "landedCost" ? {
-          enabled: true,
-          category: costCategory,
-          containerKeys: costContainerKeys,
-          containers: selectedCostContainers.map((container) => ({
-            key: container.key,
-            number: container.number,
-            documentId: container.documentId,
-            qty: container.qty,
-          })),
-          preview: costPreview,
-        } : undefined,
+            enabled: true,
+            scope: "purchase",
+            category: costCategory,
+            containerKeys: costContainerKeys,
+            containers: selectedCostContainers.map((container) => ({
+              key: container.key,
+              number: container.number,
+              documentId: container.documentId,
+              qty: container.qty,
+            })),
+            preview: costPreview,
+          } : kind === "cashOut" && costLinkEnabled && documentLinkType === "movementCost" ? {
+            enabled: true,
+            scope: "movement",
+            category: costCategory,
+            movementDocumentId: linkedDocumentId,
+            preview: costPreview,
+          } : undefined,
       };
       await requestJson<{ data: unknown; products?: unknown[] }>(isEditing ? `/api/documents/${editingDocument?.id}` : "/api/documents", {
         method: isEditing ? "PATCH" : "POST",
@@ -3259,7 +3282,8 @@ function MoneyForm({
   const subtle = isDark ? "text-slate-400" : "text-slate-500";
   const fromTo = kind === "cashTransfer";
   const isExpense = kind === "cashOut";
-  const selectedLinkedDocument = linkDocumentOptions.find((document) => document.id === linkedDocumentId);
+  const visibleLinkDocuments = linkDocumentOptions.filter((document) => matchesDocumentLinkType(document, documentLinkType));
+  const selectedLinkedDocument = visibleLinkDocuments.find((document) => document.id === linkedDocumentId);
   const visibleCostContainers = costContainerOptions.filter((container) => !linkedDocumentId || container.documentId === linkedDocumentId);
   const paymentCategories = isExpense
     ? ["Təchizatçı ödənişi", "Nəqliyyat", "Gömrük/vergi", "Antrepo saxlama", "Broker xidməti", "Digər xərc"]
@@ -3313,7 +3337,7 @@ function MoneyForm({
             <div>
               <div className="text-lg font-semibold">Sənədlə əlaqələndir</div>
               <p className={cx("mt-1 max-w-3xl text-sm leading-5", subtle)}>
-                Borc ödənişi sənədin qalıq borcunu azaldır. Maya xərci isə borca toxunmadan məhsulun maya dəyərinə əlavə edilir.
+                Borc ödənişi sənədin qalıq borcunu azaldır. Antrepo və depoya düşüm xərcləri isə aid olduqları partiyanın mayasına ayrıca əlavə edilir.
               </p>
             </div>
             <button type="button" onClick={() => onCostLinkEnabledChange(!costLinkEnabled)} className={cx("inline-flex h-10 items-center gap-3 rounded-xl border px-4 text-sm font-semibold", border, costLinkEnabled ? "bg-indigo-600 text-white" : isDark ? "bg-white/5" : "bg-white")}> 
@@ -3324,14 +3348,18 @@ function MoneyForm({
 
           {costLinkEnabled && (
             <div className="mt-4 space-y-4">
-              <div className={cx("grid gap-2 rounded-2xl border p-2 sm:grid-cols-2", border, isDark ? "bg-slate-950/35" : "bg-white")}>
+              <div className={cx("grid gap-2 rounded-2xl border p-2 lg:grid-cols-3", border, isDark ? "bg-slate-950/35" : "bg-white")}>
                 <button type="button" onClick={() => onDocumentLinkTypeChange("debtPayment")} className={cx("rounded-xl px-4 py-3 text-left transition", documentLinkType === "debtPayment" ? "bg-indigo-600 text-white" : isDark ? "hover:bg-white/7" : "hover:bg-slate-50")}>
                   <span className="block font-semibold">Borc ödənişi</span>
                   <span className={cx("mt-1 block text-xs", documentLinkType === "debtPayment" ? "text-indigo-100" : subtle)}>Sənədin qalıq borcunu azaldır, mayanı dəyişmir.</span>
                 </button>
                 <button type="button" disabled={!isExpense} onClick={() => onDocumentLinkTypeChange("landedCost")} className={cx("rounded-xl px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-40", documentLinkType === "landedCost" ? "bg-indigo-600 text-white" : isDark ? "hover:bg-white/7" : "hover:bg-slate-50")}>
-                  <span className="block font-semibold">Maya xərci</span>
-                  <span className={cx("mt-1 block text-xs", documentLinkType === "landedCost" ? "text-indigo-100" : subtle)}>Xərci konteynerlərə bölür və maya dəyərinə əlavə edir.</span>
+                  <span className="block font-semibold">Antrepo xərci</span>
+                  <span className={cx("mt-1 block text-xs", documentLinkType === "landedCost" ? "text-indigo-100" : subtle)}>Tarixdə qalan alış partiyasının mayasına əlavə edir.</span>
+                </button>
+                <button type="button" disabled={!isExpense} onClick={() => onDocumentLinkTypeChange("movementCost")} className={cx("rounded-xl px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-40", documentLinkType === "movementCost" ? "bg-indigo-600 text-white" : isDark ? "hover:bg-white/7" : "hover:bg-slate-50")}>
+                  <span className="block font-semibold">Depoya düşüm xərci</span>
+                  <span className={cx("mt-1 block text-xs", documentLinkType === "movementCost" ? "text-indigo-100" : subtle)}>Konkret yerdəyişmə ilə yaranan depo partiyasına əlavə edir.</span>
                 </button>
               </div>
 
@@ -3339,9 +3367,9 @@ function MoneyForm({
                 <span className="mb-2 block text-sm font-semibold text-slate-500">Sənəd seçimi <span className="text-rose-500">*</span></span>
                 <select value={linkedDocumentId} onChange={(event) => onLinkedDocumentIdChange(event.target.value)} className={input}>
                   <option value="">Sənəd seçin</option>
-                  {linkDocumentOptions.map((document) => (
+                  {visibleLinkDocuments.map((document) => (
                     <option key={document.id} value={document.id}>
-                      {document.title} · {document.counterparty || "Kontragent yoxdur"} · Qalıq {document.remaining.toFixed(2)} ₼
+                      {document.title} · {document.counterparty || "Kontragent yoxdur"}{document.type === "movement" ? ` · ${document.qty.toLocaleString('az-Latn-AZ')} miqdar` : ` · Qalıq ${document.remaining.toFixed(2)} ₼`}
                     </option>
                   ))}
                 </select>
@@ -3355,7 +3383,7 @@ function MoneyForm({
                 </div>
               )}
 
-              {documentLinkType === "landedCost" && (
+              {(documentLinkType === "landedCost" || documentLinkType === "movementCost") && (
                 <>
                   <label className="block max-w-md">
                     <span className="mb-2 block text-sm font-semibold text-slate-500">Xərc növü</span>
@@ -3365,12 +3393,13 @@ function MoneyForm({
                   </label>
 
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
-                    <div className={cx("max-h-64 overflow-auto rounded-2xl border", border, isDark ? "bg-slate-950/35" : "bg-white")}> 
-                      {!linkedDocumentId ? (
-                        <div className={cx("p-4 text-sm", subtle)}>Əvvəlcə alış sənədini seç.</div>
-                      ) : visibleCostContainers.length === 0 ? (
-                        <div className={cx("p-4 text-sm", subtle)}>Bu sənəddə konteyner tapılmadı.</div>
-                      ) : visibleCostContainers.map((container) => (
+                    {documentLinkType === "landedCost" ? (
+                      <div className={cx("max-h-64 overflow-auto rounded-2xl border", border, isDark ? "bg-slate-950/35" : "bg-white")}>
+                        {!linkedDocumentId ? (
+                          <div className={cx("p-4 text-sm", subtle)}>Əvvəlcə alış sənədini seç.</div>
+                        ) : visibleCostContainers.length === 0 ? (
+                          <div className={cx("p-4 text-sm", subtle)}>Bu sənəddə konteyner tapılmadı.</div>
+                        ) : visibleCostContainers.map((container) => (
                         <button
                           key={container.key}
                           type="button"
@@ -3385,8 +3414,20 @@ function MoneyForm({
                             <span className={cx("block truncate text-xs", subtle)}>{container.pallets} palet · {container.rolls} rulo · {container.qty.toLocaleString('az-Latn-AZ')} miqdar</span>
                           </span>
                         </button>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className={cx("rounded-2xl border p-4", border, isDark ? "bg-slate-950/35" : "bg-white")}>
+                        <div className="text-sm font-semibold">Düşüm partiyası</div>
+                        {selectedLinkedDocument ? (
+                          <div className="mt-3 space-y-2 text-sm">
+                            <div className="flex justify-between gap-3"><span className={subtle}>Sənəd</span><strong>{selectedLinkedDocument.title}</strong></div>
+                            <div className="flex justify-between gap-3"><span className={subtle}>Tarix</span><strong>{new Date(selectedLinkedDocument.documentDate).toLocaleString('az-Latn-AZ')}</strong></div>
+                            <div className="flex justify-between gap-3"><span className={subtle}>Partiya miqdarı</span><strong className="tabular-nums">{selectedLinkedDocument.qty.toLocaleString('az-Latn-AZ')}</strong></div>
+                          </div>
+                        ) : <div className={cx("mt-3 text-sm", subtle)}>Əvvəlcə depoya düşüm sənədini seç.</div>}
+                      </div>
+                    )}
 
                     <div className={cx("rounded-2xl border p-4", border, isDark ? "bg-slate-950/35" : "bg-white")}> 
                       <div className="text-sm font-semibold">Maya hesablaması</div>
