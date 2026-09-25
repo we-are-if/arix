@@ -24,6 +24,14 @@ type CompanySettings = {
   exchangeSettings: ExchangeSettings;
   printSettings: PrintSettings;
 };
+type CompanyStore = {
+  id: number;
+  key: string;
+  name: string;
+  type: string;
+  status: "active" | "inactive";
+  createdAt: string;
+};
 
 const defaultCompanySettings: CompanySettings = {
   stockMode: "simple",
@@ -178,11 +186,6 @@ const employees = [
   { name: "Mustafa Yazman", role: "Maliyyə", phone: "+90 533 965 488", email: "mustafa@arix.az", tone: "violet" },
 ];
 
-const stores = [
-  { name: "ERSA DEPO", type: "Əsas mağaza", date: "22 sentyabr 2024", status: "Aktiv", balance: "522,199.72 ₼" },
-  { name: "ERSA ANTREPO", type: "Anbar", date: "5 noyabr 2024", status: "Aktiv", balance: "1,147,922.59 ₼" },
-];
-
 const accounts = [
   { name: "Kassa №1", type: "Kassa", date: "22 sentyabr 2024", balance: "0.00 ₼" },
   { name: "Ekrem Tiryaki", type: "Kassa", date: "11 noyabr 2024", balance: "0.00 ₼" },
@@ -240,13 +243,33 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   const soft = isDark ? "bg-white/5" : "bg-white/55";
   const subtle = isDark ? "text-slate-400" : "text-slate-500";
   const input = cx("h-11 w-full rounded-xl border px-3 outline-none", border, isDark ? "bg-white/5 text-slate-100" : "bg-white/75 text-slate-800");
+  const [companyStores, setCompanyStores] = useState<CompanyStore[]>([]);
+
+  const loadStores = async () => {
+    try {
+      const payload = await requestJson<{ data: CompanyStore[] }>("/api/stores");
+      setCompanyStores(Array.isArray(payload.data) ? payload.data : []);
+    } catch {
+      setCompanyStores([]);
+    }
+  };
+
+  useEffect(() => {
+    if (section !== "stores") return;
+    void loadStores();
+  }, [section]);
+
   const stats = useMemo(() => {
     if (section === "employees") return [{ label: "Cəmi əməkdaş", value: "5" }, { label: "Rəhbər", value: "3" }, { label: "Anbar", value: "1" }];
-    if (section === "stores") return [{ label: "Mağaza", value: "1" }, { label: "Anbar", value: "1" }, { label: "Aktiv nöqtə", value: "2" }];
+    if (section === "stores") return [
+      { label: "Mağaza", value: String(companyStores.filter((store) => store.type !== "Anbar").length) },
+      { label: "Anbar", value: String(companyStores.filter((store) => store.type === "Anbar").length) },
+      { label: "Aktiv nöqtə", value: String(companyStores.filter((store) => store.status === "active").length) },
+    ];
     if (section === "accounts") return [{ label: "Balans", value: "-625,722.87 ₼" }, { label: "Kassa", value: "2" }, { label: "Mağaza hesabı", value: "2" }];
     if (section === "printForms") return [{ label: "Şablon", value: "8" }, { label: "Aktiv", value: "8" }, { label: "Qrup", value: "4" }];
     return [{ label: "Profil", value: "Hazır" }, { label: "Valyuta", value: "AZN" }, { label: "Ölkə", value: "Azərbaycan" }];
-  }, [section]);
+  }, [companyStores, section]);
 
   const stockModes: { id: StockMode; title: string; subtitle: string; points: string[] }[] = [
     {
@@ -272,7 +295,15 @@ export default function Company({ section, isDark = false }: { section: CompanyS
             <h1 className="mt-1 text-2xl font-semibold">{meta.title}</h1>
             <p className={cx("mt-1 text-sm", subtle)}>{meta.subtitle}</p>
           </div>
-          {section !== "settings" && section !== "printForms" && <button type="button" className="surface-primary h-10 rounded-xl px-4 text-sm font-semibold">Yarat</button>}
+          {section !== "settings" && section !== "printForms" && (
+            <button
+              type="button"
+              onClick={() => section === "stores" && window.dispatchEvent(new Event("arix:create-store"))}
+              className="surface-primary h-10 rounded-xl px-4 text-sm font-semibold"
+            >
+              Yarat
+            </button>
+          )}
         </div>
       </div>
 
@@ -287,7 +318,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
 
       {section === "settings" && <SettingsView border={border} card={card} subtle={subtle} input={input} />}
       {section === "employees" && <EmployeesView border={border} card={card} soft={soft} subtle={subtle} isDark={isDark} />}
-      {section === "stores" && <StoresView border={border} card={card} soft={soft} subtle={subtle} />}
+      {section === "stores" && <StoresView stores={companyStores} onChanged={loadStores} border={border} card={card} soft={soft} subtle={subtle} input={input} />}
       {section === "accounts" && <AccountsView border={border} card={card} soft={soft} subtle={subtle} />}
       {section === "loyalty" && <LoyaltyView border={border} card={card} soft={soft} subtle={subtle} />}
       {section === "printForms" && <PrintFormsView border={border} card={card} soft={soft} subtle={subtle} input={input} isDark={isDark} />}
@@ -742,12 +773,155 @@ function EmployeesView({ border, card, soft, subtle, isDark }: { border: string;
   );
 }
 
-function StoresView({ border, card, soft, subtle }: { border: string; card: string; soft: string; subtle: string }) {
+function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
+  stores: CompanyStore[];
+  onChanged: () => Promise<void>;
+  border: string;
+  card: string;
+  soft: string;
+  subtle: string;
+  input: string;
+}) {
+  const [editing, setEditing] = useState<CompanyStore | null | "new">(null);
+  const [name, setName] = useState("");
+  const [type, setType] = useState("Mağaza");
+  const [status, setStatus] = useState<"active" | "inactive">("active");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [deleting, setDeleting] = useState<CompanyStore | null>(null);
+  const [deleteMessage, setDeleteMessage] = useState("");
+
+  const openEditor = (store?: CompanyStore) => {
+    setEditing(store ?? "new");
+    setName(store?.name ?? "");
+    setType(store?.type ?? "Mağaza");
+    setStatus(store?.status ?? "active");
+    setMessage("");
+  };
+
+  useEffect(() => {
+    const open = () => openEditor();
+    window.addEventListener("arix:create-store", open);
+    return () => window.removeEventListener("arix:create-store", open);
+  }, []);
+
+  const save = async () => {
+    if (!name.trim()) {
+      setMessage("Mağaza adını yazın.");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    try {
+      const current = editing !== "new" ? editing : null;
+      await requestJson(current ? `/api/stores/${current.id}` : "/api/stores", {
+        method: current ? "PATCH" : "POST",
+        body: JSON.stringify({ name: name.trim(), type, status }),
+      });
+      await onChanged();
+      window.dispatchEvent(new Event("arix:stores-updated"));
+      setEditing(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Mağaza saxlanılmadı.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (store: CompanyStore) => {
+    setSaving(true);
+    setDeleteMessage("");
+    try {
+      await requestJson(`/api/stores/${store.id}`, { method: "DELETE" });
+      await onChanged();
+      window.dispatchEvent(new Event("arix:stores-updated"));
+      setDeleting(null);
+    } catch (error) {
+      setDeleteMessage(error instanceof Error ? error.message : "Mağaza silinmədi.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <CreateTile border={border} soft={soft} label="Mağaza yarat" />
-      {stores.map((store) => <StoreCard key={store.name} item={store} border={border} card={card} soft={soft} subtle={subtle} />)}
-    </div>
+    <>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <CreateTile border={border} soft={soft} label="Mağaza yarat" onClick={() => openEditor()} />
+        {stores.map((store) => (
+          <StoreCard
+            key={store.id}
+            item={{
+              name: store.name,
+              type: store.type,
+              date: new Date(store.createdAt).toLocaleDateString("az-Latn-AZ", { day: "numeric", month: "long", year: "numeric" }),
+              status: store.status === "active" ? "Aktiv" : "Deaktiv",
+            }}
+            onEdit={() => openEditor(store)}
+            onDelete={() => { setDeleting(store); setDeleteMessage(""); }}
+            border={border}
+            card={card}
+            soft={soft}
+            subtle={subtle}
+          />
+        ))}
+      </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm" onMouseDown={() => setEditing(null)}>
+          <div className={cx("w-full max-w-lg rounded-2xl border p-5 shadow-2xl", border, card)} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold">{editing === "new" ? "Mağaza yarat" : "Mağazanı redaktə et"}</h2>
+                <p className={cx("mt-1 text-sm", subtle)}>Ad dəyişdikdə məhsul siyahısı və qiymətlər avtomatik yenilənir.</p>
+              </div>
+              <button type="button" onClick={() => setEditing(null)} className={cx("rounded-lg px-2 py-1 text-xl", subtle)} aria-label="Bağla">×</button>
+            </div>
+            <div className="mt-5 space-y-4">
+              <Field label="Ad"><input autoFocus className={input} value={name} onChange={(event) => setName(event.target.value)} /></Field>
+              <Field label="Növ">
+                <select className={input} value={type} onChange={(event) => setType(event.target.value)}>
+                  <option value="Əsas mağaza">Əsas mağaza</option>
+                  <option value="Mağaza">Mağaza</option>
+                  <option value="Anbar">Anbar</option>
+                  <option value="Satış nöqtəsi">Satış nöqtəsi</option>
+                </select>
+              </Field>
+              <Field label="Status">
+                <select className={input} value={status} onChange={(event) => setStatus(event.target.value as "active" | "inactive")}>
+                  <option value="active">Aktiv</option>
+                  <option value="inactive">Deaktiv</option>
+                </select>
+              </Field>
+              {message && <div className="text-sm text-rose-600">{message}</div>}
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={() => setEditing(null)} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold", border)}>İmtina et</button>
+              <button type="button" onClick={() => void save()} disabled={saving} className="surface-primary h-10 rounded-xl px-5 text-sm font-semibold disabled:opacity-60">
+                {saving ? "Saxlanılır..." : "Saxla"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleting && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm" onMouseDown={() => setDeleting(null)}>
+          <div className={cx("w-full max-w-md rounded-2xl border p-5 shadow-2xl", border, card)} onMouseDown={(event) => event.stopPropagation()}>
+            <h2 className="text-xl font-semibold">Mağaza silinsin?</h2>
+            <p className={cx("mt-2 text-sm leading-6", subtle)}>
+              <strong className="text-slate-800">{deleting.name}</strong> sistemdən silinəcək. Mağazada qalıq varsa sistem silməyə icazə verməyəcək.
+            </p>
+            {deleteMessage && <div className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{deleteMessage}</div>}
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={() => setDeleting(null)} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold", border)}>İmtina et</button>
+              <button type="button" onClick={() => void remove(deleting)} disabled={saving} className="h-10 rounded-xl bg-rose-600 px-5 text-sm font-semibold text-white disabled:opacity-60">
+                {saving ? "Silinir..." : "Sil"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1068,7 +1242,15 @@ function PrintFormPreview({ settings, form, subtle }: { settings: PrintSettings;
   );
 }
 
-function StoreCard({ item, border, card, soft, subtle }: { item: { name: string; type: string; date: string; balance?: string; status?: string }; border: string; card: string; soft: string; subtle: string }) {
+function StoreCard({ item, onEdit, onDelete, border, card, soft, subtle }: {
+  item: { name: string; type: string; date: string; balance?: string; status?: string };
+  onEdit?: () => void;
+  onDelete?: () => void;
+  border: string;
+  card: string;
+  soft: string;
+  subtle: string;
+}) {
   return (
     <div className={cx("overflow-hidden rounded-2xl border", border, card)}>
       <div className={cx("border-b px-4 py-3 text-sm font-semibold", border, soft)}>{item.type}</div>
@@ -1079,20 +1261,21 @@ function StoreCard({ item, border, card, soft, subtle }: { item: { name: string;
         <div className="min-w-0">
           <div className="truncate text-xl font-semibold text-indigo-600">{item.name}</div>
           <div className={cx("mt-1 text-sm", subtle)}>Yaradıldı {item.date}</div>
+          {item.status && <div className={cx("mt-1 text-sm", item.status === "Aktiv" ? "text-emerald-600" : subtle)}>{item.status}</div>}
           {item.balance && <div className={cx("mt-1 text-sm", subtle)}>Balans {item.balance}</div>}
         </div>
       </div>
       <div className={cx("grid grid-cols-[1fr_72px] border-t p-3", border, soft)}>
-        <button type="button" className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-400 text-sm font-semibold text-emerald-600"><I.Edit className="h-4 w-4" />Redaktə</button>
-        <button type="button" className="ml-2 inline-flex h-10 items-center justify-center rounded-xl border border-rose-400 text-rose-600"><I.Trash className="h-4 w-4" /></button>
+        <button type="button" onClick={onEdit} disabled={!onEdit} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-400 text-sm font-semibold text-emerald-600 disabled:opacity-40"><I.Edit className="h-4 w-4" />Redaktə</button>
+        <button type="button" onClick={onDelete} disabled={!onDelete} className="ml-2 inline-flex h-10 items-center justify-center rounded-xl border border-rose-400 text-rose-600 disabled:opacity-40"><I.Trash className="h-4 w-4" /></button>
       </div>
     </div>
   );
 }
 
-function CreateTile({ border, soft, label }: { border: string; soft: string; label: string }) {
+function CreateTile({ border, soft, label, onClick }: { border: string; soft: string; label: string; onClick?: () => void }) {
   return (
-    <button type="button" className={cx("flex min-h-[190px] items-center justify-center rounded-2xl border border-dashed transition hover:border-indigo-300", border, soft)}>
+    <button type="button" onClick={onClick} className={cx("flex min-h-[190px] items-center justify-center rounded-2xl border border-dashed transition hover:border-indigo-300", border, soft)}>
       <span className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white/60 px-4 py-3 text-sm font-semibold text-indigo-600">
         <I.Plus className="h-4 w-4" />
         {label}

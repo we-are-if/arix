@@ -151,6 +151,46 @@ const I = {
 /* ------------------------------ demo data ------------------------------ */
 type ProductType = "product" | "service" | "bundle";
 type CreateTarget = ProductType | "folder" | "category" | "import" | "export";
+type ProductCardProfile = {
+  brand?: string;
+  plu?: string;
+  imageDataUrl?: string;
+  secondaryUnit?: string;
+  conversionRate?: number;
+  lengthCm?: number;
+  widthCm?: number;
+  depthCm?: number;
+  weightKg?: number;
+  rollWidthMm?: number;
+  defaultRollLengthMt?: number;
+  netWeightKg?: number;
+  grossWeightKg?: number;
+  volumeM3?: number;
+  barcodeType?: "fixed" | "weight" | "quantity" | "plu";
+  barcodeDecimals?: number;
+  wholesalePrice?: number;
+  discountPercent?: number;
+  taxRate?: number;
+  taxFree?: boolean;
+  useStorePrices?: boolean;
+  weighted?: boolean;
+  packageName?: string;
+  packageQty?: number;
+  maxStock?: number;
+  minOrderQty?: number;
+  maxOrderQty?: number;
+  negativeStockAllowed?: boolean;
+  shelfLocation?: string;
+  shelfLifeDays?: number;
+  leadTimeDays?: number;
+  warrantyMonths?: number;
+  tariffCode?: string;
+  supplierCode?: string;
+  supplierProductCode?: string;
+  alternativeProductIds?: number[];
+  features?: string;
+  note?: string;
+};
 type Product = {
   id: number;
   type: ProductType;
@@ -158,12 +198,14 @@ type Product = {
   groupId: number | null;    // qovluq id-si (null = root)
   kod?: string;
   artikel?: string;
+  barcode?: string;
   vahid?: string;
   sale_price?: number;
   cost?: number;
   purchase_price?: number;
   categoryIds?: number[];
   description?: string;
+  country?: string;
   supplier?: string;
   minStock?: number;
   expirationDate?: string;
@@ -175,12 +217,17 @@ type Product = {
   expiresInDays?: number;
   daysSinceChange?: number;
   daysSinceSold?: number;
+  active?: boolean;
+  createdAt?: string;
+  warehouseStock?: Record<string, number>;
+  cardProfile?: ProductCardProfile;
 };
 type ApiProduct = {
   id: number;
   name: string;
   code: string;
   sku: string;
+  barcode?: string;
   type: ProductType;
   unit: string;
   groupId: number | null;
@@ -188,10 +235,26 @@ type ApiProduct = {
   salePrice?: number;
   cost?: number;
   purchasePrice?: number;
-  warehouses?: {
-    antrepo?: number;
-    depo?: number;
-  };
+  description?: string;
+  country?: string;
+  supplier?: string;
+  minStock?: number;
+  expirationDate?: string;
+  freePrice?: boolean;
+  storePrices?: boolean;
+  modified?: boolean;
+  active?: boolean;
+  createdAt?: string;
+  warehouses?: Record<string, number>;
+  cardProfile?: ProductCardProfile;
+};
+type CompanyStore = {
+  id: number;
+  key: string;
+  name: string;
+  type: string;
+  status: "active" | "inactive";
+  createdAt: string;
 };
 type Group = { id: number; name: string; parentId: number | null };
 type Category = { id: number; name: string; parentId: number | null };
@@ -252,6 +315,11 @@ type CompanySettings = {
   reserveBeforeBondedExit?: boolean;
   rollTracking?: boolean;
 };
+
+const DEFAULT_STORES: CompanyStore[] = [
+  { id: 1, key: "depo", name: "ERSA DEPO", type: "Əsas mağaza", status: "active", createdAt: "2024-09-22" },
+  { id: 2, key: "antrepo", name: "ERSA ANTREPO", type: "Anbar", status: "active", createdAt: "2024-11-05" },
+];
 
 const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   stockMode: "simple",
@@ -332,8 +400,7 @@ const DEMO_BUNDLE_ITEMS: BundleItem[] = [
 type ColId =
   | "foto" | "kod" | "taxes" | "barcode" | "artikel" | "vahid" | "plu"
   | "expiration" | "category" | "country" | "supplier"
-  | "sale_price" | "cost" | "purchase_price" | "created" | "discount" | "min_stock"
-  | "antrepo" | "depo";
+  | "sale_price" | "cost" | "purchase_price" | "created" | "discount" | "min_stock";
 
 type ColSettings = Record<ColId, boolean>;
 
@@ -341,7 +408,6 @@ const COLUMN_IDS: ColId[] = [
   "foto", "kod", "taxes", "barcode", "artikel", "vahid", "plu",
   "expiration", "category", "country", "supplier",
   "sale_price", "cost", "purchase_price", "created", "discount", "min_stock",
-  "antrepo", "depo",
 ];
 const FOLDER_SUMMARY_DISABLED_COLS = new Set<ColId>([
   "kod", "taxes", "barcode", "artikel", "vahid", "plu",
@@ -353,7 +419,6 @@ const DEFAULT_COLS: ColSettings = {
   foto: true, kod: true, taxes: false, barcode: false, artikel: true, vahid: true, plu: false,
   expiration: false, category: false, country: false, supplier: false,
   sale_price: false, cost: false, purchase_price: false, created: false, discount: false, min_stock: false,
-  antrepo: true, depo: true,
 };
 
 type RowDensity = "comfortable" | "compact";
@@ -365,6 +430,8 @@ type SearchSettings = { scope: SearchScope };
 
 const STORAGE = {
   cols: "arix.products.cols.v3",
+  storeCols: "arix.products.storeCols.v1",
+  columnWidths: "arix.products.columnWidths.v1",
   view: "arix.products.view.v1",
   nav: "arix.products.nav.v1",
   search: "arix.products.search.v1",
@@ -386,14 +453,56 @@ const mapApiProduct = (product: ApiProduct): Product => ({
   groupId: product.groupId,
   kod: product.code,
   artikel: product.sku,
+  barcode: product.barcode,
   vahid: product.unit,
   sale_price: product.salePrice,
   cost: product.cost,
   purchase_price: product.purchasePrice ?? product.salePrice,
   categoryIds: product.categoryIds ?? [],
+  description: product.description,
+  country: product.country,
+  supplier: product.supplier,
+  minStock: product.minStock,
+  expirationDate: product.expirationDate,
+  freePrice: product.freePrice,
+  storePrices: product.storePrices,
+  modified: product.modified,
+  active: product.active ?? true,
+  createdAt: product.createdAt,
+  warehouseStock: Object.fromEntries(Object.entries(product.warehouses ?? {}).map(([key, value]) => [key, Number(value ?? 0)])),
   antrepo: Number(product.warehouses?.antrepo ?? 0),
   depo: Number(product.warehouses?.depo ?? 0),
+  cardProfile: product.cardProfile,
 });
+
+const toApiProductPatch = (patch: Partial<Product>) => {
+  const payload: Record<string, unknown> = {};
+  if ("ad" in patch) payload.name = patch.ad;
+  if ("kod" in patch) payload.code = patch.kod;
+  if ("artikel" in patch) payload.sku = patch.artikel;
+  if ("barcode" in patch) payload.barcode = patch.barcode;
+  if ("type" in patch) payload.type = patch.type;
+  if ("vahid" in patch) payload.unit = patch.vahid;
+  if ("groupId" in patch) payload.groupId = patch.groupId;
+  if ("categoryIds" in patch) payload.categoryIds = patch.categoryIds;
+  if ("sale_price" in patch) payload.salePrice = patch.sale_price;
+  if ("cost" in patch) payload.cost = patch.cost;
+  if ("purchase_price" in patch) payload.purchasePrice = patch.purchase_price;
+  if ("description" in patch) payload.description = patch.description;
+  if ("country" in patch) payload.country = patch.country;
+  if ("supplier" in patch) payload.supplier = patch.supplier;
+  if ("minStock" in patch) payload.minStock = patch.minStock;
+  if ("expirationDate" in patch) payload.expirationDate = patch.expirationDate;
+  if ("freePrice" in patch) payload.freePrice = patch.freePrice;
+  if ("storePrices" in patch) payload.storePrices = patch.storePrices;
+  if ("modified" in patch) payload.modified = patch.modified;
+  if ("active" in patch) payload.active = patch.active;
+  if ("cardProfile" in patch) payload.cardProfile = patch.cardProfile;
+  if ("antrepo" in patch || "depo" in patch) {
+    payload.warehouses = { antrepo: patch.antrepo, depo: patch.depo };
+  }
+  return payload;
+};
 
 const DEFAULT_VIEW: ViewSettings = { density: "comfortable", stickyHeader: true, zebra: false };
 const DEFAULT_NAV: NavSettings = { foldersEnabled: true };
@@ -422,6 +531,57 @@ const FILTERS_DEFAULT: Filters = {
   changes: { mode: "changed_over", unit: "days" },
   marketability: { mode: "sold_during", unit: "days" },
 };
+
+function ResizableTableHeader({
+  columnKey,
+  label,
+  align,
+  rowPad,
+  width,
+  minimum,
+  onResizeStart,
+  onReset,
+  onStep,
+}: {
+  columnKey: string;
+  label: string;
+  align: "left" | "right";
+  rowPad: string;
+  width: number;
+  minimum: number;
+  onResizeStart: (key: string, event: React.PointerEvent<HTMLSpanElement>) => void;
+  onReset: (key: string) => void;
+  onStep: (key: string, delta: number) => void;
+}) {
+  return (
+    <th className={cx("group/column relative px-3", rowPad, align === "right" ? "text-right" : "text-left")} style={{ width }}>
+      <span className="block truncate pr-1">{label}</span>
+      <span
+        role="separator"
+        aria-label={`${label} sütununun ölçüsünü dəyiş`}
+        aria-orientation="vertical"
+        aria-valuemin={minimum}
+        aria-valuemax={640}
+        aria-valuenow={width}
+        tabIndex={0}
+        title="Sürükləyərək ölçünü dəyiş · iki dəfə basaraq sıfırla"
+        onPointerDown={(event) => onResizeStart(columnKey, event)}
+        onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onReset(columnKey); }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+            event.preventDefault();
+            onStep(columnKey, event.key === "ArrowRight" ? 10 : -10);
+          }
+          if (event.key === "Home") {
+            event.preventDefault();
+            onReset(columnKey);
+          }
+        }}
+        className="absolute -right-1 top-0 z-20 h-full w-2 cursor-col-resize touch-none select-none outline-none after:absolute after:bottom-1 after:left-1/2 after:top-1 after:w-px after:-translate-x-1/2 after:bg-slate-300 after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:after:bg-indigo-500 focus-visible:after:opacity-100 group-hover/column:after:opacity-70"
+      />
+    </th>
+  );
+}
 
 const SYSTEM_FILTER_PRESETS = [
   { id: "discounted", label: "Endirimli məhsullar" },
@@ -496,16 +656,19 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     catch { return DEMO_BUNDLE_ITEMS; }
   });
   const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
+  const [stores, setStores] = useState<CompanyStore[]>(DEFAULT_STORES);
   const loadProductsFromApi = useCallback(async () => {
     try {
-      const [productsPayload, groupsPayload, categoriesPayload] = await Promise.all([
+      const [productsPayload, groupsPayload, categoriesPayload, storesPayload] = await Promise.all([
         requestJson<{ data: ApiProduct[] }>("/api/products"),
         requestJson<{ data: Group[] }>("/api/product-groups"),
         requestJson<{ data: Category[] }>("/api/categories"),
+        requestJson<{ data: CompanyStore[] }>("/api/stores"),
       ]);
       if (Array.isArray(productsPayload.data)) setRows(productsPayload.data.map(mapApiProduct));
       if (Array.isArray(groupsPayload.data)) setGroups(groupsPayload.data);
       if (Array.isArray(categoriesPayload.data)) setCategories(categoriesPayload.data.map((item) => ({ ...item, parentId: item.parentId ?? null })));
+      if (Array.isArray(storesPayload.data) && storesPayload.data.length) setStores(storesPayload.data);
     } catch {
       /* keep local demo data when API is not running */
     }
@@ -524,15 +687,18 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     void loadProductsFromApi();
     void loadCompanySettings();
     const onProductsUpdated = () => void loadProductsFromApi();
+    const onStoresUpdated = () => void loadProductsFromApi();
     const onCompanySettingsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<CompanySettings>).detail;
       if (detail) setCompanySettings({ ...DEFAULT_COMPANY_SETTINGS, ...detail });
       else void loadCompanySettings();
     };
     window.addEventListener("arix:products-updated", onProductsUpdated);
+    window.addEventListener("arix:stores-updated", onStoresUpdated);
     window.addEventListener("arix:company-settings-updated", onCompanySettingsUpdated);
     return () => {
       window.removeEventListener("arix:products-updated", onProductsUpdated);
+      window.removeEventListener("arix:stores-updated", onStoresUpdated);
       window.removeEventListener("arix:company-settings-updated", onCompanySettingsUpdated);
     };
   }, [loadCompanySettings, loadProductsFromApi]);
@@ -544,6 +710,14 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   const [cols, setCols] = useState<ColSettings>(() => {
     try { const raw = localStorage.getItem(STORAGE.cols); return raw ? { ...DEFAULT_COLS, ...JSON.parse(raw) } : DEFAULT_COLS; }
     catch { return DEFAULT_COLS; }
+  });
+  const [storeCols, setStoreCols] = useState<Record<string, boolean>>(() => {
+    try { const raw = localStorage.getItem(STORAGE.storeCols); return raw ? JSON.parse(raw) as Record<string, boolean> : {}; }
+    catch { return {}; }
+  });
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    try { const raw = localStorage.getItem(STORAGE.columnWidths); return raw ? JSON.parse(raw) as Record<string, number> : {}; }
+    catch { return {}; }
   });
   const [view, setView] = useState<ViewSettings>(() => {
     try { const raw = localStorage.getItem(STORAGE.view); return raw ? { ...DEFAULT_VIEW, ...JSON.parse(raw) } : DEFAULT_VIEW; }
@@ -572,6 +746,8 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   });
   /* persist */
   useEffect(() => { try { localStorage.setItem(STORAGE.cols, JSON.stringify(cols)); } catch { /* ignore */ } }, [cols]);
+  useEffect(() => { try { localStorage.setItem(STORAGE.storeCols, JSON.stringify(storeCols)); } catch { /* ignore */ } }, [storeCols]);
+  useEffect(() => { try { localStorage.setItem(STORAGE.columnWidths, JSON.stringify(columnWidths)); } catch { /* ignore */ } }, [columnWidths]);
   useEffect(() => { try { localStorage.setItem(STORAGE.view, JSON.stringify(view)); } catch { /* ignore */ } }, [view]);
   useEffect(() => { try { localStorage.setItem(STORAGE.nav, JSON.stringify(nav)); } catch { /* ignore */ } }, [nav]);
   useEffect(() => { try { localStorage.setItem(STORAGE.search, JSON.stringify(searchSet)); } catch { /* ignore */ } }, [searchSet]);
@@ -588,6 +764,17 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   /* visibility */
   const canSeeCosts = true;
   const colVisible = (id: ColId) => cols[id] && (canSeeCosts || (id !== "cost" && id !== "purchase_price"));
+  const activeStores = useMemo(() => stores.filter((store) => store.status === "active"), [stores]);
+  const visibleStores = useMemo(() => activeStores.filter((store) => storeCols[store.key] !== false), [activeStores, storeCols]);
+  const storeQty = useCallback((product: Product, store: CompanyStore) => Number(
+    product.warehouseStock?.[store.key]
+      ?? (store.key === "antrepo" ? product.antrepo : store.key === "depo" ? product.depo : 0)
+      ?? 0
+  ), []);
+  const totalStock = useCallback(
+    (product: Product) => activeStores.reduce((sum, store) => sum + storeQty(product, store), 0),
+    [activeStores, storeQty]
+  );
   const categoryLabel = useCallback((product: Product) => {
     const names = (product.categoryIds ?? [])
       .map((id) => categories.find((category) => category.id === id)?.name)
@@ -595,19 +782,20 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     return names.length ? names.join(", ") : "—";
   }, [categories]);
   const productCreatedLabel = (product: Product) => {
+    if (product.createdAt) return new Date(product.createdAt).toLocaleDateString("az-Latn-AZ");
     const day = ((product.id - 1) % 28) + 1;
     return `2026-05-${String(day).padStart(2, "0")}`;
   };
-  const barcodeLabel = (product: Product) => `${String(product.id).padStart(5, "0")}000${(product.kod ?? "").slice(-3)}`;
-  const pluLabel = (product: Product) => `PLU-${String(product.id).padStart(4, "0")}`;
+  const barcodeLabel = (product: Product) => product.barcode || `${String(product.id).padStart(5, "0")}000${(product.kod ?? "").slice(-3)}`;
+  const pluLabel = (product: Product) => product.cardProfile?.plu || `PLU-${String(product.id).padStart(4, "0")}`;
   const taxesLabel = (product: Product) => product.type === "service" ? "0%" : "18%";
   const discountLabel = (product: Product) => product.id % 9 === 0 ? "5%" : "—";
-  const countryLabel = (product: Product) => product.id % 4 === 0 ? "Türkiyə" : "Azərbaycan";
+  const countryLabel = (product: Product) => product.country || "—";
 
   /* filtering */
   const filterByQ = useCallback(
     (list: Product[]) =>
-      list.filter((r) => (r.ad + " " + (r.kod ?? "") + " " + (r.artikel ?? "")).toLowerCase().includes(q.toLowerCase())),
+      list.filter((r) => (r.ad + " " + (r.kod ?? "") + " " + (r.artikel ?? "") + " " + (r.barcode ?? "")).toLowerCase().includes(q.toLowerCase())),
     [q]
   );
 
@@ -867,6 +1055,51 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         return category.id;
       });
     if (nextCategories !== categories) setCategories(nextCategories);
+    const warehouseStock = Object.fromEntries(
+      stores
+        .filter((store) => store.status === "active")
+        .map((store) => [store.key, values.type === "service" ? 0 : parseOptionalNumber(values.warehouseStocks[store.key]) ?? 0])
+    );
+    const cardProfile: ProductCardProfile = {
+      brand: values.brand.trim() || undefined,
+      plu: values.plu.trim() || undefined,
+      imageDataUrl: values.sekil || undefined,
+      secondaryUnit: values.secondaryUnit || undefined,
+      conversionRate: parseOptionalNumber(values.conversionRate),
+      lengthCm: parseOptionalNumber(values.lengthCm),
+      widthCm: parseOptionalNumber(values.widthCm),
+      depthCm: parseOptionalNumber(values.depthCm),
+      weightKg: parseOptionalNumber(values.weightKg),
+      rollWidthMm: parseOptionalNumber(values.rollWidthMm),
+      defaultRollLengthMt: parseOptionalNumber(values.defaultRollLengthMt),
+      netWeightKg: parseOptionalNumber(values.netWeightKg),
+      grossWeightKg: parseOptionalNumber(values.grossWeightKg),
+      volumeM3: parseOptionalNumber(values.volumeM3),
+      barcodeType: values.barcodeType,
+      barcodeDecimals: parseOptionalNumber(values.barcodeDecimals),
+      wholesalePrice: parseOptionalNumber(values.wholesalePrice),
+      discountPercent: parseOptionalNumber(values.endirim),
+      taxRate: parseOptionalNumber(values.vergi),
+      taxFree: values.taxFree,
+      useStorePrices: values.storePrices,
+      weighted: values.weighted,
+      packageName: values.packageEnabled ? values.packageName.trim() || undefined : undefined,
+      packageQty: values.packageEnabled ? parseOptionalNumber(values.packageQty) : undefined,
+      maxStock: parseOptionalNumber(values.maxStock),
+      minOrderQty: parseOptionalNumber(values.minOrderQty),
+      maxOrderQty: parseOptionalNumber(values.maxOrderQty),
+      negativeStockAllowed: values.negativeStockAllowed,
+      shelfLocation: values.shelfLocation.trim() || undefined,
+      shelfLifeDays: parseOptionalNumber(values.shelfLifeDays),
+      leadTimeDays: parseOptionalNumber(values.leadTimeDays),
+      warrantyMonths: parseOptionalNumber(values.warrantyMonths),
+      tariffCode: values.tariffCode.trim() || undefined,
+      supplierCode: values.supplierCode.trim() || undefined,
+      supplierProductCode: values.supplierProductCode.trim() || undefined,
+      alternativeProductIds: values.alternativeProductIds.map(Number).filter(Number.isFinite),
+      features: values.xususiyyetler.trim() || undefined,
+      note: values.note.trim() || undefined,
+    };
     const newProduct: Product = {
       id,
       type: values.type,
@@ -874,11 +1107,13 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       groupId: Number.isFinite(groupId) ? groupId : null,
       kod: values.kod.trim() || nextProductCode,
       artikel: values.artikel.trim() || undefined,
+      barcode: values.barkod.trim() || values.gtin.trim() || undefined,
       vahid: values.vahid.trim() || (values.type === "service" ? "xidmət" : "əd"),
       sale_price: salePrice,
       cost: parseOptionalNumber(values.maya) ?? purchasePrice,
       purchase_price: purchasePrice,
       categoryIds,
+      country: values.country.trim() || undefined,
       supplier: values.supplier.trim() || undefined,
       description: values.description.trim() || values.xususiyyetler.trim() || undefined,
       minStock: parseOptionalNumber(values.minimalQalq),
@@ -886,11 +1121,15 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       freePrice: values.freePrice,
       storePrices: values.storePrices,
       modified: values.modifikasiya,
-      antrepo: parseOptionalNumber(values.antrepo) ?? 0,
-      depo: parseOptionalNumber(values.depo) ?? 0,
+      antrepo: Number(warehouseStock.antrepo ?? 0),
+      depo: Number(warehouseStock.depo ?? 0),
+      warehouseStock,
+      cardProfile,
       expiresInDays: 30,
       daysSinceChange: 0,
       daysSinceSold: values.type === "service" ? 0 : 30,
+      active: values.status === "active",
+      createdAt: new Date().toISOString(),
     };
 
     try {
@@ -901,6 +1140,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
           name: newProduct.ad,
           code: newProduct.kod,
           sku: newProduct.artikel ?? "",
+          barcode: newProduct.barcode,
           type: newProduct.type,
           unit: newProduct.vahid,
           groupId: newProduct.groupId,
@@ -908,14 +1148,16 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
           salePrice: newProduct.sale_price,
           cost: newProduct.cost,
           purchasePrice: newProduct.purchase_price,
-          warehouses: {
-            antrepo: newProduct.antrepo ?? 0,
-            depo: newProduct.depo ?? 0,
-          },
+          warehouses: newProduct.warehouseStock,
           description: newProduct.description,
+          country: newProduct.country,
           supplier: newProduct.supplier,
           minStock: newProduct.minStock,
-          active: true,
+          expirationDate: newProduct.expirationDate,
+          freePrice: newProduct.freePrice,
+          modified: newProduct.modified,
+          cardProfile: newProduct.cardProfile,
+          active: newProduct.active,
         }),
       });
       setRows((prev) => [mapApiProduct(payload.data), ...prev]);
@@ -927,13 +1169,31 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     setCreateOpen(false);
   };
 
-  const handleCreateGroup = ({ name, parentId }: { name: string; parentId: number | null }) => {
+  const handleCreateGroup = async ({ name, parentId }: { name: string; parentId: number | null }) => {
     if (groupCreateKind === "category") {
-      const id = Math.max(0, ...categories.map((category) => category.id)) + 1;
-      setCategories((prev) => [...prev, { id, name: name.trim(), parentId }]);
+      const fallback = { id: Math.max(0, ...categories.map((category) => category.id)) + 1, name: name.trim(), parentId };
+      try {
+        const payload = await requestJson<{ data: Category }>("/api/categories", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: name.trim(), parentId }),
+        });
+        setCategories((prev) => [...prev, payload.data]);
+      } catch {
+        setCategories((prev) => [...prev, fallback]);
+      }
     } else {
-      const id = Math.max(0, ...groups.map((group) => group.id)) + 1;
-      setGroups((prev) => [...prev, { id, name: name.trim(), parentId }]);
+      const fallback = { id: Math.max(0, ...groups.map((group) => group.id)) + 1, name: name.trim(), parentId };
+      try {
+        const payload = await requestJson<{ data: Group }>("/api/product-groups", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: name.trim(), parentId }),
+        });
+        setGroups((prev) => [...prev, payload.data]);
+      } catch {
+        setGroups((prev) => [...prev, fallback]);
+      }
       setCurrentFolder(parentId);
       setNav((v) => ({ ...v, foldersEnabled: true }));
       setSearchSet({ scope: "current" });
@@ -941,13 +1201,43 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
     setGroupCreateKind(null);
   };
 
-  const updateProduct = (productId: number, patch: Partial<Product>, auditDetail = "Məhsul kartı yeniləndi") => {
-    setRows((prev) => prev.map((row) => row.id === productId ? { ...row, ...patch, daysSinceChange: 0 } : row));
+  const updateProduct = async (productId: number, patch: Partial<Product>, auditDetail = "Məhsul kartı yeniləndi") => {
+    const current = rows.find((row) => row.id === productId);
+    const next = current ? {
+      ...current,
+      ...patch,
+      warehouseStock: {
+        ...(current.warehouseStock ?? {}),
+        ...(patch.warehouseStock ?? {}),
+        ...("antrepo" in patch ? { antrepo: patch.antrepo ?? 0 } : {}),
+        ...("depo" in patch ? { depo: patch.depo ?? 0 } : {}),
+      },
+      daysSinceChange: 0,
+    } : null;
+    setRows((prev) => prev.map((row) => row.id === productId && next ? next : row));
+    if (next) {
+      try {
+        const payload = await requestJson<{ data: ApiProduct }>(`/api/products/${productId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...toApiProductPatch(patch),
+            ...(("antrepo" in patch || "depo" in patch) ? {
+              warehouses: { ...(next.warehouseStock ?? {}), antrepo: next.antrepo ?? 0, depo: next.depo ?? 0 },
+            } : {}),
+          }),
+        });
+        setRows((prev) => prev.map((row) => row.id === productId ? { ...row, ...mapApiProduct(payload.data) } : row));
+      } catch {
+        // Local state remains available when the API is temporarily offline.
+      }
+    }
     logAudit(productId, "Redaktə", auditDetail);
   };
 
-  const deleteProducts = (ids: number[]) => {
+  const deleteProducts = async (ids: number[]) => {
     if (ids.length === 0) return;
+    await Promise.allSettled(ids.map((id) => requestJson(`/api/products/${id}`, { method: "DELETE" })));
     setRows((prev) => prev.filter((row) => !ids.includes(row.id)));
     setVariants((prev) => prev.filter((variant) => !ids.includes(variant.productId)));
     setBundleItems((prev) => prev.filter((item) => !ids.includes(item.bundleId) && !ids.includes(item.productId)));
@@ -957,8 +1247,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
 
   const applyMovement = (input: Omit<StockMovement, "id" | "at">) => {
     const movement: StockMovement = { ...input, id: Date.now(), at: new Date().toISOString() };
-    setRows((prev) => prev.map((row) => {
-      if (row.id !== input.productId) return row;
+    const applyToProduct = (row: Product) => {
       const next = { ...row };
       const place = input.place ?? "antrepo";
       if (input.type === "purchase" || input.type === "return") next[place] = (next[place] ?? 0) + input.qty;
@@ -968,10 +1257,31 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         next[input.from] = (next[input.from] ?? 0) - input.qty;
         next[input.to] = (next[input.to] ?? 0) + input.qty;
       }
+      next.warehouseStock = {
+        ...(next.warehouseStock ?? {}),
+        antrepo: next.antrepo ?? 0,
+        depo: next.depo ?? 0,
+      };
       next.daysSinceChange = 0;
       if (input.type === "sale") next.daysSinceSold = 0;
       return next;
-    }));
+    };
+    const currentProduct = rows.find((row) => row.id === input.productId);
+    const updatedProduct = currentProduct ? applyToProduct(currentProduct) : null;
+    setRows((prev) => prev.map((row) => row.id === input.productId ? applyToProduct(row) : row));
+    if (updatedProduct) {
+      void requestJson(`/api/products/${input.productId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          warehouses: {
+            ...(updatedProduct.warehouseStock ?? {}),
+            antrepo: updatedProduct.antrepo ?? 0,
+            depo: updatedProduct.depo ?? 0,
+          },
+        }),
+      }).catch(() => undefined);
+    }
     setMovements((prev) => [movement, ...prev].slice(0, 300));
     logAudit(input.productId, "Anbar", `${input.type} · ${input.qty}`);
   };
@@ -1165,14 +1475,103 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   }, [selected.size]);
 
   /* ui helpers */
+  const moduleSummary = useMemo(() => {
+    const stockItems = rows.filter((row) => row.type !== "service");
+    return {
+      products: rows.filter((row) => row.type === "product").length,
+      services: rows.filter((row) => row.type === "service").length,
+      bundles: rows.filter((row) => row.type === "bundle").length,
+      negative: stockItems.filter((row) => activeStores.some((store) => storeQty(row, store) < 0)).length,
+      low: stockItems.filter((row) => {
+        const minimum = row.minStock ?? 0;
+        return minimum > 0 && totalStock(row) < minimum;
+      }).length,
+    };
+  }, [activeStores, rows, storeQty, totalStock]);
+  const enabledTypes = (Object.entries(filters.types) as [ProductType, boolean][]).filter(([, enabled]) => enabled).map(([type]) => type);
+  const activeTypeScope: ProductType | "all" | "custom" = enabledTypes.length === 3 ? "all" : enabledTypes.length === 1 ? enabledTypes[0] : "custom";
+  const setTypeScope = (scope: ProductType | "all") => {
+    setFilters((current) => ({
+      ...current,
+      types: scope === "all"
+        ? { product: true, service: true, bundle: true }
+        : { product: scope === "product", service: scope === "service", bundle: scope === "bundle" },
+    }));
+  };
   const rowPad = view.density === "compact" ? "py-1.5" : "py-2.5";
   const folderSummaryMode = nav.foldersEnabled && searchSet.scope === "current" && visibleProducts.length === 0;
   const showProductDetailCols = !folderSummaryMode;
   const showProductMedia = colVisible("foto");
   const detailColVisible = (id: ColId) => showProductDetailCols && colVisible(id);
   const visibleStandardCols = COLUMN_IDS.filter((id) => id !== "foto" && colVisible(id) && (!FOLDER_SUMMARY_DISABLED_COLS.has(id) || showProductDetailCols));
-  const tableMinWidthPx = 48 + 280 + (visibleStandardCols.length + 1) * 132;
-  const tableColSpan = 2 + visibleStandardCols.length + 1;
+  const defaultColumnWidth = (key: string) => key === "name" ? 280 : 132;
+  const minimumColumnWidth = (key: string) => {
+    if (key === "name") return 160;
+    if (key === "vahid" || key === "kod" || key === "total") return 88;
+    return 96;
+  };
+  const columnWidth = (key: string) => Math.max(minimumColumnWidth(key), Number(columnWidths[key] ?? defaultColumnWidth(key)));
+  const visibleTableColumnKeys = [
+    "name",
+    ...visibleStandardCols,
+    ...visibleStores.map((store) => `store:${store.key}`),
+    "total",
+  ];
+  const tableMinWidthPx = 48 + visibleTableColumnKeys.reduce((sum, key) => sum + columnWidth(key), 0);
+  const tableColSpan = 2 + visibleStandardCols.length + visibleStores.length + 1;
+  const startColumnResize = (key: string, event: React.PointerEvent<HTMLSpanElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = columnWidth(key);
+    const previousCursor = document.body.style.cursor;
+    const previousSelection = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const move = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(640, Math.max(minimumColumnWidth(key), startWidth + moveEvent.clientX - startX));
+      setColumnWidths((current) => ({ ...current, [key]: Math.round(nextWidth) }));
+    };
+    const finish = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousSelection;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  };
+  const resetColumnWidth = (key: string) => {
+    setColumnWidths((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
+  const stepColumnWidth = (key: string, delta: number) => {
+    setColumnWidths((current) => ({
+      ...current,
+      [key]: Math.min(640, Math.max(minimumColumnWidth(key), Number(current[key] ?? defaultColumnWidth(key)) + delta)),
+    }));
+  };
+  const renderHeader = (key: string, label: string, align: "left" | "right" = "left") => (
+    <ResizableTableHeader
+      key={key}
+      columnKey={key}
+      label={label}
+      align={align}
+      rowPad={rowPad}
+      width={columnWidth(key)}
+      minimum={minimumColumnWidth(key)}
+      onResizeStart={startColumnResize}
+      onReset={resetColumnWidth}
+      onStep={stepColumnWidth}
+    />
+  );
   const folderSummaryText = [
     folderRows.length > 0 ? `${folderRows.length} qovluq` : false,
     `${pageSelectableIds.length} məhsul`,
@@ -1210,6 +1609,39 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   return (
     <>
     <div className="flex min-h-[calc(100dvh-12rem)] min-w-0 flex-col gap-3 md:h-[calc(100vh-8rem)] md:min-h-0">
+      <div className="flex flex-col gap-3 px-1 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className={cx("text-2xl font-semibold", isDark ? "text-slate-50" : "text-slate-900")}>Məhsullar və xidmətlər</h1>
+          <p className={cx("mt-1 text-sm", ui.textSubtle)}>Kartlar, qiymətlər və anbar qalıqları bir görünüşdə idarə olunur.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            ["all", "Hamısı", rows.length],
+            ["product", "Məhsullar", moduleSummary.products],
+            ["service", "Xidmətlər", moduleSummary.services],
+            ["bundle", "Dəstlər", moduleSummary.bundles],
+          ].map(([id, label, count]) => (
+            <button
+              key={String(id)}
+              type="button"
+              onClick={() => setTypeScope(id as ProductType | "all")}
+              className={cx(
+                "h-9 rounded-lg border px-3 text-sm font-medium transition",
+                activeTypeScope === id
+                  ? "border-indigo-600 bg-indigo-600 text-white shadow-sm"
+                  : cx(ui.borderSoft, isDark ? "bg-white/5 text-slate-300 hover:bg-white/10" : "bg-white/60 text-slate-600 hover:bg-white")
+              )}
+            >
+              {label} <span className={cx("ml-1 tabular-nums", activeTypeScope === id ? "text-indigo-100" : ui.textSubtle)}>{count}</span>
+            </button>
+          ))}
+          {(moduleSummary.negative > 0 || moduleSummary.low > 0) && (
+            <span className={cx("ml-1 text-xs font-medium", moduleSummary.negative > 0 ? "text-rose-600" : "text-amber-600")}>
+              {moduleSummary.negative > 0 ? `${moduleSummary.negative} mənfi qalıq` : `${moduleSummary.low} minimumdan az`}
+            </span>
+          )}
+        </div>
+      </div>
       {/* ACTION BAR */}
       <div className={cx("relative z-30 p-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between", ui.card, ui.ring)}>
         {/* search + filter */}
@@ -1219,7 +1651,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="axtarış…"
+              placeholder="Ad, kod, barkod və ya artikul üzrə axtar"
               className={cx(ui.input, "pl-8 pr-12")}
             />
             <button
@@ -1365,6 +1797,8 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
                 <ParamsPanel
                   cols={cols}
                   setCols={setCols}
+                  storeCols={storeCols}
+                  setStoreCols={setStoreCols}
                   view={view}
                   setView={setView}
                   nav={nav}
@@ -1372,13 +1806,17 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
                   setSearchSet={setSearchSet}
                   onResetAll={()=>{
                     setCols(DEFAULT_COLS);
+                    setStoreCols({});
+                    setColumnWidths({});
                     setView(DEFAULT_VIEW);
                     setNav(DEFAULT_NAV);
                     setSearchSet(DEFAULT_SEARCH);
                   }}
-                  onResetCols={()=>setCols(DEFAULT_COLS)}
+                  onResetCols={()=>{ setCols(DEFAULT_COLS); setStoreCols({}); }}
+                  onResetWidths={()=>setColumnWidths({})}
                   folderSummaryMode={folderSummaryMode}
                   isDark={isDark}
+                  stores={activeStores}
                 />
               )}
             </div>
@@ -1460,7 +1898,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
           ))}
           {visibleProducts.map((r) => {
             const isSel = selected.has(r.id);
-            const total = (r.antrepo ?? 0) + (r.depo ?? 0);
+            const total = totalStock(r);
             return (
               <button
                 key={r.id}
@@ -1470,23 +1908,28 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">{r.ad}</div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="truncate text-sm font-semibold">{r.ad}</div>
+                      {r.type !== "product" && (
+                        <span className={cx("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold", r.type === "service" ? "bg-sky-50 text-sky-700" : "bg-violet-50 text-violet-700")}>
+                          {r.type === "service" ? "Xidmət" : "Dəst"}
+                        </span>
+                      )}
+                    </div>
                     <div className={cx("mt-1 truncate text-xs", ui.textSubtle)}>{r.kod ?? "Kod yoxdur"} · {r.artikel ?? "Artikul yoxdur"}</div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className="text-sm font-semibold tabular-nums">{toNum(total)}</div>
+                    <div className={cx("text-sm font-semibold tabular-nums", total < 0 && "text-rose-600")}>{r.type === "service" ? "—" : toNum(total)}</div>
                     <div className={cx("text-xs", ui.textSubtle)}>{r.vahid ?? "əd"}</div>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                  <div className={cx("rounded-xl px-2 py-2", isDark ? "bg-white/7" : "bg-slate-50")}>
-                    <div className={ui.textSubtle}>Antrepo</div>
-                    <div className="font-semibold tabular-nums">{toNum(r.antrepo)}</div>
-                  </div>
-                  <div className={cx("rounded-xl px-2 py-2", isDark ? "bg-white/7" : "bg-slate-50")}>
-                    <div className={ui.textSubtle}>Depo</div>
-                    <div className="font-semibold tabular-nums">{toNum(r.depo)}</div>
-                  </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  {activeStores.map((store) => (
+                    <div key={store.id} className={cx("rounded-xl px-2 py-2", isDark ? "bg-white/7" : "bg-slate-50")}>
+                      <div className={cx("truncate", ui.textSubtle)}>{store.name}</div>
+                      <div className="font-semibold tabular-nums">{r.type === "service" ? "—" : toNum(storeQty(r, store))}</div>
+                    </div>
+                  ))}
                   <div className={cx("rounded-xl px-2 py-2", isDark ? "bg-white/7" : "bg-slate-50")}>
                     <div className={ui.textSubtle}>Satış</div>
                     <div className="font-semibold tabular-nums">{toCurrency(r.sale_price)}</div>
@@ -1503,26 +1946,25 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
         <table className="erp-data-table text-[13px]" style={{ width: `max(100%, ${tableMinWidthPx}px)` }}>
           <colgroup>
             <col className="erp-col-select" />
-            <col className="erp-col-name" />
-            {detailColVisible("kod") && <col className="erp-col-standard" />}
-            {detailColVisible("taxes") && <col className="erp-col-standard" />}
-            {detailColVisible("barcode") && <col className="erp-col-standard" />}
-            {detailColVisible("artikel") && <col className="erp-col-standard" />}
-            {detailColVisible("vahid") && <col className="erp-col-standard" />}
-            {detailColVisible("plu") && <col className="erp-col-standard" />}
-            {detailColVisible("expiration") && <col className="erp-col-standard" />}
-            {detailColVisible("category") && <col className="erp-col-standard" />}
-            {detailColVisible("country") && <col className="erp-col-standard" />}
-            {detailColVisible("supplier") && <col className="erp-col-standard" />}
-            {detailColVisible("sale_price") && <col className="erp-col-standard" />}
-            {detailColVisible("cost") && <col className="erp-col-standard" />}
-            {detailColVisible("purchase_price") && <col className="erp-col-standard" />}
-            {detailColVisible("created") && <col className="erp-col-standard" />}
-            {detailColVisible("discount") && <col className="erp-col-standard" />}
-            {detailColVisible("min_stock") && <col className="erp-col-standard" />}
-            {colVisible("antrepo") && <col className="erp-col-standard" />}
-            {colVisible("depo") && <col className="erp-col-standard" />}
-            <col className="erp-col-standard" />
+            <col style={{ width: columnWidth("name") }} />
+            {detailColVisible("kod") && <col style={{ width: columnWidth("kod") }} />}
+            {detailColVisible("taxes") && <col style={{ width: columnWidth("taxes") }} />}
+            {detailColVisible("barcode") && <col style={{ width: columnWidth("barcode") }} />}
+            {detailColVisible("artikel") && <col style={{ width: columnWidth("artikel") }} />}
+            {detailColVisible("vahid") && <col style={{ width: columnWidth("vahid") }} />}
+            {detailColVisible("plu") && <col style={{ width: columnWidth("plu") }} />}
+            {detailColVisible("expiration") && <col style={{ width: columnWidth("expiration") }} />}
+            {detailColVisible("category") && <col style={{ width: columnWidth("category") }} />}
+            {detailColVisible("country") && <col style={{ width: columnWidth("country") }} />}
+            {detailColVisible("supplier") && <col style={{ width: columnWidth("supplier") }} />}
+            {detailColVisible("sale_price") && <col style={{ width: columnWidth("sale_price") }} />}
+            {detailColVisible("cost") && <col style={{ width: columnWidth("cost") }} />}
+            {detailColVisible("purchase_price") && <col style={{ width: columnWidth("purchase_price") }} />}
+            {detailColVisible("created") && <col style={{ width: columnWidth("created") }} />}
+            {detailColVisible("discount") && <col style={{ width: columnWidth("discount") }} />}
+            {detailColVisible("min_stock") && <col style={{ width: columnWidth("min_stock") }} />}
+            {visibleStores.map((store) => <col key={store.id} style={{ width: columnWidth(`store:${store.key}`) }} />)}
+            <col style={{ width: columnWidth("total") }} />
           </colgroup>
           <thead className={cx(view.stickyHeader && ui.theadSticky)}>
             <tr className={ui.headerRow}>
@@ -1536,26 +1978,25 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
                   onChange={(e)=>setProductIdsSelected(pageSelectableIds, e.target.checked)}
                 />
               </th>
-              <th className={cx("text-left px-3", rowPad)}>AD</th>
-              {detailColVisible("kod") && <th className={cx("text-left px-3", rowPad)}>KOD</th>}
-              {detailColVisible("taxes") && <th className={cx("text-left px-3", rowPad)}>VERGİ</th>}
-              {detailColVisible("barcode") && <th className={cx("text-left px-3", rowPad)}>BAR-KOD</th>}
-              {detailColVisible("artikel") && <th className={cx("text-left px-3", rowPad)}>SKU / ARTIKUL</th>}
-              {detailColVisible("vahid") && <th className={cx("text-left px-3", rowPad)}>ÖLÇÜ VAHİDİ</th>}
-              {detailColVisible("plu") && <th className={cx("text-left px-3", rowPad)}>PLU KOD</th>}
-              {detailColVisible("expiration") && <th className={cx("text-left px-3", rowPad)}>İSTİFADƏ MÜDDƏTİ</th>}
-              {detailColVisible("category") && <th className={cx("text-left px-3", rowPad)}>KATEQORİYA</th>}
-              {detailColVisible("country") && <th className={cx("text-left px-3", rowPad)}>ÖLKƏ</th>}
-              {detailColVisible("supplier") && <th className={cx("text-left px-3", rowPad)}>TƏCHİZATÇI</th>}
-              {detailColVisible("sale_price") && <th className={cx("text-right px-3", rowPad)}>SATIŞ QİYMƏTİ</th>}
-              {detailColVisible("cost") && <th className={cx("text-right px-3", rowPad)}>MAYA DƏYƏRİ</th>}
-              {detailColVisible("purchase_price") && <th className={cx("text-right px-3", rowPad)}>ALIŞ QİYMƏTİ</th>}
-              {detailColVisible("created") && <th className={cx("text-left px-3", rowPad)}>YARADILDI</th>}
-              {detailColVisible("discount") && <th className={cx("text-right px-3", rowPad)}>ENDİRİM</th>}
-              {detailColVisible("min_stock") && <th className={cx("text-right px-3", rowPad)}>MİN. QALIQ</th>}
-              {colVisible("antrepo") && <th className={cx("text-right px-3", rowPad)}>ERSA ANTREPO</th>}
-              {colVisible("depo") && <th className={cx("text-right px-3", rowPad)}>ERSA DEPO</th>}
-              <th className={cx("text-right px-3", rowPad)}>QALIQ</th>
+              {renderHeader("name", "AD")}
+              {detailColVisible("kod") && renderHeader("kod", "KOD")}
+              {detailColVisible("taxes") && renderHeader("taxes", "VERGİ")}
+              {detailColVisible("barcode") && renderHeader("barcode", "BAR-KOD")}
+              {detailColVisible("artikel") && renderHeader("artikel", "SKU / ARTIKUL")}
+              {detailColVisible("vahid") && renderHeader("vahid", "ÖLÇÜ VAHİDİ")}
+              {detailColVisible("plu") && renderHeader("plu", "PLU KOD")}
+              {detailColVisible("expiration") && renderHeader("expiration", "İSTİFADƏ MÜDDƏTİ")}
+              {detailColVisible("category") && renderHeader("category", "KATEQORİYA")}
+              {detailColVisible("country") && renderHeader("country", "ÖLKƏ")}
+              {detailColVisible("supplier") && renderHeader("supplier", "TƏCHİZATÇI")}
+              {detailColVisible("sale_price") && renderHeader("sale_price", "SATIŞ QİYMƏTİ", "right")}
+              {detailColVisible("cost") && renderHeader("cost", "MAYA DƏYƏRİ", "right")}
+              {detailColVisible("purchase_price") && renderHeader("purchase_price", "ALIŞ QİYMƏTİ", "right")}
+              {detailColVisible("created") && renderHeader("created", "YARADILDI")}
+              {detailColVisible("discount") && renderHeader("discount", "ENDİRİM", "right")}
+              {detailColVisible("min_stock") && renderHeader("min_stock", "MİN. QALIQ", "right")}
+              {visibleStores.map((store) => renderHeader(`store:${store.key}`, store.name, "right"))}
+              {renderHeader("total", "QALIQ", "right")}
             </tr>
           </thead>
 
@@ -1567,9 +2008,10 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
               const folderChecked = folderProductIds.length > 0 && selectedInFolder === folderProductIds.length;
               const folderIndeterminate = selectedInFolder > 0 && selectedInFolder < folderProductIds.length;
               const prodCount = folder.products.length;
-              const sAnt = folder.products.reduce((a,b)=>a+(b.antrepo??0),0);
-              const sDep = folder.products.reduce((a,b)=>a+(b.depo??0),0);
-              const sTot = sAnt + sDep;
+              const storeTotals = Object.fromEntries(
+                activeStores.map((store) => [store.key, folder.products.reduce((sum, product) => sum + storeQty(product, store), 0)])
+              );
+              const sTot = Object.values(storeTotals).reduce((sum, qty) => sum + qty, 0);
               const openFolder = () => setCurrentFolder(folder.id);
               return (
                 <tr
@@ -1638,8 +2080,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
                   {detailColVisible("created") && <td className={cx("px-3", rowPad)}>—</td>}
                   {detailColVisible("discount") && <td className={cx("px-3 text-right", rowPad)}>—</td>}
                   {detailColVisible("min_stock") && <td className={cx("px-3 text-right", rowPad)}>—</td>}
-                  {colVisible("antrepo") && <td className={cx("px-3 text-right tabular-nums", rowPad)}>{toNum(sAnt)}</td>}
-                  {colVisible("depo") && <td className={cx("px-3 text-right tabular-nums", rowPad)}>{toNum(sDep)}</td>}
+                  {visibleStores.map((store) => <td key={store.id} className={cx("px-3 text-right tabular-nums", rowPad)}>{toNum(storeTotals[store.key])}</td>)}
                   <td className={cx("px-3 text-right tabular-nums", rowPad)}>{toNum(sTot)}</td>
                 </tr>
               );
@@ -1649,7 +2090,7 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
             {visibleProducts.map((r, i) => {
               const zebra = view.zebra && i % 2 === 1 ? (isDark ? "bg-white/[.035]" : "bg-white/28") : undefined;
               const isSel = selected.has(r.id);
-              const total = (r.antrepo ?? 0) + (r.depo ?? 0);
+              const total = totalStock(r);
               return (
                 <tr
                   key={r.id}
@@ -1663,11 +2104,18 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
                     <div className="flex min-w-0 items-center gap-2.5">
                       {showProductMedia && (
                         <div className={cx(
-                          "h-8 w-8 shrink-0 rounded-md bg-gradient-to-br",
+                          "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-gradient-to-br",
                           isDark ? "from-indigo-900/30 to-indigo-500/10 ring-1 ring-inset ring-indigo-800/40" : "from-indigo-200 to-indigo-50 ring-1 ring-inset ring-indigo-100"
-                        )} />
+                        )}>
+                          {r.cardProfile?.imageDataUrl && <img src={r.cardProfile.imageDataUrl} alt="" className="h-full w-full object-cover" />}
+                        </div>
                       )}
-                      <span className={cx("truncate font-normal", isDark ? "text-slate-200" : "text-slate-600")}>{r.ad}</span>
+                      <span className={cx("truncate font-medium", isDark ? "text-slate-200" : "text-slate-700")}>{r.ad}</span>
+                      {r.type !== "product" && (
+                        <span className={cx("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold", r.type === "service" ? (isDark ? "bg-sky-400/15 text-sky-200" : "bg-sky-50 text-sky-700") : (isDark ? "bg-violet-400/15 text-violet-200" : "bg-violet-50 text-violet-700"))}>
+                          {r.type === "service" ? "Xidmət" : "Dəst"}
+                        </span>
+                      )}
                     </div>
                   </td>
                   {colVisible("kod") && <td className={cx("px-3 tabular-nums", rowPad)}>{r.kod ?? "—"}</td>}
@@ -1686,9 +2134,11 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
                   {colVisible("created") && <td className={cx("px-3 tabular-nums", rowPad)}>{productCreatedLabel(r)}</td>}
                   {colVisible("discount") && <td className={cx("px-3 text-right tabular-nums", rowPad)}>{discountLabel(r)}</td>}
                   {colVisible("min_stock") && <td className={cx("px-3 text-right tabular-nums", rowPad)}>{toNum(r.minStock)}</td>}
-                  {colVisible("antrepo") && <td className={cx("px-3 text-right tabular-nums", rowPad)}>{toNum(r.antrepo)}</td>}
-                  {colVisible("depo") && <td className={cx("px-3 text-right tabular-nums", rowPad)}>{toNum(r.depo)}</td>}
-                  <td className={cx("px-3 text-right tabular-nums", rowPad)}>{toNum(total)}</td>
+                  {visibleStores.map((store) => {
+                    const qty = storeQty(r, store);
+                    return <td key={store.id} className={cx("px-3 text-right tabular-nums", rowPad, qty < 0 && "font-semibold text-rose-600")}>{r.type === "service" ? "—" : toNum(qty)}</td>;
+                  })}
+                  <td className={cx("px-3 text-right tabular-nums", rowPad, total < 0 && "font-semibold text-rose-600")}>{r.type === "service" ? "—" : toNum(total)}</td>
                 </tr>
               );
             })}
@@ -1709,6 +2159,8 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       defaultGroupId={defaultCreateGroupId}
       defaultCode={nextProductCode}
       groups={groups}
+      stores={stores}
+      products={rows.map((row) => ({ id: row.id, name: row.ad, code: row.kod }))}
       onClose={() => setCreateOpen(false)}
       onSubmit={handleCreate}
     />
@@ -2072,6 +2524,7 @@ function ProductDetailPanel({
   useEffect(() => {
     setEdit(buildEditState(product));
     setEditMode(false);
+    setTab("overview");
   }, [product]);
   useEffect(() => {
     if (stockMode === "simple" && (tab === "containers" || tab === "rolls")) setTab("stock");
@@ -2096,9 +2549,11 @@ function ProductDetailPanel({
   const productTypeLabel = product.type === "service" ? "Xidmət" : product.type === "bundle" ? "Dəst" : "Məhsul";
   const groupName = groups.find((group) => group.id === product.groupId)?.name ?? "Qovluqsuz";
   const categoryNames = product.categoryIds?.map((id) => categories.find((category) => category.id === id)?.name).filter(Boolean).join(", ") || "Kateqoriyasız";
-  const country = product.id % 4 === 0 ? "Türkiyə" : "Azərbaycan";
-  const createdLabel = `2026-05-${String(((product.id - 1) % 28) + 1).padStart(2, "0")}`;
-  const productBarcode = variants[0]?.barcode ?? (product.kod ? `000${product.kod}`.slice(-12).padStart(12, "0") : "—");
+  const country = product.country || "—";
+  const createdLabel = product.createdAt
+    ? new Date(product.createdAt).toLocaleDateString("az-Latn-AZ")
+    : `2026-05-${String(((product.id - 1) % 28) + 1).padStart(2, "0")}`;
+  const productBarcode = product.barcode ?? variants[0]?.barcode ?? (product.kod ? `000${product.kod}`.slice(-12).padStart(12, "0") : "—");
   const traceWarehouses = [
     splitTraceWarehouse("ERSA ANTREPO", product.antrepo, product.id),
     splitTraceWarehouse("ERSA DEPO", product.depo, product.id),
@@ -2176,17 +2631,20 @@ function ProductDetailPanel({
     setEditMode(false);
   };
 
-  const tabs = [
-    ["overview", "Kart"],
-    ["stock", "Anbar"],
-    ["variants", "Variantlar"],
-    ["bundle", "Dəst"],
-    ["inventory", "Inventory history"],
-    ["history", "Tarixçə"],
-  ] as const;
-
-  const visibleTabs = stockMode === "bondedRolls"
+  const visibleTabs = product.type === "service"
     ? ([
+        ["overview", "Kart"],
+        ["history", "Tarixçə"],
+      ] as const)
+    : product.type === "bundle"
+      ? ([
+          ["overview", "Kart"],
+          ["bundle", "Dəst tərkibi"],
+          ["stock", "Qalıq"],
+          ["history", "Tarixçə"],
+        ] as const)
+      : stockMode === "bondedRolls"
+      ? ([
         ["overview", "Kart"],
         ["stock", "Qalıq"],
         ["containers", "Konteynerlər"],
@@ -2195,7 +2653,13 @@ function ProductDetailPanel({
         ["inventory", "Hərəkətlər"],
         ["history", "Tarixçə"],
       ] as const)
-    : tabs;
+      : ([
+          ["overview", "Kart"],
+          ["stock", "Qalıq"],
+          ["variants", "Variantlar"],
+          ["inventory", "Hərəkətlər"],
+          ["history", "Tarixçə"],
+        ] as const);
   const bondedSummary = {
     antrepo: product.antrepo ?? 0,
     reserved: traceReserved,
@@ -2205,6 +2669,20 @@ function ProductDetailPanel({
     netKg: traceRolls.reduce((sum, row) => sum + row.netKg, 0),
     grossKg: traceRolls.reduce((sum, row) => sum + row.grossKg, 0),
   };
+  const profile = product.cardProfile;
+  const cardProfileRows = [
+    ["Marka", profile?.brand],
+    ["İkinci vahid", profile?.secondaryUnit && `${profile.secondaryUnit}${profile.conversionRate ? ` · əmsal ${toNum(profile.conversionRate)}` : ""}`],
+    ["Rulo pasportu", profile?.rollWidthMm || profile?.defaultRollLengthMt ? `${toNum(profile?.rollWidthMm)} mm · ${toNum(profile?.defaultRollLengthMt)} mt` : undefined],
+    ["Net / brüt", profile?.netWeightKg || profile?.grossWeightKg ? `${toNum(profile?.netWeightKg)} / ${toNum(profile?.grossWeightKg)} kg` : undefined],
+    ["Barkod növü", profile?.barcodeType === "weight" ? "KG barkodu" : profile?.barcodeType === "quantity" ? "Ədəd barkodu" : profile?.barcodeType === "plu" ? "PLU barkodu" : profile?.barcodeType === "fixed" ? "Sabit barkod" : undefined],
+    ["Rəf yeri", profile?.shelfLocation],
+    ["Stok həddi", profile?.maxStock != null ? `${toNum(product.minStock)} – ${toNum(profile.maxStock)}` : undefined],
+    ["Sifariş həddi", profile?.minOrderQty != null || profile?.maxOrderQty != null ? `${toNum(profile?.minOrderQty)} – ${toNum(profile?.maxOrderQty)}` : undefined],
+    ["GTİP", profile?.tariffCode],
+    ["Təchizatçı kodu", profile?.supplierProductCode || profile?.supplierCode],
+    ["Alternativlər", profile?.alternativeProductIds?.length ? `${profile.alternativeProductIds.length} məhsul` : undefined],
+  ].filter((row): row is string[] => Boolean(row[1]));
   const bondedContainerRows: string[][] = traceWarehouses.map((row) => [
     row.name,
     row.name === "ERSA ANTREPO" ? `CNT-${String((product.id % 7) + 1).padStart(3, "0")}` : "Depo stoku",
@@ -2279,7 +2757,7 @@ function ProductDetailPanel({
                 <div className={mutedPanelClass}><div className={cx("text-[11px] font-medium", ui.textSubtle)}>Məhsul kodu</div><div className={detailValueClass}>{product.kod ?? "—"}</div></div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <span className={cx("rounded-full px-2.5 py-1", isDark ? "bg-indigo-400/15 text-indigo-100" : "bg-indigo-50 text-indigo-700")}>Qalıq: {toNum(total)}</span>
+                {product.type !== "service" && <span className={cx("rounded-full px-2.5 py-1", total < 0 ? (isDark ? "bg-rose-400/15 text-rose-100" : "bg-rose-50 text-rose-700") : (isDark ? "bg-indigo-400/15 text-indigo-100" : "bg-indigo-50 text-indigo-700"))}>Qalıq: {toNum(total)}</span>}
                 <span className={cx("rounded-full px-2.5 py-1", isDark ? "bg-emerald-400/15 text-emerald-100" : "bg-emerald-50 text-emerald-700")}>Satış: {toCurrency(effectiveSale)}</span>
                 <span className={cx("rounded-full px-2.5 py-1", isDark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-600")}>{groupName}</span>
               </div>
@@ -2347,16 +2825,21 @@ function ProductDetailPanel({
                 </section>
               </div>
 
-              <section className={sectionClass}>
-                <div className={cx("mb-3 text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Qiymətlər</div>
-                <SimpleTable
-                  headers={["Satış qiyməti", "Alış qiyməti", "Maya", "Markup", "Mənfəətlilik"]}
-                  rows={[[toCurrency(effectiveSale), toCurrency(effectivePurchase), toCurrency(effectiveCost), formatPercent(markup), formatPercent(marginality)]]}
-                  isDark={isDark}
-                />
-              </section>
+              {cardProfileRows.length > 0 && (
+                <section className={sectionClass}>
+                  <div className={cx("mb-3 text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Kart parametrləri</div>
+                  <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {cardProfileRows.map(([label, value]) => (
+                      <div key={label} className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
+                        <span className={detailLabelClass}>{label}</span>
+                        <span className={detailValueClass}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
-              <section className={sectionClass}>
+              {product.type !== "service" && <section className={sectionClass}>
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className={cx("text-[15px] font-semibold", isDark ? "text-slate-100" : "text-slate-900")}>Anbar xülasəsi</div>
                   <div className={cx("text-xs", ui.textSubtle)}>Anbar tabında barkod və partiya səviyyəsi saxlanır</div>
@@ -2366,9 +2849,9 @@ function ProductDetailPanel({
                   rows={warehouseRows}
                   isDark={isDark}
                 />
-              </section>
+              </section>}
 
-              {stockMode === "bondedRolls" && (
+              {product.type === "product" && stockMode === "bondedRolls" && (
                 <section className={sectionClass}>
                   <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                     <div>
@@ -3208,16 +3691,18 @@ function OverflowMenu({ onClose, selectedCount, isDark }: { onClose: () => void;
 
 /* ------------------------------ params panel ------------------------------ */
 function ParamsPanel({
-  cols, setCols, view, setView, nav, setNav, setSearchSet,
-  onResetAll, onResetCols, folderSummaryMode, isDark
+  cols, setCols, storeCols, setStoreCols, view, setView, nav, setNav, setSearchSet,
+  onResetAll, onResetCols, onResetWidths, folderSummaryMode, isDark, stores
 }: {
   cols: ColSettings; setCols: React.Dispatch<React.SetStateAction<ColSettings>>;
+  storeCols: Record<string, boolean>; setStoreCols: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   view: ViewSettings; setView: React.Dispatch<React.SetStateAction<ViewSettings>>;
   nav: NavSettings; setNav: React.Dispatch<React.SetStateAction<NavSettings>>;
   setSearchSet: React.Dispatch<React.SetStateAction<SearchSettings>>;
-  onResetAll: () => void; onResetCols: () => void;
+  onResetAll: () => void; onResetCols: () => void; onResetWidths: () => void;
   folderSummaryMode: boolean;
   isDark: boolean;
+  stores: CompanyStore[];
 }) {
   const ui = makeUI(isDark);
   const columnDisabled = (id: ColId) => folderSummaryMode && FOLDER_SUMMARY_DISABLED_COLS.has(id);
@@ -3227,7 +3712,7 @@ function ParamsPanel({
     id==="expiration"?"İstifadə müddəti":id==="category"?"Kateqoriya":id==="country"?"Ölkə":
     id==="supplier"?"Təchizatçı":id==="sale_price"?"Satış qiyməti":id==="cost"?"Maya dəyəri":
     id==="purchase_price"?"Alışın qiyməti":id==="created"?"Yaradıldı":id==="discount"?"Endirim":
-    id==="min_stock"?"Minimal qalıq":id==="antrepo"?"ERSA ANTREPO":"ERSA DEPO";
+    "Minimal qalıq";
   const toggleCol = (id: ColId) => {
     if (columnDisabled(id)) return;
     setCols((c)=>({ ...c, [id]: !c[id] }));
@@ -3236,8 +3721,10 @@ function ParamsPanel({
     const next: ColSettings = { ...cols };
     COLUMN_IDS.forEach((k)=>{ if (!columnDisabled(k)) next[k]=v; });
     setCols(next);
+    setStoreCols(Object.fromEntries(stores.map((store) => [store.key, v])));
   };
   const setStandardCols = () => {
+    setStoreCols({});
     setCols((current) => {
       const next: ColSettings = { ...current };
       COLUMN_IDS.forEach((k)=>{ if (!columnDisabled(k)) next[k]=DEFAULT_COLS[k]; });
@@ -3280,6 +3767,17 @@ function ParamsPanel({
                 </label>
               );
             })}
+            {stores.map((store) => (
+              <label key={store.id} className="flex min-h-6 items-center gap-2 text-sm leading-5">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 shrink-0"
+                  checked={storeCols[store.key] !== false}
+                  onChange={() => setStoreCols((current) => ({ ...current, [store.key]: current[store.key] === false }))}
+                />
+                <span>{store.name}</span>
+              </label>
+            ))}
           </div>
         </div>
       </div>
@@ -3326,9 +3824,10 @@ function ParamsPanel({
       </div>
 
       {/* footer */}
-      <div className="px-3 py-3 flex items-center justify-between">
-        <button onClick={onResetAll} className={cx("px-3 h-9 rounded-lg text-sm border", ui.borderSoft, isDark ? "hover:bg-white/5" : "hover:bg-slate-100")}>Defolta qaytar</button>
-        <button onClick={onResetCols} className={cx("px-3 h-9 rounded-lg text-sm border", ui.borderSoft, isDark ? "hover:bg-white/5" : "hover:bg-slate-100")}>Yalnız sütunları sıfırla</button>
+      <div className="grid grid-cols-2 gap-2 px-3 py-3">
+        <button onClick={onResetAll} className={cx("h-9 rounded-lg border px-3 text-sm", ui.borderSoft, isDark ? "hover:bg-white/5" : "hover:bg-slate-100")}>Defolta qaytar</button>
+        <button onClick={onResetCols} className={cx("h-9 rounded-lg border px-3 text-sm", ui.borderSoft, isDark ? "hover:bg-white/5" : "hover:bg-slate-100")}>Sütunları sıfırla</button>
+        <button onClick={onResetWidths} className={cx("col-span-2 h-9 rounded-lg border px-3 text-sm", ui.borderSoft, isDark ? "hover:bg-white/5" : "hover:bg-slate-100")}>Sütun ölçülərini sıfırla</button>
       </div>
     </div>
   );

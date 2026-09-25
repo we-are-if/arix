@@ -11,14 +11,21 @@
       "cost": 1.8,
       "warehouses": {
         "antrepo": 29040,
-        "depo": 0
+        "depo": -1750,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.961Z",
       "storePrices": {
         "ERSA DEPO": 3.2,
-        "ERSA ANTREPO": 3.2
+        "Elit": 3.2,
+        "HSC": 3.2,
+        "Monart": 3.2,
+        "Turkgate": 3.2
       }
     },
     {
@@ -32,14 +39,21 @@
       "cost": 1.9,
       "warehouses": {
         "antrepo": 18530,
-        "depo": 0
+        "depo": -100,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.961Z",
       "storePrices": {
         "ERSA DEPO": 3.35,
-        "ERSA ANTREPO": 3.35
+        "Elit": 3.35,
+        "HSC": 3.35,
+        "Monart": 3.35,
+        "Turkgate": 3.35
       }
     },
     {
@@ -53,14 +67,21 @@
       "cost": 2,
       "warehouses": {
         "antrepo": 0,
-        "depo": 28559
+        "depo": 28559,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.961Z",
       "storePrices": {
         "ERSA DEPO": 3.5,
-        "ERSA ANTREPO": 3.5
+        "Elit": 3.5,
+        "HSC": 3.5,
+        "Monart": 3.5,
+        "Turkgate": 3.5
       }
     },
     {
@@ -74,14 +95,21 @@
       "cost": 2.1,
       "warehouses": {
         "antrepo": 26240,
-        "depo": 1549
+        "depo": -111,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 3.65,
-        "ERSA ANTREPO": 3.65
+        "Elit": 3.65,
+        "HSC": 3.65,
+        "Monart": 3.65,
+        "Turkgate": 3.65
       }
     },
     {
@@ -95,14 +123,21 @@
       "cost": 2.2,
       "warehouses": {
         "antrepo": 18560,
-        "depo": 0
+        "depo": -1770,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 3.8,
-        "ERSA ANTREPO": 3.8
+        "Elit": 3.8,
+        "HSC": 3.8,
+        "Monart": 3.8,
+        "Turkgate": 3.8
       }
     },
     {
@@ -116,14 +151,21 @@
       "cost": 2.3,
       "warehouses": {
         "antrepo": 28250,
-        "depo": 0
+        "depo": -1770,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 3.95,
-        "ERSA ANTREPO": 3.95
+        "Elit": 3.95,
+        "HSC": 3.95,
+        "Monart": 3.95,
+        "Turkgate": 3.95
       }
     },
     {
@@ -137,14 +179,21 @@
       "cost": 2.4,
       "warehouses": {
         "antrepo": 28140,
-        "depo": 0
+        "depo": 0,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 4.1,
-        "ERSA ANTREPO": 4.1
+        "Elit": 4.1,
+        "HSC": 4.1,
+        "Monart": 4.1,
+        "Turkgate": 4.1
       }
     },
     {
@@ -158,14 +207,21 @@
       "cost": 2.5,
       "warehouses": {
         "antrepo": 18380,
-        "depo": 0
+        "depo": 0,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 4.25,
-        "ERSA ANTREPO": 4.25
+        "Elit": 4.25,
+        "HSC": 4.25,
+        "Monart": 4.25,
+        "Turkgate": 4.25
       }
     },
     {
@@ -179,14 +235,21 @@
       "cost": 2.6,
       "warehouses": {
         "antrepo": 18900,
-        "depo": 0
+        "depo": 0,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 4.4,
-        "ERSA ANTREPO": 4.4
+        "Elit": 4.4,
+        "HSC": 4.4,
+        "Monart": 4.4,
+        "Turkgate": 4.4
       }
     },
     {
@@ -200,14 +263,21 @@
       "cost": 2.7,
       "warehouses": {
         "antrepo": 28250,
-        "depo": 0
+        "depo": 0,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 4.55,
-        "ERSA ANTREPO": 4.55
+        "Elit": 4.55,
+        "HSC": 4.55,
+        "Monart": 4.55,
+        "Turkgate": 4.55
       }
     },
     {
@@ -221,14 +291,21 @@
       "cost": 2.8,
       "warehouses": {
         "antrepo": 18500,
-        "depo": 0
+        "depo": 0,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 4.7,
-        "ERSA ANTREPO": 4.7
+        "Elit": 4.7,
+        "HSC": 4.7,
+        "Monart": 4.7,
+        "Turkgate": 4.7
       }
     },
     {
@@ -242,14 +319,21 @@
       "cost": 2.9,
       "warehouses": {
         "antrepo": 18470,
-        "depo": 0
+        "depo": 0,
+        "hsc": 0,
+        "monart": 0,
+        "turkgate": 0,
+        "elit": 0
       },
       "active": true,
       "testBatch": "smart-movement-v1",
       "createdAt": "2026-06-09T07:45:55.962Z",
       "storePrices": {
         "ERSA DEPO": 4.85,
-        "ERSA ANTREPO": 4.85
+        "Elit": 4.85,
+        "HSC": 4.85,
+        "Monart": 4.85,
+        "Turkgate": 4.85
       }
     }
   ],
@@ -299,17 +383,51 @@
       "account": "ERSA DEPO",
       "counterpartyId": 2,
       "counterpartyName": "arif",
-      "total": 365,
+      "total": 26076.5,
       "saleMode": "export",
       "exportMode": true,
       "payments": [],
       "paymentSummary": {
         "status": "Ödənilməyib",
         "paid": 0,
-        "remaining": 365,
-        "total": 365
+        "remaining": 26076.5,
+        "total": 26076.5
       },
       "lines": [
+        {
+          "productId": 1,
+          "name": "HG Beyaz Parlaq",
+          "code": "TEST-001",
+          "sku": "ARIX-001",
+          "unit": "mt",
+          "variant": "Standart",
+          "qty": 1750,
+          "requestedQty": 1750,
+          "movementMode": "meters",
+          "price": 3.2,
+          "standardPrice": 3.2,
+          "priceSource": "Mağaza standartı",
+          "priceStore": "ERSA DEPO",
+          "discount": 0,
+          "total": 5600
+        },
+        {
+          "productId": 2,
+          "name": "HG Beyaz Mat",
+          "code": "TEST-002",
+          "sku": "ARIX-002",
+          "unit": "mt",
+          "variant": "Standart",
+          "qty": 100,
+          "requestedQty": 100,
+          "movementMode": "meters",
+          "price": 3.35,
+          "standardPrice": 3.35,
+          "priceSource": "Mağaza standartı",
+          "priceStore": "ERSA DEPO",
+          "discount": 0,
+          "total": 335
+        },
         {
           "productId": 4,
           "name": "HG Kumsal",
@@ -317,36 +435,83 @@
           "sku": "ARIX-004",
           "unit": "mt",
           "variant": "Standart",
-          "qty": 100,
-          "requestedQty": 100,
+          "qty": 1760,
+          "requestedQty": 1760,
           "movementMode": "meters",
           "price": 3.65,
           "standardPrice": 3.65,
           "priceSource": "Mağaza standartı",
           "priceStore": "ERSA DEPO",
           "discount": 0,
-          "total": 365
+          "total": 6424
+        },
+        {
+          "productId": 5,
+          "name": "HG Fume",
+          "code": "TEST-005",
+          "sku": "ARIX-005",
+          "unit": "mt",
+          "variant": "Standart",
+          "qty": 1770,
+          "requestedQty": 1770,
+          "movementMode": "meters",
+          "price": 3.8,
+          "standardPrice": 3.8,
+          "priceSource": "Mağaza standartı",
+          "priceStore": "ERSA DEPO",
+          "discount": 0,
+          "total": 6726
+        },
+        {
+          "productId": 6,
+          "name": "HG Siyah",
+          "code": "TEST-006",
+          "sku": "ARIX-006",
+          "unit": "mt",
+          "variant": "Standart",
+          "qty": 1770,
+          "requestedQty": 1770,
+          "movementMode": "meters",
+          "price": 3.95,
+          "standardPrice": 3.95,
+          "priceSource": "Mağaza standartı",
+          "priceStore": "ERSA DEPO",
+          "discount": 0,
+          "total": 6991.5
         }
       ],
       "movementSelection": {
-        "id": "single:68e3ea5f-1b0a-4f9f-b795-b7c602fef869:TEST-CONT-004",
+        "id": "partial:combined",
         "mode": "meters",
-        "title": "Eyni bəyannamə · BƏY-2026-004",
-        "reason": "1 rulo qarışıq paletlərdən seçildi.",
+        "title": "4 bəyannaməli seçim",
+        "reason": "1 rulo qarışıq paletlərdən seçildi. 4 bağlı palet seçildi; açıq paletlərə toxunulmadı. Tələb tam qarşılanmır; mövcud stokun ən yaxın miqdarı göstərilir.",
         "recommended": true,
-        "declarationCount": 1,
-        "containerCount": 1,
-        "palletCount": 1,
-        "rollCount": 1,
-        "requestedQty": 100,
-        "selectedQty": 100,
+        "declarationCount": 4,
+        "containerCount": 4,
+        "palletCount": 5,
+        "rollCount": 65,
+        "requestedQty": 7150,
+        "selectedQty": 7150,
         "overage": 0,
         "incomplete": false,
         "shortageCount": 0,
         "lines": [
           {
-            "productId": 4,
-            "name": "HG Kumsal",
+            "productId": 1,
+            "name": "HG Beyaz Parlaq",
+            "qty": 1750,
+            "mode": "meters",
+            "selectedQty": 1750,
+            "selectedRollCount": 16,
+            "selectedPalletCount": 1,
+            "shortageQty": 0,
+            "shortageRollCount": 0,
+            "shortagePalletCount": 0,
+            "complete": true
+          },
+          {
+            "productId": 2,
+            "name": "HG Beyaz Mat",
             "qty": 100,
             "mode": "meters",
             "selectedQty": 100,
@@ -356,38 +521,626 @@
             "shortageRollCount": 0,
             "shortagePalletCount": 0,
             "complete": true
+          },
+          {
+            "productId": 4,
+            "name": "HG Kumsal",
+            "qty": 1760,
+            "mode": "meters",
+            "selectedQty": 1760,
+            "selectedRollCount": 16,
+            "selectedPalletCount": 1,
+            "shortageQty": 0,
+            "shortageRollCount": 0,
+            "shortagePalletCount": 0,
+            "complete": true
+          },
+          {
+            "productId": 5,
+            "name": "HG Fume",
+            "qty": 1770,
+            "mode": "meters",
+            "selectedQty": 1770,
+            "selectedRollCount": 16,
+            "selectedPalletCount": 1,
+            "shortageQty": 0,
+            "shortageRollCount": 0,
+            "shortagePalletCount": 0,
+            "complete": true
+          },
+          {
+            "productId": 6,
+            "name": "HG Siyah",
+            "qty": 1770,
+            "mode": "meters",
+            "selectedQty": 1770,
+            "selectedRollCount": 16,
+            "selectedPalletCount": 1,
+            "shortageQty": 0,
+            "shortageRollCount": 0,
+            "shortagePalletCount": 0,
+            "complete": true
           }
         ],
         "containers": [
           {
-            "key": "68e3ea5f-1b0a-4f9f-b795-b7c602fef869:TEST-CONT-004",
-            "documentId": "68e3ea5f-1b0a-4f9f-b795-b7c602fef869",
-            "declaration": "BƏY-2026-004",
-            "number": "TEST-CONT-004",
-            "selectedQty": 100,
+            "key": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+            "documentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+            "declaration": "BƏY-2026-010",
+            "number": "TEST-CONT-010",
+            "selectedQty": 1770,
             "palletCount": 1,
-            "rollCount": 1,
+            "rollCount": 16,
             "pallets": [
               {
-                "id": "889a9e46-954c-4e37-bacb-338425c18e74",
-                "number": "Açıq qarışıq palet 01",
-                "status": "open",
-                "mixed": true,
-                "fullPallet": false,
-                "selectedQty": 100,
-                "rollCount": 1,
+                "id": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                "number": "Bağlı palet 06",
+                "status": "closed",
+                "mixed": false,
+                "fullPallet": true,
+                "selectedQty": 1770,
+                "rollCount": 16,
                 "rolls": [
                   {
-                    "sourceDocumentId": "68e3ea5f-1b0a-4f9f-b795-b7c602fef869",
-                    "containerKey": "68e3ea5f-1b0a-4f9f-b795-b7c602fef869:TEST-CONT-004",
-                    "containerNumber": "TEST-CONT-004",
-                    "declaration": "BƏY-2026-004",
-                    "palletId": "889a9e46-954c-4e37-bacb-338425c18e74",
-                    "palletNumber": "Açıq qarışıq palet 01",
-                    "palletStatus": "open",
-                    "rollId": "b222d322-602d-4d1f-a6da-90f6b621e03b",
-                    "rollNo": "T04-P01-R04",
-                    "productId": 4,
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "597339b8-eb52-4e13-af43-66417dc1ae23",
+                    "rollNo": "T10-P06-R01",
+                    "productId": 6,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "8ffe44f8-9371-40f7-8c14-d1ea9c64893e",
+                    "rollNo": "T10-P06-R02",
+                    "productId": 6,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "3a91a048-695a-411a-9102-914cd82e9b9a",
+                    "rollNo": "T10-P06-R03",
+                    "productId": 6,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "86ae9d8e-2881-4f46-8f4d-7a233c6bd9ca",
+                    "rollNo": "T10-P06-R04",
+                    "productId": 6,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "cd59986f-fda9-4938-8a00-e77a5a2eef3b",
+                    "rollNo": "T10-P06-R05",
+                    "productId": 6,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "3036d067-c0a3-4e90-b226-68e05e10623f",
+                    "rollNo": "T10-P06-R06",
+                    "productId": 6,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "eb2c124f-d178-4ed1-ab30-28772cf37b78",
+                    "rollNo": "T10-P06-R07",
+                    "productId": 6,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "9e44c9ba-8b0d-4591-a795-75412b11233c",
+                    "rollNo": "T10-P06-R08",
+                    "productId": 6,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "94588383-201a-4570-a0e6-35c41e3ba4b3",
+                    "rollNo": "T10-P06-R09",
+                    "productId": 6,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "816ae47e-4327-4898-bab7-e30611b44117",
+                    "rollNo": "T10-P06-R10",
+                    "productId": 6,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "3b7fb4c8-f56e-4a2c-b850-29f38c57f306",
+                    "rollNo": "T10-P06-R11",
+                    "productId": 6,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "33e70db7-3683-426a-b81c-4a272ce82eb9",
+                    "rollNo": "T10-P06-R12",
+                    "productId": 6,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "6efd9e07-a3a4-4661-b89b-9569c320a408",
+                    "rollNo": "T10-P06-R13",
+                    "productId": 6,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "c2161f05-22f9-4f1e-888f-0a415b5b4305",
+                    "rollNo": "T10-P06-R14",
+                    "productId": 6,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "84e2e58a-2b23-4bc5-ab58-95f1592cc21f",
+                    "rollNo": "T10-P06-R15",
+                    "productId": 6,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "19796abd-2f12-404c-85a3-9e48dbb602f5",
+                    "containerKey": "19796abd-2f12-404c-85a3-9e48dbb602f5:TEST-CONT-010",
+                    "containerNumber": "TEST-CONT-010",
+                    "declaration": "BƏY-2026-010",
+                    "palletId": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
+                    "palletNumber": "Bağlı palet 06",
+                    "palletStatus": "closed",
+                    "rollId": "7da68ea8-f17a-401b-bb7c-282f6a3a103e",
+                    "rollNo": "T10-P06-R16",
+                    "productId": 6,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "key": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+            "documentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+            "declaration": "BƏY-2026-009",
+            "number": "TEST-CONT-009",
+            "selectedQty": 1750,
+            "palletCount": 1,
+            "rollCount": 16,
+            "pallets": [
+              {
+                "id": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                "number": "Bağlı palet 05",
+                "status": "closed",
+                "mixed": false,
+                "fullPallet": true,
+                "selectedQty": 1750,
+                "rollCount": 16,
+                "rolls": [
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "0b5f067c-e38b-42ad-8d3a-f21d553c0554",
+                    "rollNo": "T09-P05-R01",
+                    "productId": 1,
+                    "qty": 100,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "38a116f8-2b40-4aa5-94d6-aa33165ddd7a",
+                    "rollNo": "T09-P05-R02",
+                    "productId": 1,
+                    "qty": 110,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "df693383-c13b-4988-8078-0918f71fdaa5",
+                    "rollNo": "T09-P05-R03",
+                    "productId": 1,
+                    "qty": 120,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "6d3b108a-69d4-4686-a3e0-9263210c52ee",
+                    "rollNo": "T09-P05-R04",
+                    "productId": 1,
+                    "qty": 100,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "c608331c-bd56-46f6-8e68-e15367337abb",
+                    "rollNo": "T09-P05-R05",
+                    "productId": 1,
+                    "qty": 110,
+                    "width": "1250",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "c75ff7e3-64e1-4e0e-9fdd-b826beb60d89",
+                    "rollNo": "T09-P05-R06",
+                    "productId": 1,
+                    "qty": 120,
+                    "width": "1400",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "6039d83e-debe-459b-a6b1-5a56e4c13060",
+                    "rollNo": "T09-P05-R07",
+                    "productId": 1,
+                    "qty": 100,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "593b8601-0a64-474f-8a93-1635af0f5008",
+                    "rollNo": "T09-P05-R08",
+                    "productId": 1,
+                    "qty": 110,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "b17b2d16-4289-47df-ab2f-ec17472ddad1",
+                    "rollNo": "T09-P05-R09",
+                    "productId": 1,
+                    "qty": 120,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "d5b4500f-92da-4903-af9f-15caf7bcf429",
+                    "rollNo": "T09-P05-R10",
+                    "productId": 1,
+                    "qty": 100,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "6e9379de-0933-4071-94e9-face873fc2a3",
+                    "rollNo": "T09-P05-R11",
+                    "productId": 1,
+                    "qty": 110,
+                    "width": "1250",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "f72dc87f-4957-476a-a973-46a66ed11fb0",
+                    "rollNo": "T09-P05-R12",
+                    "productId": 1,
+                    "qty": 120,
+                    "width": "1400",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "3953d819-a4ab-4481-9f62-fa57c02ed0a6",
+                    "rollNo": "T09-P05-R13",
+                    "productId": 1,
+                    "qty": 100,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "82bed800-3b07-4a01-8fbd-9a08bda6f811",
+                    "rollNo": "T09-P05-R14",
+                    "productId": 1,
+                    "qty": 110,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "90280ff7-ae37-429a-8706-76b674c84071",
+                    "rollNo": "T09-P05-R15",
+                    "productId": 1,
+                    "qty": 120,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab",
+                    "containerKey": "0bdd5d59-f05f-43ae-90bb-c566a693a2ab:TEST-CONT-009",
+                    "containerNumber": "TEST-CONT-009",
+                    "declaration": "BƏY-2026-009",
+                    "palletId": "6a81eead-5d1a-401d-8364-0973c297e8f3",
+                    "palletNumber": "Bağlı palet 05",
+                    "palletStatus": "closed",
+                    "rollId": "29d9253a-2893-4b6a-8997-cb6d48b90b1c",
+                    "rollNo": "T09-P05-R16",
+                    "productId": 1,
                     "qty": 100,
                     "width": "1220",
                     "thickness": "0.35",
@@ -397,9 +1150,626 @@
                 ]
               }
             ]
+          },
+          {
+            "key": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+            "documentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+            "declaration": "BƏY-2026-003",
+            "number": "TEST-CONT-003",
+            "selectedQty": 3530,
+            "palletCount": 2,
+            "rollCount": 32,
+            "pallets": [
+              {
+                "id": "457b63e6-d635-4370-bc1a-954168ec7071",
+                "number": "Bağlı palet 07",
+                "status": "closed",
+                "mixed": false,
+                "fullPallet": true,
+                "selectedQty": 1770,
+                "rollCount": 16,
+                "rolls": [
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "f5414f04-69e5-4f9f-be63-8284c68af622",
+                    "rollNo": "T03-P07-R01",
+                    "productId": 5,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "7855d48c-7744-492a-8f91-28759d34a257",
+                    "rollNo": "T03-P07-R02",
+                    "productId": 5,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "3f670380-2826-41de-9d6e-26425c1c6adc",
+                    "rollNo": "T03-P07-R03",
+                    "productId": 5,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "9e485573-b2e7-4d6b-84b5-794ac01d59f9",
+                    "rollNo": "T03-P07-R04",
+                    "productId": 5,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "181027d4-7eab-41f0-a157-0a5c916087de",
+                    "rollNo": "T03-P07-R05",
+                    "productId": 5,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "10fb25c4-4e64-458f-a529-e090b81439cf",
+                    "rollNo": "T03-P07-R06",
+                    "productId": 5,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "e3094bce-82e9-4710-bf5b-2044768247e8",
+                    "rollNo": "T03-P07-R07",
+                    "productId": 5,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "452bc4c2-cb1c-4b89-b7b1-75163a7ef00a",
+                    "rollNo": "T03-P07-R08",
+                    "productId": 5,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "6954c84b-64ff-4ce9-b83e-9dcb7f9431e8",
+                    "rollNo": "T03-P07-R09",
+                    "productId": 5,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "5c288a68-ba0d-44c7-8b90-3c9ceb004113",
+                    "rollNo": "T03-P07-R10",
+                    "productId": 5,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "80818a2f-f903-44bb-8029-f8a5110316e5",
+                    "rollNo": "T03-P07-R11",
+                    "productId": 5,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "da9880aa-aa23-4fec-a711-cb61dcdc204e",
+                    "rollNo": "T03-P07-R12",
+                    "productId": 5,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "24006a74-8461-4731-b376-0eb78ca84120",
+                    "rollNo": "T03-P07-R13",
+                    "productId": 5,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "3bca803f-0d3f-47ec-abda-cb3c621b3156",
+                    "rollNo": "T03-P07-R14",
+                    "productId": 5,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "99a0de51-2e95-46c9-a5ad-b31557b46118",
+                    "rollNo": "T03-P07-R15",
+                    "productId": 5,
+                    "qty": 110,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "457b63e6-d635-4370-bc1a-954168ec7071",
+                    "palletNumber": "Bağlı palet 07",
+                    "palletStatus": "closed",
+                    "rollId": "75c6703b-54b8-4b32-957f-5199b52af816",
+                    "rollNo": "T03-P07-R16",
+                    "productId": 5,
+                    "qty": 120,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  }
+                ]
+              },
+              {
+                "id": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                "number": "Bağlı palet 09",
+                "status": "closed",
+                "mixed": false,
+                "fullPallet": true,
+                "selectedQty": 1760,
+                "rollCount": 16,
+                "rolls": [
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "f5dfffde-136b-4d08-bf6b-327a291fdede",
+                    "rollNo": "T03-P09-R01",
+                    "productId": 4,
+                    "qty": 110,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "e983dc79-eeff-45d3-acb6-f2cab5139581",
+                    "rollNo": "T03-P09-R02",
+                    "productId": 4,
+                    "qty": 120,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "3b0a5936-ca33-4a61-9dec-beac55a303ca",
+                    "rollNo": "T03-P09-R03",
+                    "productId": 4,
+                    "qty": 100,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "70aee1a7-46ed-4724-b27b-993ae60668e2",
+                    "rollNo": "T03-P09-R04",
+                    "productId": 4,
+                    "qty": 110,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "ac700c5f-2456-44a2-a320-d10c76c65f86",
+                    "rollNo": "T03-P09-R05",
+                    "productId": 4,
+                    "qty": 120,
+                    "width": "1250",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "040ad8c0-e917-4ce2-8d17-8dce10acc5a0",
+                    "rollNo": "T03-P09-R06",
+                    "productId": 4,
+                    "qty": 100,
+                    "width": "1400",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "0d6fa916-2405-4b0a-bf5d-286705cb471f",
+                    "rollNo": "T03-P09-R07",
+                    "productId": 4,
+                    "qty": 110,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "6336be67-9d14-41bf-9972-720b31d32455",
+                    "rollNo": "T03-P09-R08",
+                    "productId": 4,
+                    "qty": 120,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "2c207fa8-fc16-4c41-9696-425701922eaa",
+                    "rollNo": "T03-P09-R09",
+                    "productId": 4,
+                    "qty": 100,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "abbe997a-282d-4fe9-ae89-ad74ba3fd721",
+                    "rollNo": "T03-P09-R10",
+                    "productId": 4,
+                    "qty": 110,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "67bf4a75-eba9-4dfe-96c7-bfe7379b9b28",
+                    "rollNo": "T03-P09-R11",
+                    "productId": 4,
+                    "qty": 120,
+                    "width": "1250",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "e0104b89-027f-433d-be4b-1da0a9f562f1",
+                    "rollNo": "T03-P09-R12",
+                    "productId": 4,
+                    "qty": 100,
+                    "width": "1400",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "9b089634-1376-437d-a3d8-463a0cc959d9",
+                    "rollNo": "T03-P09-R13",
+                    "productId": 4,
+                    "qty": 110,
+                    "width": "1220",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "c3b58f05-a975-48d7-a52d-ee3dc76f6571",
+                    "rollNo": "T03-P09-R14",
+                    "productId": 4,
+                    "qty": 120,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "173a27e9-ca85-495b-b3b9-1666b1ee7158",
+                    "rollNo": "T03-P09-R15",
+                    "productId": 4,
+                    "qty": 100,
+                    "width": "1400",
+                    "thickness": "0.3",
+                    "netKg": "",
+                    "grossKg": ""
+                  },
+                  {
+                    "sourceDocumentId": "2aacb8fd-1288-439b-98f9-db054639cb4b",
+                    "containerKey": "2aacb8fd-1288-439b-98f9-db054639cb4b:TEST-CONT-003",
+                    "containerNumber": "TEST-CONT-003",
+                    "declaration": "BƏY-2026-003",
+                    "palletId": "ed714f98-11d8-4817-97b0-b76ee9581067",
+                    "palletNumber": "Bağlı palet 09",
+                    "palletStatus": "closed",
+                    "rollId": "1b87de12-720f-468b-8ec8-93492c221319",
+                    "rollNo": "T03-P09-R16",
+                    "productId": 4,
+                    "qty": 110,
+                    "width": "1220",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "key": "d0824431-f826-4e78-9679-cc72011b218e:TEST-CONT-002",
+            "documentId": "d0824431-f826-4e78-9679-cc72011b218e",
+            "declaration": "BƏY-2026-002",
+            "number": "TEST-CONT-002",
+            "selectedQty": 100,
+            "palletCount": 1,
+            "rollCount": 1,
+            "pallets": [
+              {
+                "id": "207e4b75-9de1-44f9-94e5-62a2a61bc186",
+                "number": "Açıq qarışıq palet 02",
+                "status": "open",
+                "mixed": true,
+                "fullPallet": false,
+                "selectedQty": 100,
+                "rollCount": 1,
+                "rolls": [
+                  {
+                    "sourceDocumentId": "d0824431-f826-4e78-9679-cc72011b218e",
+                    "containerKey": "d0824431-f826-4e78-9679-cc72011b218e:TEST-CONT-002",
+                    "containerNumber": "TEST-CONT-002",
+                    "declaration": "BƏY-2026-002",
+                    "palletId": "207e4b75-9de1-44f9-94e5-62a2a61bc186",
+                    "palletNumber": "Açıq qarışıq palet 02",
+                    "palletStatus": "open",
+                    "rollId": "84f96655-dad2-4e58-bb2a-8f44d477e7b8",
+                    "rollNo": "T02-P02-R02",
+                    "productId": 2,
+                    "qty": 100,
+                    "width": "1250",
+                    "thickness": "0.35",
+                    "netKg": "",
+                    "grossKg": ""
+                  }
+                ]
+              }
+            ]
           }
         ]
-      }
+      },
+      "updatedAt": "2026-09-21T13:03:29.697Z"
     },
     {
       "id": "f81069ed-48f4-4885-98d4-9435ef3245d8",
@@ -1105,8 +2475,8 @@
       "posted": true,
       "workflowStatus": "new",
       "documentDate": "2026-06-09T11:23",
-      "account": "ERSA ANTREPO",
-      "fromAccount": "ERSA ANTREPO",
+      "account": "Elit",
+      "fromAccount": "Elit",
       "toAccount": "ERSA DEPO",
       "counterpartyId": null,
       "counterpartyName": "",
@@ -6175,7 +7545,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-10T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.999Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -7228,7 +8598,7 @@
               {
                 "id": "0fe34bf5-55e5-48a4-836f-1659e7e3ee27",
                 "number": "Bağlı palet 06",
-                "palletStatus": "closed",
+                "palletStatus": "exported",
                 "rolls": [
                   {
                     "id": "597339b8-eb52-4e13-af43-66417dc1ae23",
@@ -7239,7 +8609,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "8ffe44f8-9371-40f7-8c14-d1ea9c64893e",
@@ -7250,7 +8622,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "3a91a048-695a-411a-9102-914cd82e9b9a",
@@ -7261,7 +8635,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "86ae9d8e-2881-4f46-8f4d-7a233c6bd9ca",
@@ -7272,7 +8648,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "cd59986f-fda9-4938-8a00-e77a5a2eef3b",
@@ -7283,7 +8661,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "3036d067-c0a3-4e90-b226-68e05e10623f",
@@ -7294,7 +8674,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "eb2c124f-d178-4ed1-ab30-28772cf37b78",
@@ -7305,7 +8687,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "9e44c9ba-8b0d-4591-a795-75412b11233c",
@@ -7316,7 +8700,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "94588383-201a-4570-a0e6-35c41e3ba4b3",
@@ -7327,7 +8713,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "816ae47e-4327-4898-bab7-e30611b44117",
@@ -7338,7 +8726,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "3b7fb4c8-f56e-4a2c-b850-29f38c57f306",
@@ -7349,7 +8739,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "33e70db7-3683-426a-b81c-4a272ce82eb9",
@@ -7360,7 +8752,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "6efd9e07-a3a4-4661-b89b-9569c320a408",
@@ -7371,7 +8765,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "c2161f05-22f9-4f1e-888f-0a415b5b4305",
@@ -7382,7 +8778,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "84e2e58a-2b23-4bc5-ab58-95f1592cc21f",
@@ -7393,7 +8791,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "7da68ea8-f17a-401b-bb7c-282f6a3a103e",
@@ -7404,7 +8804,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   }
                 ]
               },
@@ -9355,7 +10757,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-09T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.998Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -10145,7 +11547,7 @@
               {
                 "id": "6a81eead-5d1a-401d-8364-0973c297e8f3",
                 "number": "Bağlı palet 05",
-                "palletStatus": "closed",
+                "palletStatus": "exported",
                 "rolls": [
                   {
                     "id": "0b5f067c-e38b-42ad-8d3a-f21d553c0554",
@@ -10156,7 +11558,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "38a116f8-2b40-4aa5-94d6-aa33165ddd7a",
@@ -10167,7 +11571,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "df693383-c13b-4988-8078-0918f71fdaa5",
@@ -10178,7 +11584,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "6d3b108a-69d4-4686-a3e0-9263210c52ee",
@@ -10189,7 +11597,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "c608331c-bd56-46f6-8e68-e15367337abb",
@@ -10200,7 +11610,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "c75ff7e3-64e1-4e0e-9fdd-b826beb60d89",
@@ -10211,7 +11623,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "6039d83e-debe-459b-a6b1-5a56e4c13060",
@@ -10222,7 +11636,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "593b8601-0a64-474f-8a93-1635af0f5008",
@@ -10233,7 +11649,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "b17b2d16-4289-47df-ab2f-ec17472ddad1",
@@ -10244,7 +11662,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "d5b4500f-92da-4903-af9f-15caf7bcf429",
@@ -10255,7 +11675,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "6e9379de-0933-4071-94e9-face873fc2a3",
@@ -10266,7 +11688,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "f72dc87f-4957-476a-a973-46a66ed11fb0",
@@ -10277,7 +11701,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "3953d819-a4ab-4481-9f62-fa57c02ed0a6",
@@ -10288,7 +11714,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "82bed800-3b07-4a01-8fbd-9a08bda6f811",
@@ -10299,7 +11727,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "90280ff7-ae37-429a-8706-76b674c84071",
@@ -10310,7 +11740,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "29d9253a-2893-4b6a-8997-cb6d48b90b1c",
@@ -10321,7 +11753,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   }
                 ]
               },
@@ -12359,7 +13793,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-08T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.998Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -15363,7 +16797,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-07T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.997Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -18367,7 +19801,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-06T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.997Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -21371,7 +22805,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-05T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.997Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -24375,7 +25809,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-04T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.996Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -24479,9 +25913,7 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "exported",
-                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
-                    "movedTo": "arif"
+                    "status": "available"
                   },
                   {
                     "id": "36adecc9-2146-4620-9e3f-87041128b3ed",
@@ -27383,7 +28815,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-03T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.996Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -28651,7 +30083,7 @@
               {
                 "id": "457b63e6-d635-4370-bc1a-954168ec7071",
                 "number": "Bağlı palet 07",
-                "palletStatus": "closed",
+                "palletStatus": "exported",
                 "rolls": [
                   {
                     "id": "f5414f04-69e5-4f9f-be63-8284c68af622",
@@ -28662,7 +30094,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "7855d48c-7744-492a-8f91-28759d34a257",
@@ -28673,7 +30107,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "3f670380-2826-41de-9d6e-26425c1c6adc",
@@ -28684,7 +30120,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "9e485573-b2e7-4d6b-84b5-794ac01d59f9",
@@ -28695,7 +30133,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "181027d4-7eab-41f0-a157-0a5c916087de",
@@ -28706,7 +30146,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "10fb25c4-4e64-458f-a529-e090b81439cf",
@@ -28717,7 +30159,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "e3094bce-82e9-4710-bf5b-2044768247e8",
@@ -28728,7 +30172,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "452bc4c2-cb1c-4b89-b7b1-75163a7ef00a",
@@ -28739,7 +30185,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "6954c84b-64ff-4ce9-b83e-9dcb7f9431e8",
@@ -28750,7 +30198,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "5c288a68-ba0d-44c7-8b90-3c9ceb004113",
@@ -28761,7 +30211,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "80818a2f-f903-44bb-8029-f8a5110316e5",
@@ -28772,7 +30224,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "da9880aa-aa23-4fec-a711-cb61dcdc204e",
@@ -28783,7 +30237,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "24006a74-8461-4731-b376-0eb78ca84120",
@@ -28794,7 +30250,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "3bca803f-0d3f-47ec-abda-cb3c621b3156",
@@ -28805,7 +30263,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "99a0de51-2e95-46c9-a5ad-b31557b46118",
@@ -28816,7 +30276,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "75c6703b-54b8-4b32-957f-5199b52af816",
@@ -28827,7 +30289,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   }
                 ]
               },
@@ -29049,7 +30513,7 @@
               {
                 "id": "ed714f98-11d8-4817-97b0-b76ee9581067",
                 "number": "Bağlı palet 09",
-                "palletStatus": "closed",
+                "palletStatus": "exported",
                 "rolls": [
                   {
                     "id": "f5dfffde-136b-4d08-bf6b-327a291fdede",
@@ -29060,7 +30524,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "e983dc79-eeff-45d3-acb6-f2cab5139581",
@@ -29071,7 +30537,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "3b0a5936-ca33-4a61-9dec-beac55a303ca",
@@ -29082,7 +30550,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "70aee1a7-46ed-4724-b27b-993ae60668e2",
@@ -29093,7 +30563,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "ac700c5f-2456-44a2-a320-d10c76c65f86",
@@ -29104,7 +30576,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "040ad8c0-e917-4ce2-8d17-8dce10acc5a0",
@@ -29115,7 +30589,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "0d6fa916-2405-4b0a-bf5d-286705cb471f",
@@ -29126,7 +30602,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "6336be67-9d14-41bf-9972-720b31d32455",
@@ -29137,7 +30615,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "2c207fa8-fc16-4c41-9696-425701922eaa",
@@ -29148,7 +30628,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "abbe997a-282d-4fe9-ae89-ad74ba3fd721",
@@ -29159,7 +30641,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "67bf4a75-eba9-4dfe-96c7-bfe7379b9b28",
@@ -29170,7 +30654,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "e0104b89-027f-433d-be4b-1da0a9f562f1",
@@ -29181,7 +30667,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "9b089634-1376-437d-a3d8-463a0cc959d9",
@@ -29192,7 +30680,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "c3b58f05-a975-48d7-a52d-ee3dc76f6571",
@@ -29203,7 +30693,9 @@
                     "qty": "120",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "173a27e9-ca85-495b-b3b9-1666b1ee7158",
@@ -29214,7 +30706,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "1b87de12-720f-468b-8ec8-93492c221319",
@@ -29225,7 +30719,9 @@
                     "qty": "110",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   }
                 ]
               },
@@ -30595,7 +32091,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-02T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.995Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -30858,7 +32354,9 @@
                     "qty": "100",
                     "netKg": "",
                     "grossKg": "",
-                    "status": "available"
+                    "status": "exported",
+                    "movementDocumentId": "1059ac7f-1f7e-4269-887b-dbd0b82f8eb8",
+                    "movedTo": "arif"
                   },
                   {
                     "id": "197f5428-b215-480b-9cff-7d395cc60a5f",
@@ -33599,7 +35097,7 @@
       "workflowStatus": "closed",
       "documentDate": "2026-05-01T06:00:00.000Z",
       "createdAt": "2026-06-09T07:58:45.995Z",
-      "account": "ERSA ANTREPO",
+      "account": "Elit",
       "counterpartyId": 1,
       "counterpartyName": "ARIX TEST TƏCHİZATÇI",
       "author": "Arif Mahmud",
@@ -37169,6 +38667,48 @@
       "store": "ERSA DEPO",
       "price": 2.99,
       "updatedAt": "2026-06-15T09:32:45.183Z"
+    }
+  ],
+  "stores": [
+    {
+      "id": 1,
+      "key": "depo",
+      "name": "ERSA DEPO",
+      "type": "Əsas mağaza",
+      "status": "active",
+      "createdAt": "2024-09-22T00:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "key": "antrepo",
+      "name": "Elit",
+      "type": "Anbar",
+      "status": "active",
+      "createdAt": "2024-11-05T00:00:00.000Z"
+    },
+    {
+      "id": 3,
+      "key": "hsc",
+      "name": "HSC",
+      "type": "Anbar",
+      "status": "active",
+      "createdAt": "2026-09-24T08:39:35.891Z"
+    },
+    {
+      "id": 4,
+      "key": "monart",
+      "name": "Monart",
+      "type": "Anbar",
+      "status": "active",
+      "createdAt": "2026-09-24T08:39:46.754Z"
+    },
+    {
+      "id": 5,
+      "key": "turkgate",
+      "name": "Turkgate",
+      "type": "Anbar",
+      "status": "active",
+      "createdAt": "2026-09-24T08:40:02.304Z"
     }
   ]
 }

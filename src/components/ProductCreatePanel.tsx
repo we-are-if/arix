@@ -24,12 +24,19 @@ const makeUI = (isDark: boolean) => ({
 type ProductCreateForm = {
   ad: string;
   kod: string;
+  status: "active" | "inactive";
   barkod: string;
+  barcodeType: "fixed" | "weight" | "quantity" | "plu";
+  barcodeDecimals: string;
   gtin: string;
+  plu: string;
   artikel: string;
+  brand: string;
   sekil: string;
   kateqoriyalar: string;
   vahid: string;
+  secondaryUnit: string;
+  conversionRate: string;
   weighted: boolean;
   packageEnabled: boolean;
   packageName: string;
@@ -39,9 +46,15 @@ type ProductCreateForm = {
   widthCm: string;
   depthCm: string;
   weightKg: string;
+  rollWidthMm: string;
+  defaultRollLengthMt: string;
+  netWeightKg: string;
+  grossWeightKg: string;
+  volumeM3: string;
   description: string;
   country: string;
   qiymet: string;
+  wholesalePrice: string;
   maya: string;
   alis: string;
   markup: string;
@@ -53,9 +66,23 @@ type ProductCreateForm = {
   groupId: string;
   stockGroup: string;
   supplier: string;
+  supplierCode: string;
+  supplierProductCode: string;
   antrepo: string;
   depo: string;
+  warehouseStocks: Record<string, string>;
   minimalQalq: string;
+  maxStock: string;
+  minOrderQty: string;
+  maxOrderQty: string;
+  negativeStockAllowed: boolean;
+  shelfLocation: string;
+  shelfLifeDays: string;
+  leadTimeDays: string;
+  warrantyMonths: string;
+  tariffCode: string;
+  alternativeProductIds: string[];
+  note: string;
   modifikasiya: boolean;
   initialStock: boolean;
   expirationDate: string;
@@ -71,6 +98,19 @@ type GroupOption = {
   parentId: number | null;
 };
 
+type StoreOption = {
+  id: number;
+  key: string;
+  name: string;
+  status: "active" | "inactive";
+};
+
+type ProductOption = {
+  id: number;
+  name: string;
+  code?: string;
+};
+
 type Props = {
   visible: boolean;
   isDark?: boolean;
@@ -78,6 +118,8 @@ type Props = {
   defaultGroupId?: number | null;
   defaultCode?: string;
   groups?: GroupOption[];
+  stores?: StoreOption[];
+  products?: ProductOption[];
   onClose: () => void;
   onSubmit?: (values: ProductFormValues) => void;
 };
@@ -85,12 +127,19 @@ type Props = {
 const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm => ({
   ad: "",
   kod: code,
+  status: "active",
   barkod: "",
+  barcodeType: "fixed",
+  barcodeDecimals: "0",
   gtin: "",
+  plu: "",
   artikel: "",
+  brand: "",
   sekil: "",
   kateqoriyalar: "",
   vahid: "əd",
+  secondaryUnit: "",
+  conversionRate: "",
   weighted: false,
   packageEnabled: false,
   packageName: "",
@@ -100,9 +149,15 @@ const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm 
   widthCm: "",
   depthCm: "",
   weightKg: "",
+  rollWidthMm: "",
+  defaultRollLengthMt: "",
+  netWeightKg: "",
+  grossWeightKg: "",
+  volumeM3: "",
   description: "",
   country: "",
   qiymet: "",
+  wholesalePrice: "",
   maya: "",
   alis: "",
   markup: "",
@@ -114,9 +169,23 @@ const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm 
   groupId: groupId == null ? "" : String(groupId),
   stockGroup: "",
   supplier: "",
+  supplierCode: "",
+  supplierProductCode: "",
   antrepo: "",
   depo: "",
+  warehouseStocks: {},
   minimalQalq: "",
+  maxStock: "",
+  minOrderQty: "",
+  maxOrderQty: "",
+  negativeStockAllowed: false,
+  shelfLocation: "",
+  shelfLifeDays: "",
+  leadTimeDays: "",
+  warrantyMonths: "",
+  tariffCode: "",
+  alternativeProductIds: [],
+  note: "",
   modifikasiya: false,
   initialStock: false,
   expirationDate: "",
@@ -165,17 +234,16 @@ function ToggleControl({
 function FormSection({
   title,
   children,
-  borderSoft,
-  isDark,
 }: {
   title: string;
   children: React.ReactNode;
-  borderSoft: string;
-  isDark: boolean;
 }) {
   return (
-    <section className={cx("rounded-2xl border p-4", borderSoft, isDark ? "bg-slate-900/25" : "bg-white/55")}>
-      <h3 className="mb-3 text-sm font-semibold">{title}</h3>
+    <section className="min-w-0 px-1 pb-1">
+      <div className="mb-4 flex items-center gap-3">
+        <h3 className="shrink-0 text-base font-semibold">{title}</h3>
+        <span className="h-px flex-1 bg-slate-200/80 dark:bg-white/10" />
+      </div>
       {children}
     </section>
   );
@@ -188,6 +256,8 @@ export default function ProductCreatePanel({
   defaultGroupId = null,
   defaultCode = "",
   groups = [],
+  stores = [],
+  products = [],
   onClose,
   onSubmit,
 }: Props) {
@@ -195,13 +265,19 @@ export default function ProductCreatePanel({
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const [tab, setTab] = useState<ProductFormValues["type"]>(defaultType);
+  const [section, setSection] = useState<"basic" | "codes" | "measure" | "stock" | "price" | "tax" | "extra">("basic");
   const [form, setForm] = useState<ProductCreateForm>(() => emptyForm(defaultGroupId, defaultCode));
 
   useEffect(() => {
     if (!visible) return;
     setTab(defaultType);
-    setForm(emptyForm(defaultGroupId, defaultCode));
-  }, [defaultCode, defaultGroupId, defaultType, visible]);
+    setSection("basic");
+    setForm({
+      ...emptyForm(defaultGroupId, defaultCode),
+      vahid: defaultType === "service" ? "xidmət" : defaultType === "bundle" ? "dəst" : "əd",
+      warehouseStocks: Object.fromEntries(stores.filter((store) => store.status === "active").map((store) => [store.key, ""])),
+    });
+  }, [defaultCode, defaultGroupId, defaultType, stores, visible]);
 
   const groupOptions = useMemo(() => {
     const byParent = new Map<number | null, GroupOption[]>();
@@ -250,8 +326,17 @@ export default function ProductCreatePanel({
     { id: "service", title: "Xidmət", description: "Anbar qalığı olmayan satış" },
     { id: "bundle", title: "Dəst", description: "Bir neçə məhsuldan ibarət" },
   ];
+  const sectionTabs = [
+    { id: "basic", label: "Əsas məlumat" },
+    { id: "codes", label: "Kodlar və barkod" },
+    { id: "measure", label: "Ölçü və rulo", productOnly: true },
+    { id: "stock", label: "Stok", productOnly: true },
+    { id: "price", label: "Qiymətlər" },
+    { id: "tax", label: "Vergi" },
+    { id: "extra", label: "Əlavə" },
+  ] as const;
+  const activeStores = stores.filter((store) => store.status === "active");
 
-  const sectionProps = { borderSoft: ui.borderSoft, isDark };
   const toggleProps = { isDark, textSubtle: ui.textSubtle };
 
   return (
@@ -285,192 +370,162 @@ export default function ProductCreatePanel({
         </div>
 
         <div className="overflow-y-auto px-5 py-4">
-          <div className="mb-4 grid gap-3 md:grid-cols-3">
+          <div className={cx("mb-4 grid grid-cols-3 rounded-xl border p-1", ui.borderSoft, isDark ? "bg-slate-950/20" : "bg-slate-100/70")}>
             {typeCards.map((card) => (
               <button
                 key={card.id}
                 type="button"
-                onClick={() => setTab(card.id)}
+                onClick={() => {
+                  setTab(card.id);
+                  setSection("basic");
+                  if (card.id === "service") setField("vahid", "xidmət");
+                  if (card.id === "bundle" && form.vahid === "xidmət") setField("vahid", "dəst");
+                  if (card.id === "product" && form.vahid === "xidmət") setField("vahid", "əd");
+                }}
                 className={cx(
-                  "rounded-2xl border p-3 text-center transition",
+                  "min-h-14 rounded-lg px-3 py-2 text-center transition",
                   tab === card.id
-                    ? "border-indigo-500 bg-indigo-500/10 text-indigo-700"
-                    : cx(ui.borderSoft, isDark ? "hover:bg-white/7 text-slate-200" : "hover:bg-white/75 text-slate-700")
+                    ? isDark ? "bg-indigo-500/20 text-indigo-100 shadow-sm" : "bg-white text-indigo-700 shadow-sm"
+                    : isDark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-white/60"
                 )}
               >
-                <span className="block text-base font-semibold">{card.title}</span>
-                <span className={cx("mt-1 block text-xs", tab === card.id ? "text-indigo-600" : ui.textSubtle)}>{card.description}</span>
+                <span className="block text-sm font-semibold">{card.title}</span>
+                <span className={cx("mt-0.5 block text-[11px]", tab === card.id && !isDark ? "text-indigo-500" : ui.textSubtle)}>{card.description}</span>
               </button>
             ))}
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
-            <div className="space-y-4">
-              <FormSection title="Əsas məlumat" {...sectionProps}>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <label className="md:col-span-3">
-                    <span className="mb-1 block text-xs font-medium">Ad <span className="text-red-500">*</span></span>
-                    <input className={ui.input} value={form.ad} onChange={handleChange("ad")} placeholder="Məhsul adını daxil edin" />
-                  </label>
-                  <label>
-                    <span className="mb-1 block text-xs font-medium">Məhsul kodu</span>
-                    <input className={ui.input} value={form.kod} onChange={handleChange("kod")} placeholder="00250" />
-                  </label>
-                  <label>
-                    <span className="mb-1 flex items-center justify-between text-xs font-medium">
-                      Bar-kod
-                      <button type="button" className="text-indigo-600" onClick={() => setField("barkod", generateNumericCode())}>Törət</button>
-                    </span>
-                    <input className={ui.input} value={form.barkod} onChange={handleChange("barkod")} placeholder="Ştrix-kod" />
-                  </label>
-                  <label>
-                    <span className="mb-1 block text-xs font-medium">Artikul</span>
-                    <input className={ui.input} value={form.artikel} onChange={handleChange("artikel")} placeholder="Artikul" />
-                  </label>
-                  <label>
-                    <span className="mb-1 block text-xs font-medium">GTIN</span>
-                    <input className={ui.input} value={form.gtin} onChange={handleChange("gtin")} placeholder="GTIN" />
-                  </label>
-                </div>
-
-                <div className="mt-3">
-                  <span className="mb-1 block text-xs font-medium">Şəkil</span>
-                  <button
-                    type="button"
-                    onClick={() => fileRef.current?.click()}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      handleImageFile(e.dataTransfer.files[0]);
-                    }}
-                    className={cx(
-                      "flex min-h-24 w-full items-center justify-center rounded-xl border border-dashed px-3 text-center text-sm",
-                      isDark ? "border-slate-600 hover:bg-white/5" : "border-slate-300 hover:bg-slate-50"
-                    )}
-                  >
-                    {form.sekil ? (
-                      <img src={form.sekil} alt="" className="max-h-24 rounded-lg object-contain" />
-                    ) : (
-                      <span>
-                        <span className="block font-medium">Yükləmək üçün şəkil seçin</span>
-                        <span className={cx("text-xs", ui.textSubtle)}>və ya onu bura sürüşdürün</span>
-                      </span>
-                    )}
-                  </button>
-                  <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleImageFile(e.target.files?.[0])} />
-                </div>
-              </FormSection>
-
-              <FormSection title="Təsnifat və ölçü" {...sectionProps}>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label>
-                    <span className="mb-1 block text-xs font-medium">Kateqoriyalar</span>
-                    <input className={ui.input} value={form.kateqoriyalar} onChange={handleChange("kateqoriyalar")} placeholder="Siyahıdan seçin və ya yeni ad yazın" />
-                  </label>
-                  <label>
-                    <span className="mb-1 block text-xs font-medium">Qovluq</span>
-                    <select className={ui.input} value={form.groupId} onChange={handleChange("groupId")}>
-                      <option value="">Qovluqsuz</option>
-                      {groupOptions.map(({ group, level }) => (
-                        <option key={group.id} value={String(group.id)}>
-                          {"— ".repeat(level)}{group.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="mb-1 block text-xs font-medium">Ölçü vahidi</span>
-                    <select className={ui.input} value={form.vahid} onChange={handleChange("vahid")}>
-                      <option value="əd">əd</option>
-                      <option value="mt">mt</option>
-                      <option value="kg">kg</option>
-                      <option value="m²">m²</option>
-                      <option value="dəst">dəst</option>
-                      <option value="xidmət">xidmət</option>
-                    </select>
-                  </label>
-                  <div className="flex items-end">
-                    <ToggleControl {...toggleProps} checked={form.weighted} onChange={(next) => setField("weighted", next)} label="Çəki məhsulu" />
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <ToggleControl {...toggleProps} checked={form.packageEnabled} onChange={(next) => setField("packageEnabled", next)} label="Qablaşdırma əlavə et" hint="Məsələn: qutu, rulon, paket" />
-                  {form.packageEnabled && (
-                    <div className="mt-3 grid gap-3 md:grid-cols-2">
-                      <input className={ui.input} value={form.packageName} onChange={handleChange("packageName")} placeholder="Qablaşdırma adı" />
-                      <input className={ui.input} value={form.packageQty} onChange={handleChange("packageQty")} placeholder="Bir qablaşdırmada miqdar" />
-                    </div>
-                  )}
-                </div>
-              </FormSection>
-
-              <FormSection title="Xüsusiyyətlər" {...sectionProps}>
-                <div className="grid gap-3 md:grid-cols-4">
-                  <input className={ui.input} value={form.lengthCm} onChange={handleChange("lengthCm")} placeholder="Boy, sm" />
-                  <input className={ui.input} value={form.widthCm} onChange={handleChange("widthCm")} placeholder="Uzunluq, sm" />
-                  <input className={ui.input} value={form.depthCm} onChange={handleChange("depthCm")} placeholder="Dərinlik, sm" />
-                  <input className={ui.input} value={form.weightKg} onChange={handleChange("weightKg")} placeholder="Həqiqi çəki, kg" />
-                  <textarea className={cx(ui.textarea, "md:col-span-3")} value={form.description} onChange={handleChange("description")} placeholder="Təsvir" />
-                  <select className={ui.input} value={form.country} onChange={handleChange("country")}>
-                    <option value="">Ölkə seçin</option>
-                    <option value="Azərbaycan">Azərbaycan</option>
-                    <option value="Türkiyə">Türkiyə</option>
-                    <option value="Çin">Çin</option>
-                    <option value="Almaniya">Almaniya</option>
-                  </select>
-                </div>
-              </FormSection>
-            </div>
-
-            <div className="space-y-4">
-              <FormSection title="Qiymətlər" {...sectionProps}>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <input className={ui.input} value={form.alis} onChange={handleChange("alis")} placeholder="Alışın qiyməti" />
-                  <input className={ui.input} value={form.markup} onChange={handleChange("markup")} placeholder="Artırılmış məbləğ, %" />
-                  <input className={ui.input} value={form.qiymet} onChange={handleChange("qiymet")} placeholder="Satış qiyməti" />
-                  <input className={ui.input} value={form.endirim} onChange={handleChange("endirim")} placeholder="Endirim, %" />
-                </div>
-                <div className="mt-3 space-y-3">
-                  <ToggleControl {...toggleProps} checked={form.freePrice} onChange={(next) => setField("freePrice", next)} label="Sərbəst qiymət ilə məhsul" hint="Satış zamanı kassir qiyməti redaktə edə bilər" />
-                  <ToggleControl {...toggleProps} checked={form.storePrices} onChange={(next) => setField("storePrices", next)} label="Mağazalarda fərqli satış qiymətləri" />
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label>
-                    <span className="mb-1 flex items-center justify-between text-xs font-medium">
-                      Vergilər
-                      <button type="button" className="text-indigo-600">Vergi yaradın</button>
-                    </span>
-                    <select className={ui.input} value={form.vergi} onChange={handleChange("vergi")}>
-                      <option value="">Vergi seçin</option>
-                      <option value="18">ƏDV 18%</option>
-                      <option value="0">0%</option>
-                    </select>
-                  </label>
-                  <div className="flex items-end">
-                    <ToggleControl {...toggleProps} checked={form.taxFree} onChange={(next) => setField("taxFree", next)} label="Vergi tutulmur" />
-                  </div>
-                </div>
-              </FormSection>
-
-              <FormSection title="Anbar" {...sectionProps}>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <input className={ui.input} value={form.stockGroup} onChange={handleChange("stockGroup")} placeholder="Anbar qrupu" />
-                  <input className={ui.input} value={form.supplier} onChange={handleChange("supplier")} placeholder="Təchizatçı" />
-                  <input className={ui.input} value={form.minimalQalq} onChange={handleChange("minimalQalq")} placeholder="Minimal qalıq" />
-                  <input className={ui.input} value={form.expirationDate} onChange={handleChange("expirationDate")} placeholder="İstifadə müddəti" type="date" />
-                </div>
-                <div className="mt-3 space-y-3">
-                  <ToggleControl {...toggleProps} checked={form.modifikasiya} onChange={(next) => setField("modifikasiya", next)} label="Modifikasiyalı məhsul" hint="Rəng, ölçü və digər variasiyalar üçün" />
-                  <ToggleControl {...toggleProps} checked={form.initialStock} onChange={(next) => setField("initialStock", next)} label="İlkin qalıqları daxil edin" hint="Əvvələ qalıq sənədi yaradılacaq" />
-                </div>
-                {form.initialStock && (
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <input className={ui.input} value={form.antrepo} onChange={handleChange("antrepo")} placeholder="ERSA ANTREPO" />
-                    <input className={ui.input} value={form.depo} onChange={handleChange("depo")} placeholder="ERSA DEPO" />
-                  </div>
+          <div className={cx("mb-5 flex gap-1 overflow-x-auto border-b", ui.borderSoft)} role="tablist" aria-label="Məhsul kartı bölmələri">
+            {sectionTabs.filter((item) => tab !== "service" || !("productOnly" in item && item.productOnly)).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={section === item.id}
+                onClick={() => setSection(item.id)}
+                className={cx(
+                  "relative h-11 shrink-0 px-3 text-sm font-medium transition",
+                  section === item.id
+                    ? isDark ? "text-indigo-200" : "text-indigo-700"
+                    : isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-800"
                 )}
+              >
+                {item.label}
+                {section === item.id && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-indigo-600" />}
+              </button>
+            ))}
+          </div>
+
+          <div className="min-h-[390px]">
+            {section === "basic" && (
+              <FormSection title="Əsas məlumat">
+                <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_180px]">
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <label className="md:col-span-3"><span className="mb-1 block text-xs font-medium">Ad <span className="text-red-500">*</span></span><input className={ui.input} value={form.ad} onChange={handleChange("ad")} placeholder="Məhsul adını daxil edin" /></label>
+                    <label><span className="mb-1 block text-xs font-medium">Status</span><select className={ui.input} value={form.status} onChange={handleChange("status")}><option value="active">Aktiv</option><option value="inactive">Qeyri-aktiv</option></select></label>
+                    <label><span className="mb-1 block text-xs font-medium">Marka</span><input className={ui.input} value={form.brand} onChange={handleChange("brand")} placeholder="Marka" /></label>
+                    <label><span className="mb-1 block text-xs font-medium">Mənşə ölkəsi</span><select className={ui.input} value={form.country} onChange={handleChange("country")}><option value="">Ölkə seçin</option><option value="Azərbaycan">Azərbaycan</option><option value="Türkiyə">Türkiyə</option><option value="Çin">Çin</option><option value="Almaniya">Almaniya</option></select></label>
+                    <label><span className="mb-1 block text-xs font-medium">Kateqoriyalar</span><input className={ui.input} value={form.kateqoriyalar} onChange={handleChange("kateqoriyalar")} placeholder="Vergüllə ayırın" /></label>
+                    <label><span className="mb-1 block text-xs font-medium">Qovluq</span><select className={ui.input} value={form.groupId} onChange={handleChange("groupId")}><option value="">Qovluqsuz</option>{groupOptions.map(({ group, level }) => <option key={group.id} value={String(group.id)}>{"— ".repeat(level)}{group.name}</option>)}</select></label>
+                    <label className="md:col-span-4"><span className="mb-1 block text-xs font-medium">Təsvir</span><textarea className={ui.textarea} value={form.description} onChange={handleChange("description")} placeholder={tab === "service" ? "Xidmətin təsviri" : "Məhsul haqqında qeyd"} /></label>
+                  </div>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium">Şəkil</span>
+                    <button type="button" onClick={() => fileRef.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); handleImageFile(e.dataTransfer.files[0]); }} className={cx("flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-dashed p-3 text-center text-sm", isDark ? "border-slate-600 hover:bg-white/5" : "border-slate-300 hover:bg-slate-50")}>{form.sekil ? <img src={form.sekil} alt="Məhsul" className="h-full w-full object-contain" /> : <span><span className="block font-medium">Şəkil seçin</span><span className={cx("mt-1 block text-xs", ui.textSubtle)}>və ya bura sürüşdürün</span></span>}</button>
+                    <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleImageFile(e.target.files?.[0])} />
+                  </label>
+                </div>
               </FormSection>
-            </div>
+            )}
+
+            {section === "codes" && (
+              <FormSection title="Kodlar və barkod">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label><span className="mb-1 block text-xs font-medium">Məhsul kodu</span><input className={ui.input} value={form.kod} onChange={handleChange("kod")} placeholder="00250" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">SKU / Artikul</span><input className={ui.input} value={form.artikel} onChange={handleChange("artikel")} placeholder="ERSA 011" /></label>
+                  <label><span className="mb-1 flex items-center justify-between text-xs font-medium">PLU kod<button type="button" aria-label="PLU kodu yarat" className="text-indigo-600" onClick={() => setField("plu", generateNumericCode(5))}>Törət</button></span><input className={ui.input} value={form.plu} onChange={handleChange("plu")} placeholder="PLU kod" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Barkod növü</span><select className={ui.input} value={form.barcodeType} onChange={handleChange("barcodeType")}><option value="fixed">Sabit</option><option value="weight">KG barkodu</option><option value="quantity">Ədəd barkodu</option><option value="plu">PLU barkodu</option></select></label>
+                  <label><span className="mb-1 flex items-center justify-between text-xs font-medium">Əsas barkod<button type="button" aria-label="Əsas barkod yarat" className="text-indigo-600" onClick={() => setField("barkod", generateNumericCode())}>Törət</button></span><input className={ui.input} value={form.barkod} onChange={handleChange("barkod")} placeholder="13 rəqəmli barkod" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">GTIN</span><input className={ui.input} value={form.gtin} onChange={handleChange("gtin")} placeholder="GTIN" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Ondalıq rəqəm</span><input className={ui.input} value={form.barcodeDecimals} onChange={handleChange("barcodeDecimals")} inputMode="numeric" /></label>
+                </div>
+                <p className={cx("mt-4 text-xs", ui.textSubtle)}>Rulo pasport barkodları alış zamanı hər rulo üçün ayrıca yaradılır. Buradakı barkod məhsul kartının əsas barkodudur.</p>
+              </FormSection>
+            )}
+
+            {section === "measure" && tab !== "service" && (
+              <FormSection title="Ölçü vahidi və rulo pasportu">
+                <div className="grid gap-3 md:grid-cols-4">
+                  <label><span className="mb-1 block text-xs font-medium">Əsas vahid</span><select className={ui.input} value={form.vahid} onChange={handleChange("vahid")}><option value="əd">əd</option><option value="mt">mt</option><option value="rulo">rulo</option><option value="palet">palet</option><option value="kg">kg</option><option value="m²">m²</option><option value="dəst">dəst</option></select></label>
+                  <label><span className="mb-1 block text-xs font-medium">İkinci vahid</span><select className={ui.input} value={form.secondaryUnit} onChange={handleChange("secondaryUnit")}><option value="">Yoxdur</option><option value="mt">mt</option><option value="rulo">rulo</option><option value="palet">palet</option><option value="kg">kg</option><option value="m²">m²</option></select></label>
+                  <label><span className="mb-1 block text-xs font-medium">Çevirmə əmsalı</span><input className={ui.input} value={form.conversionRate} onChange={handleChange("conversionRate")} placeholder="1 rulo = 100 mt" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Rulo eni, mm</span><input className={ui.input} value={form.rollWidthMm} onChange={handleChange("rollWidthMm")} inputMode="decimal" placeholder="1220" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Standart rulo, mt</span><input className={ui.input} value={form.defaultRollLengthMt} onChange={handleChange("defaultRollLengthMt")} inputMode="decimal" placeholder="100" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Boy, sm</span><input className={ui.input} value={form.lengthCm} onChange={handleChange("lengthCm")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">En, sm</span><input className={ui.input} value={form.widthCm} onChange={handleChange("widthCm")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Dərinlik, sm</span><input className={ui.input} value={form.depthCm} onChange={handleChange("depthCm")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Net çəki, kg</span><input className={ui.input} value={form.netWeightKg} onChange={handleChange("netWeightKg")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Brüt çəki, kg</span><input className={ui.input} value={form.grossWeightKg} onChange={handleChange("grossWeightKg")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Ümumi çəki, kg</span><input className={ui.input} value={form.weightKg} onChange={handleChange("weightKg")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Həcm, m³</span><input className={ui.input} value={form.volumeM3} onChange={handleChange("volumeM3")} inputMode="decimal" /></label>
+                </div>
+                <div className="mt-5 grid gap-4 md:grid-cols-2"><ToggleControl {...toggleProps} checked={form.weighted} onChange={(next) => setField("weighted", next)} label="Çəki ilə satılır" /><ToggleControl {...toggleProps} checked={form.packageEnabled} onChange={(next) => setField("packageEnabled", next)} label="Qablaşdırma vahidi əlavə et" hint="Qutu, paket və ya palet çevirməsi üçün" /></div>
+                {form.packageEnabled && <div className="mt-4 grid gap-3 md:grid-cols-2"><label><span className="mb-1 block text-xs font-medium">Qablaşdırma adı</span><input className={ui.input} value={form.packageName} onChange={handleChange("packageName")} /></label><label><span className="mb-1 block text-xs font-medium">İçindəki miqdar</span><input className={ui.input} value={form.packageQty} onChange={handleChange("packageQty")} inputMode="decimal" /></label></div>}
+              </FormSection>
+            )}
+
+            {section === "stock" && tab !== "service" && (
+              <FormSection title="Stok qaydaları və mağazalar">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label><span className="mb-1 block text-xs font-medium">Anbar qrupu</span><input className={ui.input} value={form.stockGroup} onChange={handleChange("stockGroup")} /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Minimal qalıq</span><input className={ui.input} value={form.minimalQalq} onChange={handleChange("minimalQalq")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Maksimal qalıq</span><input className={ui.input} value={form.maxStock} onChange={handleChange("maxStock")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Minimum sifariş</span><input className={ui.input} value={form.minOrderQty} onChange={handleChange("minOrderQty")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Maksimum sifariş</span><input className={ui.input} value={form.maxOrderQty} onChange={handleChange("maxOrderQty")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Rəf yeri</span><input className={ui.input} value={form.shelfLocation} onChange={handleChange("shelfLocation")} /></label>
+                </div>
+                <div className="mt-5 grid gap-4 md:grid-cols-3"><ToggleControl {...toggleProps} checked={form.negativeStockAllowed} onChange={(next) => setField("negativeStockAllowed", next)} label="Mənfi qalığa icazə ver" /><ToggleControl {...toggleProps} checked={form.modifikasiya} onChange={(next) => setField("modifikasiya", next)} label="Variantlı məhsul" hint="Rəng və ölçü variasiyaları" /><ToggleControl {...toggleProps} checked={form.initialStock} onChange={(next) => setField("initialStock", next)} label="İlkin qalıqları daxil et" /></div>
+                {form.initialStock && <div className="mt-5 grid gap-3 md:grid-cols-3">{activeStores.map((store) => <label key={store.key}><span className="mb-1 block text-xs font-medium">{store.name}</span><input className={ui.input} value={form.warehouseStocks[store.key] ?? ""} onChange={(e) => setField("warehouseStocks", { ...form.warehouseStocks, [store.key]: e.target.value })} inputMode="decimal" placeholder="0" /></label>)}{activeStores.length === 0 && <div className={cx("text-sm", ui.textSubtle)}>Şirkət bölməsində aktiv mağaza yaradılmayıb.</div>}</div>}
+              </FormSection>
+            )}
+
+            {section === "price" && (
+              <FormSection title="Qiymətlər">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label><span className="mb-1 block text-xs font-medium">Alış qiyməti</span><input className={ui.input} value={form.alis} onChange={handleChange("alis")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Maya dəyəri</span><input className={ui.input} value={form.maya} onChange={handleChange("maya")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Standart satış qiyməti</span><input className={ui.input} value={form.qiymet} onChange={handleChange("qiymet")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Topdan satış qiyməti</span><input className={ui.input} value={form.wholesalePrice} onChange={handleChange("wholesalePrice")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Artım, %</span><input className={ui.input} value={form.markup} onChange={handleChange("markup")} inputMode="decimal" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Endirim, %</span><input className={ui.input} value={form.endirim} onChange={handleChange("endirim")} inputMode="decimal" /></label>
+                </div>
+                <div className="mt-5 grid gap-4 md:grid-cols-2"><ToggleControl {...toggleProps} checked={form.freePrice} onChange={(next) => setField("freePrice", next)} label="Sərbəst satış qiyməti" hint="Sənəddə qiymət dəyişdirilə bilər" /><ToggleControl {...toggleProps} checked={form.storePrices} onChange={(next) => setField("storePrices", next)} label="Mağazalara görə fərqli qiymət" /></div>
+              </FormSection>
+            )}
+
+            {section === "tax" && (
+              <FormSection title="Vergi və gömrük məlumatları">
+                <div className="grid gap-3 md:grid-cols-2"><label><span className="mb-1 block text-xs font-medium">ƏDV</span><select className={ui.input} value={form.vergi} onChange={handleChange("vergi")}><option value="">Vergi seçin</option><option value="20">ƏDV 20%</option><option value="18">ƏDV 18%</option><option value="0">0%</option></select></label><label><span className="mb-1 block text-xs font-medium">GTİP / gömrük kodu</span><input className={ui.input} value={form.tariffCode} onChange={handleChange("tariffCode")} placeholder="Gömrük tarif kodu" /></label></div>
+                <div className="mt-5"><ToggleControl {...toggleProps} checked={form.taxFree} onChange={(next) => setField("taxFree", next)} label="Vergidən azaddır" /></div>
+              </FormSection>
+            )}
+
+            {section === "extra" && (
+              <FormSection title="Təchizat və əlavə məlumatlar">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label><span className="mb-1 block text-xs font-medium">Əsas təchizatçı</span><input className={ui.input} value={form.supplier} onChange={handleChange("supplier")} /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Təchizatçı kodu</span><input className={ui.input} value={form.supplierCode} onChange={handleChange("supplierCode")} /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Təchizatçıdakı məhsul kodu</span><input className={ui.input} value={form.supplierProductCode} onChange={handleChange("supplierProductCode")} /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Tədarük müddəti, gün</span><input className={ui.input} value={form.leadTimeDays} onChange={handleChange("leadTimeDays")} inputMode="numeric" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Rəf ömrü, gün</span><input className={ui.input} value={form.shelfLifeDays} onChange={handleChange("shelfLifeDays")} inputMode="numeric" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">Zəmanət, ay</span><input className={ui.input} value={form.warrantyMonths} onChange={handleChange("warrantyMonths")} inputMode="numeric" /></label>
+                  <label><span className="mb-1 block text-xs font-medium">İstifadə müddəti</span><input className={ui.input} value={form.expirationDate} onChange={handleChange("expirationDate")} type="date" /></label>
+                  <label className="md:col-span-2"><span className="mb-1 block text-xs font-medium">Alternativ məhsullar</span><select className={ui.input} value="" onChange={(e) => { if (e.target.value && !form.alternativeProductIds.includes(e.target.value)) setField("alternativeProductIds", [...form.alternativeProductIds, e.target.value]); }}><option value="">Məhsul əlavə et</option>{products.filter((item) => !form.alternativeProductIds.includes(String(item.id))).map((item) => <option key={item.id} value={String(item.id)}>{item.name}{item.code ? ` · ${item.code}` : ""}</option>)}</select>{form.alternativeProductIds.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{form.alternativeProductIds.map((id) => { const item = products.find((product) => String(product.id) === id); return <button key={id} type="button" onClick={() => setField("alternativeProductIds", form.alternativeProductIds.filter((value) => value !== id))} className={cx("rounded-full border px-3 py-1 text-xs", ui.borderSoft)}>{item?.name ?? id} ×</button>; })}</div>}</label>
+                  <label className="md:col-span-3"><span className="mb-1 block text-xs font-medium">Xüsusiyyətlər</span><textarea className={ui.textarea} value={form.xususiyyetler} onChange={handleChange("xususiyyetler")} placeholder="Texniki xüsusiyyətlər" /></label>
+                  <label className="md:col-span-3"><span className="mb-1 block text-xs font-medium">Daxili qeyd</span><textarea className={ui.textarea} value={form.note} onChange={handleChange("note")} placeholder="Yalnız əməkdaşlar üçün qeyd" /></label>
+                </div>
+              </FormSection>
+            )}
           </div>
         </div>
 

@@ -59,6 +59,11 @@ const defaultCompanySettings = {
   printSettings: defaultPrintSettings,
 };
 
+const defaultStores = [
+  { id: 1, key: "depo", name: "ERSA DEPO", type: "Əsas mağaza", status: "active", createdAt: "2024-09-22T00:00:00.000Z" },
+  { id: 2, key: "antrepo", name: "ERSA ANTREPO", type: "Anbar", status: "active", createdAt: "2024-11-05T00:00:00.000Z" },
+];
+
 const seedDb = {
   products: [
     { id: 1, name: "Soft Touch Premium Beyaz", code: "00233", sku: "ERSA 510", type: "product", unit: "mt", groupId: 1, categoryIds: [1], salePrice: 5.96, cost: 3.1, warehouses: { antrepo: 50, depo: 18 }, active: true },
@@ -74,6 +79,7 @@ const seedDb = {
     { id: 1, name: "PVC folyo" },
     { id: 2, name: "HG panel" }
   ],
+  stores: defaultStores,
   counterparties: [
     { id: 1, kind: "customer", name: "ABANOZ", phone: "", email: "", address: "İstanbul", balance: 0, createdAt: "2026-05-13", owner: "Arif Mahmud" },
     { id: 2, kind: "customer", name: "Global Design", phone: "", email: "", address: "Bursa", balance: 0, createdAt: "2026-05-17", owner: "Arif Mahmud" },
@@ -158,13 +164,21 @@ function normalizeDb(db) {
   db.stockMovements ??= [];
   db.landedCostAdjustments ??= [];
   db.customerPrices ??= [];
+  db.stores = Array.isArray(db.stores) && db.stores.length
+    ? db.stores.map((store, index) => ({
+        id: Number(store.id) || index + 1,
+        key: String(store.key || `store-${Number(store.id) || index + 1}`),
+        name: String(store.name || `Mağaza ${index + 1}`),
+        type: String(store.type || "Mağaza"),
+        status: store.status === "inactive" ? "inactive" : "active",
+        createdAt: store.createdAt || new Date().toISOString(),
+      }))
+    : structuredClone(defaultStores);
   db.products = (db.products ?? []).map((product) => ({
     ...product,
-    storePrices: {
-      "ERSA DEPO": Number(product.storePrices?.["ERSA DEPO"] ?? product.salePrice ?? 0),
-      "ERSA ANTREPO": Number(product.storePrices?.["ERSA ANTREPO"] ?? product.salePrice ?? 0),
-      ...(product.storePrices ?? {}),
-    },
+    storePrices: Object.fromEntries(
+      db.stores.map((store) => [store.name, Number(product.storePrices?.[store.name] ?? product.salePrice ?? 0)])
+    ),
   }));
   return db;
 }
@@ -291,6 +305,104 @@ async function handleSimpleCollection(req, res, key) {
     await writeDb(db);
     return send(res, 201, { data: item });
   }
+  return notFound(res);
+}
+
+function nextStoreKey(stores, name) {
+  const base = String(name || "store")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "store";
+  let key = base;
+  let suffix = 2;
+  while (stores.some((store) => store.key === key)) key = `${base}-${suffix++}`;
+  return key;
+}
+
+async function handleStores(req, res, parts) {
+  const db = await readDb();
+  const id = Number(parts[1]);
+
+  if (req.method === "GET" && parts.length === 1) {
+    return send(res, 200, { data: db.stores });
+  }
+
+  if (req.method === "POST" && parts.length === 1) {
+    const body = await parseBody(req);
+    const name = String(body.name ?? "").trim();
+    if (!name) return send(res, 400, { error: "Mağaza adı tələb olunur." });
+    if (db.stores.some((store) => store.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+      return send(res, 409, { error: "Bu adda mağaza artıq mövcuddur." });
+    }
+    const item = {
+      id: nextNumericId(db.stores),
+      key: nextStoreKey(db.stores, name),
+      name,
+      type: String(body.type || "Mağaza"),
+      status: body.status === "inactive" ? "inactive" : "active",
+      createdAt: new Date().toISOString(),
+    };
+    db.stores.push(item);
+    db.products = db.products.map((product) => ({
+      ...product,
+      warehouses: { ...(product.warehouses ?? {}), [item.key]: 0 },
+      storePrices: { ...(product.storePrices ?? {}), [item.name]: Number(product.salePrice ?? 0) },
+    }));
+    await writeDb(db);
+    return send(res, 201, { data: item });
+  }
+
+  if (req.method === "PATCH" && id) {
+    const index = db.stores.findIndex((store) => Number(store.id) === id);
+    if (index < 0) return notFound(res);
+    const body = await parseBody(req);
+    const previous = db.stores[index];
+    const name = String(body.name ?? previous.name).trim();
+    if (!name) return send(res, 400, { error: "Mağaza adı tələb olunur." });
+    if (db.stores.some((store) => Number(store.id) !== id && store.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+      return send(res, 409, { error: "Bu adda mağaza artıq mövcuddur." });
+    }
+    const item = {
+      ...previous,
+      name,
+      type: String(body.type ?? previous.type),
+      status: body.status === "inactive" ? "inactive" : body.status === "active" ? "active" : previous.status,
+      updatedAt: new Date().toISOString(),
+    };
+    db.stores[index] = item;
+    if (previous.name !== item.name) {
+      db.products = db.products.map((product) => {
+        const prices = { ...(product.storePrices ?? {}) };
+        if (Object.prototype.hasOwnProperty.call(prices, previous.name)) {
+          prices[item.name] = prices[previous.name];
+          delete prices[previous.name];
+        }
+        return { ...product, storePrices: prices };
+      });
+      db.customerPrices = db.customerPrices.map((entry) => entry.store === previous.name ? { ...entry, store: item.name } : entry);
+      db.documents = db.documents.map((document) => ({
+        ...document,
+        account: document.account === previous.name ? item.name : document.account,
+        fromAccount: document.fromAccount === previous.name ? item.name : document.fromAccount,
+        toAccount: document.toAccount === previous.name ? item.name : document.toAccount,
+      }));
+    }
+    await writeDb(db);
+    return send(res, 200, { data: item });
+  }
+
+  if (req.method === "DELETE" && id) {
+    const store = db.stores.find((item) => Number(item.id) === id);
+    if (!store) return notFound(res);
+    const hasStock = db.products.some((product) => Number(product.warehouses?.[store.key] ?? 0) !== 0);
+    if (hasStock) return send(res, 409, { error: "Bu mağazada qalıq var. Silməzdən əvvəl stoku köçürün." });
+    db.stores = db.stores.filter((item) => Number(item.id) !== id);
+    await writeDb(db);
+    return send(res, 200, { ok: true });
+  }
+
   return notFound(res);
 }
 
@@ -1777,6 +1889,7 @@ const server = createServer(async (req, res) => {
     if (parts[1] === "products") return await handleProducts(req, res, url, parts.slice(1));
     if (parts[1] === "product-groups") return await handleSimpleCollection(req, res, "productGroups");
     if (parts[1] === "categories") return await handleSimpleCollection(req, res, "categories");
+    if (parts[1] === "stores") return await handleStores(req, res, parts.slice(1));
     if (parts[1] === "counterparties") return await handleCounterparties(req, res, url, parts.slice(1));
     if (parts[1] === "customer-prices") return await handleCustomerPrices(req, res, url, parts.slice(1));
     if (parts[1] === "online-collections") return await handleOnlineCollections(req, res, parts.slice(1));
