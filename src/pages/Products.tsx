@@ -3762,6 +3762,11 @@ function PriceHistoryList({ audit, isDark, compact = false }: { audit: AuditEntr
 function ProductLedgerTable({ entries, unit, isDark }: { entries: ProductLedgerEntry[]; unit: string; isDark: boolean }) {
   const border = isDark ? "border-white/10" : "border-slate-200/80";
   const subtle = isDark ? "text-slate-400" : "text-slate-500";
+  const counterpartyRole = (kind: string) => {
+    if (["sale", "export", "saleReturn"].includes(kind)) return "Müştəri";
+    if (["purchase", "purchaseReturn"].includes(kind)) return "Təchizatçı";
+    return "Qarşı tərəf";
+  };
   const badgeClass = (kind: string) => {
     if (kind === "purchase" || kind === "openingBalance") return isDark ? "border-sky-400/30 bg-sky-400/10 text-sky-200" : "border-sky-300 bg-sky-50 text-sky-700";
     if (kind === "sale") return isDark ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : "border-emerald-300 bg-emerald-50 text-emerald-700";
@@ -3773,11 +3778,11 @@ function ProductLedgerTable({ entries, unit, isDark }: { entries: ProductLedgerE
 
   return (
     <div className={cx("overflow-x-auto rounded-xl border", border, isDark ? "bg-slate-950/10" : "bg-white")}>
-      <table className="min-w-[1180px] w-full text-sm">
+      <table className="min-w-[1320px] w-full text-sm">
         <thead className={isDark ? "bg-white/5 text-slate-300" : "bg-slate-100/90 text-slate-700"}>
           <tr>
             {[
-              ["Tarix", "text-left"], ["Sənəd", "text-left"], ["Hesab / istiqamət", "text-left"],
+              ["Tarix", "text-left"], ["Sənəd", "text-left"], ["Müştəri / təchizatçı", "text-left"], ["Hesab / istiqamət", "text-left"],
               ["Maya", "text-right"], ["Qiymət", "text-right"], ["Mədaxil", "text-right"],
               ["Məxaric", "text-right"], ["Qalıq", "text-right"], ["Əməkdaş", "text-left"],
             ].map(([label, align]) => <th key={label} className={cx("whitespace-nowrap px-3 py-3 text-[12px] font-semibold", align)}>{label}</th>)}
@@ -3792,7 +3797,15 @@ function ProductLedgerTable({ entries, unit, isDark }: { entries: ProductLedgerE
                   <span className={cx("rounded-md border px-2 py-1 text-[11px] font-semibold", badgeClass(entry.kind))}>{entry.label}</span>
                   <span className="text-xs font-semibold">#{entry.documentCode}</span>
                 </div>
-                {(entry.counterparty || entry.description) && <div className={cx("mt-1 max-w-[280px] truncate text-[11px]", subtle)}>{entry.counterparty || entry.description}</div>}
+                {entry.description && <div className={cx("mt-1 max-w-[280px] truncate text-[11px]", subtle)}>{entry.description}</div>}
+              </td>
+              <td className="min-w-[170px] px-3 py-3">
+                {entry.counterparty ? (
+                  <>
+                    <div className={cx("text-[10px] font-semibold uppercase", subtle)}>{counterpartyRole(entry.kind)}</div>
+                    <div className="mt-0.5 text-[12px] font-medium">{entry.counterparty}</div>
+                  </>
+                ) : <span className={subtle}>—</span>}
               </td>
               <td className="whitespace-nowrap px-3 py-3 text-[12px]">{entry.account}</td>
               <td className="whitespace-nowrap px-3 py-3 text-right font-medium tabular-nums">{toUnitCost(entry.unitCost)}</td>
@@ -3803,7 +3816,7 @@ function ProductLedgerTable({ entries, unit, isDark }: { entries: ProductLedgerE
               <td className="whitespace-nowrap px-3 py-3 text-[12px]">{entry.employee}</td>
             </tr>
           ))}
-          {entries.length === 0 && <tr><td colSpan={9} className={cx("px-4 py-10 text-center text-sm", subtle)}>Seçilən filtrlərə uyğun əməliyyat yoxdur.</td></tr>}
+          {entries.length === 0 && <tr><td colSpan={10} className={cx("px-4 py-10 text-center text-sm", subtle)}>Seçilən filtrlərə uyğun əməliyyat yoxdur.</td></tr>}
         </tbody>
       </table>
     </div>
