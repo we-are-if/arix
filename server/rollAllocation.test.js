@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildDepotRollInventory, createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
 
-function movement(id, date, rolls) {
+function movement(id, date, rolls, toAccount = "ERSA DEPO") {
   return {
     id,
     type: "movement",
     posted: true,
     documentDate: date,
-    toAccount: "ERSA DEPO",
+    toAccount,
     movementSelection: {
       containers: [{
         key: `container-${id}`,
@@ -156,4 +156,42 @@ test("manual measurement changes the available roll before allocation", () => {
   });
   assert.equal(selection.allocations[0].rollId, "R-NEW");
   assert.equal(selection.measurements[0].variance, -60);
+});
+
+test("roll inventory and automatic allocation stay inside the selected store", () => {
+  const db = {
+    stores: [
+      { id: 1, key: "showroom-a", name: "Showroom A", isBonded: false },
+      { id: 2, key: "showroom-b", name: "Showroom B", isBonded: false },
+    ],
+    documents: [
+      movement("a-in", "2026-01-01T09:00:00Z", [
+        { rollId: "A-50", rollNo: "A-50", productId: 1, qty: 50 },
+      ], "Showroom A"),
+      movement("b-in", "2026-01-01T10:00:00Z", [
+        { rollId: "B-70", rollNo: "B-70", productId: 1, qty: 70 },
+      ], "Showroom B"),
+      {
+        id: "a-sale",
+        type: "sale",
+        posted: true,
+        account: "Showroom A",
+        documentDate: "2026-01-02T09:00:00Z",
+        lines: [{ productId: 1, qty: 10 }],
+        rollSelection: { allocations: [{ rollId: "A-50", productId: 1, qty: 10 }] },
+      },
+    ],
+  };
+
+  const storeA = buildDepotRollInventory(db, { account: "Showroom A" });
+  const storeB = buildDepotRollInventory(db, { account: "showroom-b" });
+  assert.deepEqual(storeA.map((roll) => [roll.rollId, roll.remainingQty]), [["A-50", 40]]);
+  assert.deepEqual(storeB.map((roll) => [roll.rollId, roll.remainingQty]), [["B-70", 70]]);
+
+  const selection = createAutomaticSaleRollSelection(db, {
+    account: "Showroom B",
+    lines: [{ productId: 1, name: "A", qty: 60, deliveryMode: "singlePiece" }],
+  });
+  assert.equal(selection.incomplete, false);
+  assert.equal(selection.allocations[0].rollId, "B-70");
 });

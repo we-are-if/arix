@@ -13,8 +13,31 @@ function effectiveAt(document) {
   return String(document.documentDate ?? document.createdAt ?? new Date(0).toISOString());
 }
 
-function isDepot(value) {
-  return String(value ?? "").toLowerCase().includes("depo");
+function resolveStore(db, value) {
+  const text = String(value ?? "").trim().toLocaleLowerCase();
+  return (db.stores ?? []).find((store) =>
+    String(store.key ?? "").trim().toLocaleLowerCase() === text
+    || String(store.name ?? "").trim().toLocaleLowerCase() === text
+  );
+}
+
+function storeKey(db, value) {
+  const text = String(value ?? "").trim().toLocaleLowerCase();
+  const store = resolveStore(db, value);
+  if (store) return String(store.key);
+  if (text.includes("antrepo")) return "antrepo";
+  if (text.includes("depo") || !text) return "depo";
+  return text;
+}
+
+function isBondedStore(db, value) {
+  const store = resolveStore(db, value);
+  if (store) return store.isBonded === true;
+  return String(value ?? "").toLocaleLowerCase().includes("antrepo");
+}
+
+function matchesAccount(db, value, account) {
+  return !account || storeKey(db, value) === storeKey(db, account);
 }
 
 function normalizeDeliveryMode(value, fallback = "singlePiece") {
@@ -269,6 +292,7 @@ function applySavedSale(inventory, document) {
 
 export function buildDepotRollInventory(db, options = {}) {
   const excludeDocumentId = String(options.excludeDocumentId ?? "");
+  const account = String(options.account ?? "").trim();
   const inventory = new Map();
   const documents = (db.documents ?? [])
     .filter((document) => document.posted !== false && String(document.id ?? "") !== excludeDocumentId)
@@ -276,15 +300,16 @@ export function buildDepotRollInventory(db, options = {}) {
     .sort((a, b) => effectiveAt(a).localeCompare(effectiveAt(b)) || String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")));
 
   for (const document of documents) {
-    if (document.type === "purchase" && isDepot(document.bondedStock?.destination ?? document.account)) {
+    const destination = document.bondedStock?.destination ?? document.account;
+    if (document.type === "purchase" && !isBondedStore(db, destination) && matchesAccount(db, destination, account)) {
       for (const roll of purchaseRolls(document)) addInboundRoll(inventory, roll, document);
       continue;
     }
-    if (document.type === "movement" && isDepot(document.toAccount)) {
+    if (document.type === "movement" && !isBondedStore(db, document.toAccount) && matchesAccount(db, document.toAccount, account)) {
       for (const roll of selectedRolls(document)) addInboundRoll(inventory, roll, document);
       continue;
     }
-    if (document.type === "sale" && document.saleMode !== "export" && !document.exportMode) {
+    if (document.type === "sale" && document.saleMode !== "export" && !document.exportMode && matchesAccount(db, document.account, account)) {
       applyMeasurementAdjustments(inventory, document.rollMeasurements);
       applySavedSale(inventory, document);
     }
@@ -293,7 +318,10 @@ export function buildDepotRollInventory(db, options = {}) {
 }
 
 export function createAutomaticSaleRollSelection(db, body = {}) {
-  const inventoryRows = buildDepotRollInventory(db, { excludeDocumentId: body.currentDocumentId });
+  const inventoryRows = buildDepotRollInventory(db, {
+    excludeDocumentId: body.currentDocumentId,
+    account: body.account,
+  });
   const inventory = new Map(inventoryRows.map((roll) => [roll.rollId, { ...roll }]));
   const measurements = applyMeasurementAdjustments(inventory, body.rollMeasurements);
   const lines = (Array.isArray(body.lines) ? body.lines : [])
@@ -315,6 +343,7 @@ export function validateAutomaticSaleRollSelection(db, document) {
   });
   const expected = createAutomaticSaleRollSelection(db, {
     currentDocumentId: document.id,
+    account: document.account,
     lines: trackedLines,
     rollMeasurements: document.rollMeasurements,
   });

@@ -29,6 +29,7 @@ type CompanyStore = {
   key: string;
   name: string;
   type: string;
+  isBonded: boolean;
   status: "active" | "inactive";
   createdAt: string;
 };
@@ -262,8 +263,8 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   const stats = useMemo(() => {
     if (section === "employees") return [{ label: "Cəmi əməkdaş", value: "5" }, { label: "Rəhbər", value: "3" }, { label: "Anbar", value: "1" }];
     if (section === "stores") return [
-      { label: "Mağaza", value: String(companyStores.filter((store) => store.type !== "Anbar").length) },
-      { label: "Anbar", value: String(companyStores.filter((store) => store.type === "Anbar").length) },
+      { label: "Mağaza", value: String(companyStores.filter((store) => !store.isBonded).length) },
+      { label: "Antrepo", value: String(companyStores.filter((store) => store.isBonded).length) },
       { label: "Aktiv nöqtə", value: String(companyStores.filter((store) => store.status === "active").length) },
     ];
     if (section === "accounts") return [{ label: "Balans", value: "-625,722.87 ₼" }, { label: "Kassa", value: "2" }, { label: "Mağaza hesabı", value: "2" }];
@@ -785,6 +786,7 @@ function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
   const [editing, setEditing] = useState<CompanyStore | null | "new">(null);
   const [name, setName] = useState("");
   const [type, setType] = useState("Mağaza");
+  const [isBonded, setIsBonded] = useState(false);
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -795,6 +797,7 @@ function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
     setEditing(store ?? "new");
     setName(store?.name ?? "");
     setType(store?.type ?? "Mağaza");
+    setIsBonded(store?.isBonded ?? false);
     setStatus(store?.status ?? "active");
     setMessage("");
   };
@@ -816,7 +819,7 @@ function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
       const current = editing !== "new" ? editing : null;
       await requestJson(current ? `/api/stores/${current.id}` : "/api/stores", {
         method: current ? "PATCH" : "POST",
-        body: JSON.stringify({ name: name.trim(), type, status }),
+        body: JSON.stringify({ name: name.trim(), type, isBonded, status }),
       });
       await onChanged();
       window.dispatchEvent(new Event("arix:stores-updated"));
@@ -852,7 +855,7 @@ function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
             key={store.id}
             item={{
               name: store.name,
-              type: store.type,
+              type: store.isBonded ? `${store.type} · Antrepo` : store.type,
               date: new Date(store.createdAt).toLocaleDateString("az-Latn-AZ", { day: "numeric", month: "long", year: "numeric" }),
               status: store.status === "active" ? "Aktiv" : "Deaktiv",
             }}
@@ -892,6 +895,21 @@ function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
                   <option value="inactive">Deaktiv</option>
                 </select>
               </Field>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isBonded}
+                onClick={() => setIsBonded((current) => !current)}
+                className={cx("flex w-full items-center justify-between rounded-xl border p-3 text-left", border, soft)}
+              >
+                <span>
+                  <span className="block text-sm font-semibold">Antrepo</span>
+                  <span className={cx("mt-0.5 block text-xs", subtle)}>Gömrük nəzarətində saxlanan stok nöqtəsi</span>
+                </span>
+                <span className={cx("relative h-6 w-11 rounded-full transition-colors", isBonded ? "bg-indigo-600" : "bg-slate-300")}>
+                  <span className={cx("absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform", isBonded ? "translate-x-6" : "translate-x-1")} />
+                </span>
+              </button>
               {message && <div className="text-sm text-rose-600">{message}</div>}
             </div>
             <div className="mt-6 flex justify-end gap-2">

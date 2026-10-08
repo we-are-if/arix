@@ -63,8 +63,8 @@ const defaultCompanySettings = {
 };
 
 const defaultStores = [
-  { id: 1, key: "depo", name: "ERSA DEPO", type: "Əsas mağaza", status: "active", createdAt: "2024-09-22T00:00:00.000Z" },
-  { id: 2, key: "antrepo", name: "ERSA ANTREPO", type: "Anbar", status: "active", createdAt: "2024-11-05T00:00:00.000Z" },
+  { id: 1, key: "depo", name: "ERSA DEPO", type: "Əsas mağaza", isBonded: false, status: "active", createdAt: "2024-09-22T00:00:00.000Z" },
+  { id: 2, key: "antrepo", name: "ERSA ANTREPO", type: "Anbar", isBonded: true, status: "active", createdAt: "2024-11-05T00:00:00.000Z" },
 ];
 
 const seedDb = {
@@ -178,6 +178,10 @@ function normalizeDb(db) {
         key: String(store.key || `store-${Number(store.id) || index + 1}`),
         name: String(store.name || `Mağaza ${index + 1}`),
         type: String(store.type || "Mağaza"),
+        isBonded: String(store.key ?? "").toLocaleLowerCase() === "antrepo"
+          || (typeof store.isBonded === "boolean"
+            ? store.isBonded
+            : String(store.type ?? "").toLowerCase().includes("antrepo") || String(store.name ?? "").toLowerCase().includes("antrepo")),
         status: store.status === "inactive" ? "inactive" : "active",
         createdAt: store.createdAt || new Date().toISOString(),
       }))
@@ -429,6 +433,7 @@ async function handleStores(req, res, parts) {
       key: nextStoreKey(db.stores, name),
       name,
       type: String(body.type || "Mağaza"),
+      isBonded: body.isBonded === true,
       status: body.status === "inactive" ? "inactive" : "active",
       createdAt: new Date().toISOString(),
     };
@@ -456,6 +461,7 @@ async function handleStores(req, res, parts) {
       ...previous,
       name,
       type: String(body.type ?? previous.type),
+      isBonded: typeof body.isBonded === "boolean" ? body.isBonded : previous.isBonded,
       status: body.status === "inactive" ? "inactive" : body.status === "active" ? "active" : previous.status,
       updatedAt: new Date().toISOString(),
     };
@@ -1434,7 +1440,7 @@ function releaseMovementSelection(db, document) {
 function reverseMovementStock(db, document) {
   if (document?.posted === false) return;
   if (document?.type === "sale" && (document.saleMode === "export" || document.exportMode)) {
-    const account = normalizeWarehouse(document.account);
+    const account = normalizeWarehouse(db, document.account);
     for (const line of document.lines ?? []) {
       const product = db.products.find((item) => Number(item.id) === Number(line.productId));
       const qty = numberValue(line.qty);
@@ -1444,8 +1450,8 @@ function reverseMovementStock(db, document) {
     return;
   }
   if (document?.type !== "movement") return;
-  const from = normalizeWarehouse(document.fromAccount ?? document.account);
-  const to = normalizeWarehouse(document.toAccount ?? "ERSA ANTREPO");
+  const from = normalizeWarehouse(db, document.fromAccount ?? document.account);
+  const to = normalizeWarehouse(db, document.toAccount ?? "ERSA ANTREPO");
   for (const line of document.lines ?? []) {
     const product = db.products.find((item) => Number(item.id) === Number(line.productId));
     const qty = numberValue(line.qty);
@@ -1457,7 +1463,7 @@ function reverseMovementStock(db, document) {
 
 function reverseRegularSaleStock(db, document) {
   if (document?.posted === false || document?.type !== "sale" || document.saleMode === "export" || document.exportMode) return;
-  const account = normalizeWarehouse(document.account);
+  const account = normalizeWarehouse(db, document.account);
   for (const line of document.lines ?? []) {
     const product = db.products.find((item) => Number(item.id) === Number(line.productId));
     const qty = numberValue(line.qty);
@@ -1509,7 +1515,7 @@ function createTestMovementPurchases(db) {
     String(document.testBatch ?? "").startsWith("smart-movement-") && document.testBatch !== batch
   );
   for (const document of obsoleteDocuments) {
-    const warehouse = normalizeWarehouse(document.account);
+    const warehouse = normalizeWarehouse(db, document.account);
     for (const line of document.lines ?? []) {
       const product = db.products.find((item) => Number(item.id) === Number(line.productId));
       if (!product) continue;
@@ -2045,10 +2051,17 @@ async function handleProductLedger(req, res, url) {
   return send(res, 200, { data: buildProductLedger(db, productId) });
 }
 
-function normalizeWarehouse(value) {
-  const text = String(value ?? "").toLowerCase();
+function normalizeWarehouse(db, value) {
+  const text = String(value ?? "").trim().toLocaleLowerCase();
+  const store = (db.stores ?? []).find((item) =>
+    String(item.name ?? "").trim().toLocaleLowerCase() === text
+    || String(item.key ?? "").trim().toLocaleLowerCase() === text
+  );
+  if (store) return store.key;
+  if (!text) return "depo";
   if (text.includes("antrepo")) return "antrepo";
-  return "depo";
+  if (text.includes("depo")) return "depo";
+  return String(value ?? "depo");
 }
 
 function productStock(product, warehouse) {
@@ -2072,9 +2085,9 @@ function applyDocumentStock(db, document) {
   if (!selectionValidation.ok) return selectionValidation;
   const stockHandledByRollSelection = hasMovementSelection(document)
     && (kind === "movement" || (kind === "sale" && (document.saleMode === "export" || document.exportMode)));
-  const account = normalizeWarehouse(document.account);
-  const from = normalizeWarehouse(document.fromAccount ?? document.account);
-  const to = normalizeWarehouse(document.toAccount ?? "ERSA ANTREPO");
+  const account = normalizeWarehouse(db, document.account);
+  const from = normalizeWarehouse(db, document.fromAccount ?? document.account);
+  const to = normalizeWarehouse(db, document.toAccount ?? "ERSA ANTREPO");
   const touched = [];
 
   if (kind === "sale" && document.saleMode !== "export" && !document.exportMode) {

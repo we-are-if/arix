@@ -38,6 +38,7 @@ type ProductLine = {
     antrepo: number;
     depo: number;
   };
+  warehouseStock?: Record<string, number>;
 };
 
 type ApiProduct = {
@@ -51,10 +52,16 @@ type ApiProduct = {
   purchasePrice?: number;
   cost?: number;
   storePrices?: Record<string, number>;
-  warehouses?: {
-    antrepo?: number;
-    depo?: number;
-  };
+  warehouses?: Record<string, number>;
+};
+
+type ApiStore = {
+  id: number;
+  key: string;
+  name: string;
+  type: string;
+  isBonded: boolean;
+  status: "active" | "inactive";
 };
 
 type ApiCounterparty = {
@@ -565,7 +572,6 @@ const productSeed: ProductLine[] = [
   { id: 5, name: "3D Patine Pembe", code: "D-301", sku: "301", unit: "mt", variant: "Pembe / 3D / Premium", stock: 72, price: 4.4 },
 ];
 
-const stores = ["ERSA DEPO", "ERSA ANTREPO"];
 const accounts = ["Kassa", "Bank hesabı", "ERSA DEPO kassası"];
 const documentStatusOptions: Array<{ id: DocumentWorkflowStatus; label: string; dot: string }> = [
   { id: "none", label: "Statussuz", dot: "bg-slate-200" },
@@ -639,12 +645,16 @@ const clonePalletDraft = (pallet: PalletDraft, index: number): PalletDraft => ({
   rolls: pallet.rolls.map((roll) => ({ ...roll, id: draftId() })),
 });
 
-const mapApiProduct = (product: ApiProduct, store = "ERSA DEPO", kind: DocumentCreateKind = "sale"): ProductLine => {
+const mapApiProduct = (product: ApiProduct, store: ApiStore | string = "ERSA DEPO", kind: DocumentCreateKind = "sale"): ProductLine => {
   const isPurchasePrice = kind === "purchase" || kind === "purchaseReturn";
+  const storeName = typeof store === "string" ? store : store.name;
+  const storeKey = typeof store === "string"
+    ? (store.toLocaleLowerCase().includes("antrepo") ? "antrepo" : "depo")
+    : store.key;
   const standardPrice = Number(
     isPurchasePrice
       ? product.purchasePrice ?? product.cost ?? 0
-      : product.storePrices?.[store] ?? product.salePrice ?? 0
+      : product.storePrices?.[storeName] ?? product.salePrice ?? 0
   );
   return {
   id: product.id,
@@ -654,17 +664,18 @@ const mapApiProduct = (product: ApiProduct, store = "ERSA DEPO", kind: DocumentC
   type: product.type,
   unit: product.unit,
   variant: "Standart",
-  stock: Number(product.warehouses?.depo ?? product.warehouses?.antrepo ?? 0),
+  stock: Number(product.warehouses?.[storeKey] ?? 0),
   price: standardPrice,
   standardPrice,
   priceSource: isPurchasePrice ? "Son təchizatçı alış qiyməti" : "Mağaza standartı",
-  priceStore: store,
+  priceStore: storeName,
   deliveryMode: "singlePiece",
   cutLengths: [],
   warehouses: {
     antrepo: Number(product.warehouses?.antrepo ?? 0),
     depo: Number(product.warehouses?.depo ?? 0),
   },
+  warehouseStock: product.warehouses ?? {},
   };
 };
 
@@ -926,6 +937,7 @@ export default function DocumentCreatePanel({
   const selectedProductsRef = useRef(selectedProducts);
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [counterparties, setCounterparties] = useState<ApiCounterparty[]>([]);
+  const [availableStores, setAvailableStores] = useState<ApiStore[]>([]);
   const [counterpartyId, setCounterpartyId] = useState(editingDocument?.counterpartyId ? String(editingDocument.counterpartyId) : "");
   const [activeTab, setActiveTab] = useState<"products" | "payment" | "costs">("products");
   const [query, setQuery] = useState("");
@@ -964,14 +976,20 @@ export default function DocumentCreatePanel({
   const soft = isDark ? "bg-white/7" : "bg-slate-50";
   const muted = isDark ? "text-slate-400" : "text-slate-500";
   const isExportSale = kind === "sale" && saleMode === "export";
+  const activeStores = useMemo(() => availableStores.filter((store) => store.status === "active"), [availableStores]);
+  const selectedDocumentStore = availableStores.find((store) => store.name === documentAccount);
   const usesMovementSelection = kind === "movement" || isExportSale;
   const usesAutomaticSaleRollSelection = kind === "sale" && saleMode === "regular" && companySettings.stockMode === "bondedRolls";
   const trackedSaleProducts = useMemo(() => selectedProducts.filter((product) => product.type !== "service"), [selectedProducts]);
   const requiresAutomaticSaleRollSelection = usesAutomaticSaleRollSelection && trackedSaleProducts.length > 0;
   const stockSelectionFromAccount = isExportSale ? documentAccount : movementFromAccount;
   const stockSelectionToAccount = isExportSale ? "İxracat" : movementToAccount;
+  const stockSelectionFromKey = availableStores.find((store) => store.name === stockSelectionFromAccount)?.key;
+  const stockSelectionToKey = availableStores.find((store) => store.name === stockSelectionToAccount)?.key;
   const filteredProducts = availableProducts.filter((product) => [product.name, product.code, product.sku, product.variant].join(" ").toLowerCase().includes(query.toLowerCase()));
-  const isBondedPurchase = kind === "purchase" && companySettings.stockMode === "bondedRolls";
+  const isBondedPurchase = kind === "purchase"
+    && companySettings.stockMode === "bondedRolls"
+    && selectedDocumentStore?.isBonded === true;
   useEffect(() => {
     panelSizeRef.current = panelSize;
     if (typeof window !== "undefined") {
@@ -982,9 +1000,22 @@ export default function DocumentCreatePanel({
     selectedProductsRef.current = selectedProducts;
   }, [selectedProducts]);
   useEffect(() => {
-    if (isEditing) return;
-    setDocumentAccount(kind === "purchase" && companySettings.stockMode === "bondedRolls" ? "ERSA ANTREPO" : "ERSA DEPO");
-  }, [kind, companySettings.stockMode, isEditing]);
+    if (isEditing || activeStores.length === 0) return;
+    const wantsBonded = isExportSale || (kind === "purchase" && companySettings.stockMode === "bondedRolls");
+    const preferred = activeStores.find((store) => store.isBonded === wantsBonded)
+      ?? activeStores[0];
+    setDocumentAccount(preferred.name);
+  }, [activeStores, companySettings.stockMode, isEditing, isExportSale, kind]);
+
+  useEffect(() => {
+    if (isEditing || activeStores.length === 0) return;
+    const bonded = activeStores.find((store) => store.isBonded) ?? activeStores[0];
+    const regular = activeStores.find((store) => !store.isBonded && store.id !== bonded.id)
+      ?? activeStores.find((store) => store.id !== bonded.id)
+      ?? bonded;
+    setMovementFromAccount((current) => activeStores.some((store) => store.name === current) ? current : bonded.name);
+    setMovementToAccount((current) => activeStores.some((store) => store.name === current) ? current : regular.name);
+  }, [activeStores, isEditing]);
   const startResize = (edge: { left?: boolean; right?: boolean; top?: boolean; bottom?: boolean }) => (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1442,6 +1473,25 @@ export default function DocumentCreatePanel({
 
   useEffect(() => {
     let cancelled = false;
+    const loadStores = () => {
+      requestJson<{ data: ApiStore[] }>("/api/stores")
+        .then((payload) => {
+          if (!cancelled) setAvailableStores(Array.isArray(payload.data) ? payload.data : []);
+        })
+        .catch(() => {
+          if (!cancelled) setAvailableStores([]);
+        });
+    };
+    loadStores();
+    window.addEventListener("arix:stores-updated", loadStores);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("arix:stores-updated", loadStores);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     requestJson<{ data: CompanySettings }>("/api/company-settings")
       .then((payload) => {
         if (!cancelled) setCompanySettings({ ...defaultCompanySettings, ...payload.data });
@@ -1471,7 +1521,7 @@ export default function DocumentCreatePanel({
     requestJson<{ data: ApiProduct[] }>("/api/products")
       .then((payload) => {
         if (cancelled || !Array.isArray(payload.data)) return;
-        const nextProducts: ProductLine[] = payload.data.map((product) => mapApiProduct(product, documentAccount, kind));
+        const nextProducts: ProductLine[] = payload.data.map((product) => mapApiProduct(product, selectedDocumentStore ?? documentAccount, kind));
         setAvailableProducts(nextProducts);
         const nextSelectedProducts = isEditing && editingDocument?.lines?.length
           ? mapDocumentLinesToProducts(editingDocument, nextProducts)
@@ -1495,7 +1545,7 @@ export default function DocumentCreatePanel({
     return () => {
       cancelled = true;
     };
-  }, [documentAccount, isMoney, kind, isEditing, editingDocument]);
+  }, [documentAccount, selectedDocumentStore, isMoney, kind, isEditing, editingDocument]);
 
   useEffect(() => {
     if (!productsLoaded || !["sale", "saleReturn"].includes(kind)) return;
@@ -1659,6 +1709,7 @@ export default function DocumentCreatePanel({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           currentDocumentId: editingDocument?.id ? String(editingDocument.id) : undefined,
+          account: documentAccount,
           lines: trackedSaleProducts.map((product) => ({
             productId: product.id,
             name: product.name,
@@ -1683,7 +1734,7 @@ export default function DocumentCreatePanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [editingDocument?.id, productsLoaded, requiresAutomaticSaleRollSelection, saleRollMeasurements, trackedSaleProducts]);
+  }, [documentAccount, editingDocument?.id, productsLoaded, requiresAutomaticSaleRollSelection, saleRollMeasurements, trackedSaleProducts]);
 
   const saveDocument = async () => {
     if (!isMoney && selectedProducts.length === 0) {
@@ -2019,12 +2070,12 @@ export default function DocumentCreatePanel({
               </div>
               {kind === "movement" && (
                 <div className="grid w-full gap-3 lg:w-[680px] lg:grid-cols-2">
-                  <StoreSelect label="Mağaza (hardan)" value={movementFromAccount} onChange={(value) => {
+                  <StoreSelect label="Mağaza (hardan)" value={movementFromAccount} options={activeStores} onChange={(value) => {
                     setMovementFromAccount(value);
                     setMovementSuggestions([]);
                     setSelectedMovementSuggestion(null);
                   }} isDark={isDark} required />
-                  <StoreSelect label="Mağaza (hara)" value={movementToAccount} onChange={(value) => {
+                  <StoreSelect label="Mağaza (hara)" value={movementToAccount} options={activeStores} onChange={(value) => {
                     setMovementToAccount(value);
                     setMovementSuggestions([]);
                     setSelectedMovementSuggestion(null);
@@ -2075,7 +2126,7 @@ export default function DocumentCreatePanel({
                         onChange={setCounterpartyId}
                         isDark={isDark}
                       />
-                      <StoreSelect label="Mağaza" value={documentAccount} onChange={(value) => {
+                      <StoreSelect label="Mağaza" value={documentAccount} options={activeStores} onChange={(value) => {
                         setDocumentAccount(value);
                         if (isExportSale) {
                           setMovementSuggestions([]);
@@ -2086,7 +2137,7 @@ export default function DocumentCreatePanel({
                   </div>
                 ) : kind !== "movement" && (
                   <div className="mb-7 max-w-xl">
-                    <StoreSelect label="Mağaza" value={documentAccount} onChange={setDocumentAccount} isDark={isDark} required />
+                    <StoreSelect label="Mağaza" value={documentAccount} options={activeStores} onChange={setDocumentAccount} isDark={isDark} required />
                   </div>
                 )}
 
@@ -2132,6 +2183,8 @@ export default function DocumentCreatePanel({
                       selectedQuantities={selectedMovementQtyByProduct}
                       movementFromAccount={stockSelectionFromAccount}
                       movementToAccount={stockSelectionToAccount}
+                      movementFromKey={stockSelectionFromKey}
+                      movementToKey={stockSelectionToKey}
                       onRemove={removeProduct}
                       onUpdate={updateProduct}
                     />
@@ -2447,12 +2500,14 @@ function DocumentStatusDropdown({
 function StoreSelect({
   label,
   value,
+  options,
   onChange,
   isDark,
   required,
 }: {
   label: string;
   value: string;
+  options: ApiStore[];
   onChange: (value: string) => void;
   isDark: boolean;
   required?: boolean;
@@ -2470,8 +2525,11 @@ function StoreSelect({
             isDark ? "text-slate-100" : "text-indigo-600"
           )}
         >
-          {stores.map((store) => (
-            <option key={store} value={store}>{store}</option>
+          {options.length === 0 && <option value="">Aktiv mağaza yoxdur</option>}
+          {options.map((store) => (
+            <option key={store.id} value={store.name}>
+              {store.name}{store.isBonded ? " · Antrepo" : store.type ? ` · ${store.type}` : ""}
+            </option>
           ))}
         </select>
         <I.Chevron className="pointer-events-none absolute right-4 h-4 w-4 text-slate-400" />
@@ -3259,6 +3317,8 @@ function ProductDocumentTable({
   selectedQuantities,
   movementFromAccount,
   movementToAccount,
+  movementFromKey,
+  movementToKey,
   onRemove,
   onUpdate,
 }: {
@@ -3269,6 +3329,8 @@ function ProductDocumentTable({
   selectedQuantities?: Map<number, number>;
   movementFromAccount?: string;
   movementToAccount?: string;
+  movementFromKey?: string;
+  movementToKey?: string;
   onRemove: (id: number) => void;
   onUpdate: (id: number, patch: Partial<ProductLine>) => void;
 }) {
@@ -3312,7 +3374,13 @@ function ProductDocumentTable({
               <td className="px-4 py-3">{row.unit}</td>
               {isStockSelection ? (
                 <>
-                  <td className="px-4 py-3 text-right">{movementFromAccount?.toLowerCase().includes("antrepo") ? row.warehouses?.antrepo ?? row.stock : row.warehouses?.depo ?? row.stock}</td>
+                  <td className="px-4 py-3 text-right">
+                    {movementFromKey
+                      ? row.warehouseStock?.[movementFromKey] ?? row.stock
+                      : movementFromAccount?.toLowerCase().includes("antrepo")
+                        ? row.warehouses?.antrepo ?? row.stock
+                        : row.warehouses?.depo ?? row.stock}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <span className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                       <input
@@ -3335,7 +3403,13 @@ function ProductDocumentTable({
                     </span>
                   </td>
                   {isMovement ? (
-                    <td className="px-4 py-3 text-right">{movementToAccount?.toLowerCase().includes("antrepo") ? row.warehouses?.antrepo ?? 0 : row.warehouses?.depo ?? 0}</td>
+                    <td className="px-4 py-3 text-right">
+                      {movementToKey
+                        ? row.warehouseStock?.[movementToKey] ?? 0
+                        : movementToAccount?.toLowerCase().includes("antrepo")
+                          ? row.warehouses?.antrepo ?? 0
+                          : row.warehouses?.depo ?? 0}
+                    </td>
                   ) : (
                     <>
                       <td className="px-4 py-3 text-right">

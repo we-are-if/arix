@@ -255,6 +255,7 @@ type CompanyStore = {
   key: string;
   name: string;
   type: string;
+  isBonded: boolean;
   status: "active" | "inactive";
   createdAt: string;
 };
@@ -435,8 +436,8 @@ type CompanySettings = {
 };
 
 const DEFAULT_STORES: CompanyStore[] = [
-  { id: 1, key: "depo", name: "ERSA DEPO", type: "Əsas mağaza", status: "active", createdAt: "2024-09-22" },
-  { id: 2, key: "antrepo", name: "ERSA ANTREPO", type: "Anbar", status: "active", createdAt: "2024-11-05" },
+  { id: 1, key: "depo", name: "ERSA DEPO", type: "Əsas mağaza", isBonded: false, status: "active", createdAt: "2024-09-22" },
+  { id: 2, key: "antrepo", name: "ERSA ANTREPO", type: "Anbar", isBonded: true, status: "active", createdAt: "2024-11-05" },
 ];
 
 const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
