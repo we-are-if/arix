@@ -15,14 +15,14 @@ body {
 
 /* Clean admin surface tokens */
 .surface-page {
-  background: linear-gradient(135deg, #eef4ff 0%, #f6f8fb 48%, #edf8f4 100%) fixed;
+  background: #f5f7fb;
   --scrollbar-track: rgba(255, 255, 255, .92);
   --scrollbar-thumb: rgba(148, 163, 184, .62);
   --scrollbar-thumb-hover: rgba(100, 116, 139, .9);
 }
 
 .surface-page-dark {
-  background: linear-gradient(135deg, #101827 0%, #171c28 52%, #10231f 100%) fixed;
+  background: #0f172a;
   --scrollbar-track: rgba(30, 41, 59, .92);
   --scrollbar-thumb: rgba(100, 116, 139, .72);
   --scrollbar-thumb-hover: rgba(148, 163, 184, .88);
@@ -72,21 +72,17 @@ body {
 .glass-panel,
 .glass-header,
 .glass-control {
-  background-color: rgba(255, 255, 255, .68);
-  border-color: rgba(255, 255, 255, .78);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, .08), inset 0 1px 0 rgba(255, 255, 255, .82);
-  -webkit-backdrop-filter: blur(24px) saturate(175%);
-  backdrop-filter: blur(24px) saturate(175%);
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .06);
 }
 
 .glass-panel-dark,
 .glass-header-dark,
 .glass-control-dark {
-  background-color: rgba(21, 30, 45, .68);
-  border-color: rgba(255, 255, 255, .14);
-  box-shadow: 0 16px 38px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .10);
-  -webkit-backdrop-filter: blur(26px) saturate(155%);
-  backdrop-filter: blur(26px) saturate(155%);
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, .22);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .20);
 }
 
 .glass-panel:not(.absolute):not(.fixed),
@@ -96,59 +92,6 @@ body {
 .glass-control:not(.absolute):not(.fixed),
 .glass-control-dark:not(.absolute):not(.fixed) {
   position: relative;
-}
-
-[data-liquid-glass="true"] {
-  --glass-x: 50%;
-  --glass-y: 12%;
-  --glass-stretch-x: 1;
-  --glass-stretch-y: 1;
-  --glass-shift-x: 0px;
-  --glass-shift-y: 0px;
-  background-image:
-    radial-gradient(circle 220px at var(--glass-x) var(--glass-y), rgba(255, 255, 255, .76) 0%, rgba(255, 255, 255, .25) 34%, transparent 70%),
-    linear-gradient(135deg, rgba(255, 255, 255, .32), rgba(255, 255, 255, .06) 44%, rgba(125, 211, 252, .08) 72%, rgba(167, 243, 208, .10));
-  transform: translate3d(var(--glass-shift-x), var(--glass-shift-y), 0) scaleX(var(--glass-stretch-x)) scaleY(var(--glass-stretch-y));
-  transition:
-    transform 420ms cubic-bezier(.2, .9, .2, 1.24),
-    background-position 100ms linear,
-    border-color 180ms ease,
-    box-shadow 220ms ease;
-  will-change: transform;
-}
-
-[data-liquid-glass="true"].glass-panel-dark,
-[data-liquid-glass="true"].glass-header-dark,
-[data-liquid-glass="true"].glass-control-dark {
-  background-image:
-    radial-gradient(circle 220px at var(--glass-x) var(--glass-y), rgba(255, 255, 255, .18) 0%, rgba(129, 140, 248, .08) 38%, transparent 70%),
-    linear-gradient(135deg, rgba(255, 255, 255, .08), rgba(255, 255, 255, .015) 48%, rgba(45, 212, 191, .05));
-}
-
-[data-liquid-glass="true"].liquid-glass-active {
-  border-color: rgba(255, 255, 255, .96);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, .11), inset 0 1px 0 rgba(255, 255, 255, .96), inset 0 -1px 0 rgba(148, 163, 184, .14);
-}
-
-[data-liquid-glass="true"].glass-panel-dark.liquid-glass-active,
-[data-liquid-glass="true"].glass-header-dark.liquid-glass-active,
-[data-liquid-glass="true"].glass-control-dark.liquid-glass-active {
-  border-color: rgba(255, 255, 255, .26);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, .30), inset 0 1px 0 rgba(255, 255, 255, .18);
-}
-
-[data-liquid-glass="true"].liquid-glass-edge-ready {
-  cursor: grab;
-}
-
-[data-liquid-glass="true"].liquid-glass-stretching {
-  cursor: grabbing;
-  transition: transform 72ms linear, border-color 120ms ease, box-shadow 120ms ease;
-  box-shadow: 0 22px 56px rgba(15, 23, 42, .15), inset 0 1px 0 rgba(255, 255, 255, 1);
-}
-
-[data-liquid-glass="true"].liquid-glass-releasing {
-  transition: transform 520ms cubic-bezier(.16, 1.45, .3, 1), border-color 200ms ease, box-shadow 300ms ease;
 }
 
 .glass-panel > .absolute,
@@ -162,13 +105,13 @@ body {
 }
 
 .product-detail-shell.glass-panel {
-  background-color: rgba(248, 250, 252, .82);
+  background: #f8fafc;
   border-color: rgba(203, 213, 225, .9);
   box-shadow: 0 22px 52px rgba(15, 23, 42, .18);
 }
 
 .product-detail-shell.glass-panel-dark {
-  background-color: rgba(30, 41, 59, .82);
+  background: #1e293b;
   border-color: rgba(148, 163, 184, .24);
 }
 
@@ -218,11 +161,11 @@ body {
 }
 
 .surface-popover.glass-panel {
-  background-color: rgba(255, 255, 255, .82);
+  background: #ffffff;
 }
 
 .surface-popover.glass-panel-dark {
-  background-color: rgba(22, 31, 47, .86);
+  background: #1e293b;
 }
 
 .glass-logo {
@@ -328,28 +271,7 @@ body {
     box-shadow: 0 8px 18px rgba(15, 23, 42, .05);
   }
 
-  [data-liquid-glass="true"] {
-    --glass-stretch-x: 1 !important;
-    --glass-stretch-y: 1 !important;
-    --glass-shift-x: 0px !important;
-    --glass-shift-y: 0px !important;
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
-    backdrop-filter: blur(18px) saturate(150%);
-    transition: border-color 180ms ease, box-shadow 180ms ease;
-    will-change: auto;
-  }
-
   .erp-modal-shell {
     height: calc(100dvh - 1rem);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-liquid-glass="true"] {
-    --glass-stretch-x: 1 !important;
-    --glass-stretch-y: 1 !important;
-    --glass-shift-x: 0px !important;
-    --glass-shift-y: 0px !important;
-    transition-duration: 0.01ms !important;
   }
 }
