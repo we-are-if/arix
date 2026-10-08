@@ -175,3 +175,22 @@ test("a forgotten backdated cost recalculates every dependent result", () => {
   assert.ok(db.lotRecalculations[0].changes.some((change) => change.documentId === "export-jan"));
   assert.ok(db.lotRecalculations[0].changes.some((change) => change.documentId === "regular-sale"));
 });
+
+test("manual roll measurement adjusts the depot lot before the sale", () => {
+  const documents = scenarioDocuments();
+  const sale = documents.find((document) => document.id === "regular-sale");
+  sale.rollMeasurements = [{
+    rollId: "R-MOVE-FEB",
+    productId: 1,
+    previousQty: 500,
+    actualQty: 490,
+    variance: -10,
+  }];
+  const db = { products: [{ id: 1, name: "A", purchasePrice: 2, cost: 2 }], documents };
+  const result = rebuildLotAccounting(db, { recordAudit: false });
+  const februaryDepotLot = result.depotLots.find((lot) => lot.sourceMovementDocumentId === "move-feb");
+
+  assert.equal(februaryDepotLot.measurementVarianceQty, -10);
+  assert.equal(februaryDepotLot.remainingQty, 390);
+  assert.equal(sale.lines[0].unitCost, 2.92);
+});

@@ -488,7 +488,21 @@ function selectedDepotAllocations(document, productId, depotLots) {
   return Array.from(grouped.values());
 }
 
+function applyRollMeasurements(document, depotLots) {
+  for (const measurement of document.rollMeasurements ?? []) {
+    const lot = depotLots.find((item) =>
+      item.productId === Number(measurement.productId)
+      && (item.rollIds ?? []).some((rollId) => String(rollId) === String(measurement.rollId))
+    );
+    if (!lot) continue;
+    const variance = numberValue(measurement.variance);
+    lot.remainingQty = round(Math.max(0, lot.remainingQty + variance), 4);
+    lot.measurementVarianceQty = round(numberValue(lot.measurementVarianceQty) + variance, 4);
+  }
+}
+
 function applyRegularSale(document, depotLots, unresolved) {
+  applyRollMeasurements(document, depotLots);
   for (const line of document.lines ?? []) {
     const productId = Number(line.productId);
     const allocations = [];

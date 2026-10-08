@@ -32,6 +32,8 @@ type ProductLine = {
   qty?: number;
   discount?: number;
   movementMode?: MovementSelectionMode;
+  deliveryMode?: SaleDeliveryMode;
+  cutLengths?: number[];
   warehouses?: {
     antrepo: number;
     depo: number;
@@ -117,12 +119,15 @@ export type ApiDocumentDraft = {
     discount?: number;
     movementMode?: MovementSelectionMode;
     requestedQty?: number;
+    deliveryMode?: SaleDeliveryMode;
+    cutLengths?: number[];
   }>;
   bondedStock?: {
     containers?: ContainerDraft[];
   };
   movementSelection?: MovementSuggestion;
   rollSelection?: SaleRollSelection;
+  rollMeasurements?: SaleRollMeasurement[];
   saleMode?: SaleMode;
   exportMode?: boolean;
 };
@@ -182,6 +187,7 @@ type CompanySettings = {
 
 type DocumentWorkflowStatus = "none" | "new" | "inProgress" | "closed" | "canceled";
 type SaleMode = "regular" | "export";
+type SaleDeliveryMode = "fullRoll" | "singlePiece" | "customCuts";
 
 type RollDraft = {
   id: string;
@@ -282,7 +288,11 @@ type SaleRollAllocation = {
   initialQty: number;
   beforeQty: number;
   remainingQty: number;
+  wasOpen?: boolean;
   opened: boolean;
+  deliveryMode?: SaleDeliveryMode | "flexible";
+  pieceIndex?: number;
+  pieceQty?: number;
   receivedAt: string;
   sourceDocumentId: string;
   purchaseDocumentId: string;
@@ -300,6 +310,7 @@ type SaleRollSelection = {
   rollCount: number;
   incomplete: boolean;
   allocations: SaleRollAllocation[];
+  measurements?: SaleRollMeasurement[];
   lines: Array<{
     productId: number;
     name: string;
@@ -307,8 +318,22 @@ type SaleRollSelection = {
     selectedQty: number;
     shortageQty: number;
     rollCount: number;
+    deliveryMode?: SaleDeliveryMode | "flexible";
+    cutLengths?: number[];
+    planError?: string;
     complete: boolean;
   }>;
+};
+
+type SaleRollMeasurement = {
+  rollId: string;
+  rollNo: string;
+  productId: number;
+  previousQty: number;
+  actualQty: number;
+  variance?: number;
+  reason?: string;
+  measuredAt?: string;
 };
 
 type MovementSuggestionAction = "replace" | "append";
@@ -634,6 +659,8 @@ const mapApiProduct = (product: ApiProduct, store = "ERSA DEPO", kind: DocumentC
   standardPrice,
   priceSource: isPurchasePrice ? "Son təchizatçı alış qiyməti" : "Mağaza standartı",
   priceStore: store,
+  deliveryMode: "singlePiece",
+  cutLengths: [],
   warehouses: {
     antrepo: Number(product.warehouses?.antrepo ?? 0),
     depo: Number(product.warehouses?.depo ?? 0),
@@ -707,6 +734,9 @@ const mapDocumentLinesToProducts = (document: ApiDocument | null | undefined, pr
       priceStore: line.priceStore ?? product?.priceStore,
       qty,
       discount,
+      type: product?.type,
+      deliveryMode: line.deliveryMode ?? product?.deliveryMode ?? "singlePiece",
+      cutLengths: Array.isArray(line.cutLengths) ? line.cutLengths.map(Number).filter((value) => value > 0) : product?.cutLengths ?? [],
       warehouses: product?.warehouses,
       movementMode: line.movementMode === "fullPallet"
         ? "fullPallet"
@@ -888,6 +918,7 @@ export default function DocumentCreatePanel({
   const [movementSuggestionAction, setMovementSuggestionAction] = useState<MovementSuggestionAction>("replace");
   const [movementSuggestionsLoading, setMovementSuggestionsLoading] = useState(false);
   const [saleRollSelection, setSaleRollSelection] = useState<SaleRollSelection | null>(editingDocument?.rollSelection ?? null);
+  const [saleRollMeasurements, setSaleRollMeasurements] = useState<SaleRollMeasurement[]>(editingDocument?.rollMeasurements ?? []);
   const [saleRollSelectionLoading, setSaleRollSelectionLoading] = useState(false);
   const [documentDate, setDocumentDate] = useState(() => documentDateInput(editingDocument?.documentDate ?? editingDocument?.createdAt));
   const [availableProducts, setAvailableProducts] = useState<ProductLine[]>(productSeed);
@@ -1071,6 +1102,7 @@ export default function DocumentCreatePanel({
   const removeProduct = (id: number) => {
     const nextProducts = selectedProducts.filter((item) => item.id !== id);
     setSelectedProducts(nextProducts);
+    setSaleRollMeasurements((current) => current.filter((measurement) => measurement.productId !== id));
     if (usesMovementSelection) {
       setMovementSuggestions([]);
       setSelectedMovementSuggestion((current) => current
@@ -1097,7 +1129,14 @@ export default function DocumentCreatePanel({
       removeProduct(product.id);
       return;
     }
-    const nextProducts = [...selectedProducts, { ...product, qty: 1, discount: 0, movementMode: "meters" as MovementSelectionMode }];
+    const nextProducts = [...selectedProducts, {
+      ...product,
+      qty: 1,
+      discount: 0,
+      movementMode: "meters" as MovementSelectionMode,
+      deliveryMode: product.deliveryMode ?? "singlePiece",
+      cutLengths: product.cutLengths ?? [],
+    }];
     setSelectedProducts(nextProducts);
     if (usesMovementSelection) {
       setMovementSuggestions([]);
@@ -1114,6 +1153,26 @@ export default function DocumentCreatePanel({
         : null
       );
     }
+  };
+  const recordSaleRollMeasurement = (allocation: SaleRollAllocation, actualQty: number) => {
+    setSaleRollMeasurements((current) => {
+      const existing = current.find((measurement) => measurement.rollId === allocation.rollId);
+      const nextMeasurement: SaleRollMeasurement = {
+        rollId: allocation.rollId,
+        rollNo: allocation.rollNo,
+        productId: allocation.productId,
+        previousQty: existing?.previousQty ?? allocation.beforeQty,
+        actualQty: Math.max(0, actualQty),
+        reason: "manual-measurement",
+        measuredAt: new Date().toISOString(),
+      };
+      return existing
+        ? current.map((measurement) => measurement.rollId === allocation.rollId ? nextMeasurement : measurement)
+        : [...current, nextMeasurement];
+    });
+  };
+  const removeSaleRollMeasurement = (rollId: string) => {
+    setSaleRollMeasurements((current) => current.filter((measurement) => measurement.rollId !== rollId));
   };
   const findMovementSuggestions = async (action: MovementSuggestionAction = "replace") => {
     if (selectedProducts.length === 0) {
@@ -1604,7 +1663,10 @@ export default function DocumentCreatePanel({
             productId: product.id,
             name: product.name,
             qty: product.qty ?? 1,
+            deliveryMode: product.deliveryMode ?? "singlePiece",
+            cutLengths: product.cutLengths ?? [],
           })),
+          rollMeasurements: saleRollMeasurements,
         }),
       })
         .then((payload) => {
@@ -1621,7 +1683,7 @@ export default function DocumentCreatePanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [editingDocument?.id, productsLoaded, requiresAutomaticSaleRollSelection, trackedSaleProducts]);
+  }, [editingDocument?.id, productsLoaded, requiresAutomaticSaleRollSelection, saleRollMeasurements, trackedSaleProducts]);
 
   const saveDocument = async () => {
     if (!isMoney && selectedProducts.length === 0) {
@@ -1647,7 +1709,7 @@ export default function DocumentCreatePanel({
     }
     if (requiresAutomaticSaleRollSelection && saleRollSelection?.incomplete) {
       const incompleteLine = saleRollSelection.lines.find((line) => !line.complete);
-      setMessage(`${incompleteLine?.name ?? "Məhsul"} üçün rulo stoku çatmır: ${incompleteLine?.shortageQty ?? 0} mt`);
+      setMessage(incompleteLine?.planError || `${incompleteLine?.name ?? "Məhsul"} üçün uyğun rulo stoku çatmır: ${incompleteLine?.shortageQty ?? 0} mt`);
       return false;
     }
     if (["sale", "saleReturn", "purchase", "purchaseReturn"].includes(kind) && !counterpartyId) {
@@ -1695,6 +1757,8 @@ export default function DocumentCreatePanel({
           qty,
           requestedQty: usesMovementSelection ? product.qty ?? 1 : undefined,
           movementMode: usesMovementSelection ? product.movementMode ?? "meters" : undefined,
+          deliveryMode: requiresAutomaticSaleRollSelection ? product.deliveryMode ?? "singlePiece" : undefined,
+          cutLengths: requiresAutomaticSaleRollSelection && product.deliveryMode === "customCuts" ? product.cutLengths ?? [] : undefined,
           price: product.price,
           standardPrice: product.standardPrice,
           priceSource: product.priceSource,
@@ -1739,6 +1803,7 @@ export default function DocumentCreatePanel({
         lines: documentLines,
         movementSelection: usesMovementSelection ? selectedMovementSuggestion ?? undefined : undefined,
         rollSelection: requiresAutomaticSaleRollSelection ? saleRollSelection ?? undefined : undefined,
+        rollMeasurements: requiresAutomaticSaleRollSelection ? saleRollMeasurements : undefined,
         bondedStock: isBondedPurchase ? {
           mode: "container-pallet-roll",
           destination: documentAccount,
@@ -2071,11 +2136,21 @@ export default function DocumentCreatePanel({
                       onUpdate={updateProduct}
                     />
                     {requiresAutomaticSaleRollSelection && (
-                      <AutomaticSaleRollPanel
-                        selection={saleRollSelection}
-                        loading={saleRollSelectionLoading}
-                        isDark={isDark}
-                      />
+                      <>
+                        <SaleDeliveryPlanPanel
+                          products={trackedSaleProducts}
+                          isDark={isDark}
+                          onUpdate={updateProduct}
+                        />
+                        <AutomaticSaleRollPanel
+                          selection={saleRollSelection}
+                          measurements={saleRollMeasurements}
+                          loading={saleRollSelectionLoading}
+                          isDark={isDark}
+                          onMeasure={recordSaleRollMeasurement}
+                          onRemoveMeasurement={removeSaleRollMeasurement}
+                        />
+                      </>
                     )}
                     {usesMovementSelection && (
                       <>
@@ -2712,18 +2787,158 @@ function BondedPurchasePanel({
   );
 }
 
+function SaleDeliveryPlanPanel({
+  products,
+  isDark,
+  onUpdate,
+}: {
+  products: ProductLine[];
+  isDark: boolean;
+  onUpdate: (id: number, patch: Partial<ProductLine>) => void;
+}) {
+  const border = isDark ? "border-white/10" : "border-slate-200";
+  const muted = isDark ? "text-slate-400" : "text-slate-500";
+  const input = cx("h-10 rounded-lg border px-3 text-sm outline-none focus:border-indigo-500", border, isDark ? "bg-slate-950/40" : "bg-white");
+  const modes: Array<{ value: SaleDeliveryMode; label: string }> = [
+    { value: "fullRoll", label: "Tam rulo" },
+    { value: "singlePiece", label: "Tək parça" },
+    { value: "customCuts", label: "Parçalı" },
+  ];
+  return (
+    <section className={cx("mt-4 overflow-hidden rounded-2xl border", border, isDark ? "bg-white/[0.04]" : "bg-white shadow-sm")}>
+      <div className={cx("flex items-center justify-between gap-3 border-b px-4 py-3", border)}>
+        <div>
+          <h3 className="font-semibold">Təhvil forması</h3>
+          <p className={cx("mt-0.5 text-xs", muted)}>Barkod olmadan razılaşdırılan kəsim planı</p>
+        </div>
+        <span className={cx("rounded-full px-2.5 py-1 text-[11px] font-semibold", isDark ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-600")}>Əl ilə təsdiq</span>
+      </div>
+      {products.map((product) => {
+        const deliveryMode = product.deliveryMode ?? "singlePiece";
+        const cutLengths = product.cutLengths ?? [];
+        const cutTotal = Number(cutLengths.reduce((sum, value) => sum + Number(value || 0), 0).toFixed(4));
+        const requestedQty = Number(product.qty ?? 0);
+        const difference = Number((requestedQty - cutTotal).toFixed(4));
+        return (
+          <div key={product.id} className={cx("px-4 py-4 [&+&]:border-t", border)}>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">{product.name}</div>
+                <div className={cx("mt-0.5 text-xs", muted)}>Tələb: {requestedQty} mt</div>
+              </div>
+              <div className={cx("inline-flex w-fit overflow-hidden rounded-xl border p-1", border, isDark ? "bg-slate-950/30" : "bg-slate-50")}>
+                {modes.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    onClick={() => onUpdate(product.id, {
+                      deliveryMode: mode.value,
+                      cutLengths: mode.value === "customCuts" && cutLengths.length === 0 ? [requestedQty] : cutLengths,
+                    })}
+                    className={cx("h-9 px-3 text-xs font-semibold", deliveryMode === mode.value ? "rounded-lg bg-indigo-600 text-white shadow-sm" : muted)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {deliveryMode === "customCuts" && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {cutLengths.map((cut, index) => (
+                  <label key={`${product.id}:cut:${index}`} className={cx("inline-flex items-center overflow-hidden rounded-lg border", border)}>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={cut}
+                      onChange={(event) => {
+                        const next = [...cutLengths];
+                        next[index] = Number(event.target.value);
+                        onUpdate(product.id, { cutLengths: next });
+                      }}
+                      className={cx(input, "w-24 rounded-none border-0 text-right tabular-nums")}
+                    />
+                    <span className={cx("px-2 text-xs font-semibold", muted)}>mt</span>
+                    <button
+                      type="button"
+                      title="Parçanı sil"
+                      onClick={() => onUpdate(product.id, { cutLengths: cutLengths.filter((_, cutIndex) => cutIndex !== index) })}
+                      className="grid h-10 w-9 place-items-center text-rose-500"
+                    >
+                      <I.X className="h-4 w-4" />
+                    </button>
+                  </label>
+                ))}
+                <button type="button" onClick={() => onUpdate(product.id, { cutLengths: [...cutLengths, Math.max(0, difference)] })} className={cx("h-10 rounded-lg border px-3 text-xs font-semibold text-indigo-600", border)}>
+                  Parça əlavə et
+                </button>
+                <span className={cx("ml-auto text-xs font-semibold", Math.abs(difference) < 0.0001 ? "text-emerald-600" : "text-amber-600")}>
+                  Cəmi {cutTotal} mt{Math.abs(difference) >= 0.0001 ? ` · Fərq ${difference} mt` : " · Tamdır"}
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function MeasuredQtyInput({ value, onCommit, isDark }: { value: number; onCommit: (value: number) => void; isDark: boolean }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const parsed = toDraftNumber(draft);
+    if (parsed >= 0 && Math.abs(parsed - value) > 0.0001) onCommit(parsed);
+  };
+  return (
+    <label className="flex items-center gap-2 text-[11px]">
+      <span className={isDark ? "text-slate-400" : "text-slate-500"}>Faktiki qalıq</span>
+      <input
+        type="number"
+        min="0"
+        step="0.01"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+        className={cx("h-8 w-20 rounded-lg border px-2 text-right text-xs font-semibold tabular-nums outline-none focus:border-indigo-500", isDark ? "border-white/10 bg-slate-950/40" : "border-slate-200 bg-white")}
+      />
+      <span className={isDark ? "text-slate-400" : "text-slate-500"}>mt</span>
+    </label>
+  );
+}
+
 function AutomaticSaleRollPanel({
   selection,
+  measurements,
   loading,
   isDark,
+  onMeasure,
+  onRemoveMeasurement,
 }: {
   selection: SaleRollSelection | null;
+  measurements: SaleRollMeasurement[];
   loading: boolean;
   isDark: boolean;
+  onMeasure: (allocation: SaleRollAllocation, actualQty: number) => void;
+  onRemoveMeasurement: (rollId: string) => void;
 }) {
   const border = isDark ? "border-white/10" : "border-slate-200";
   const muted = isDark ? "text-slate-400" : "text-slate-500";
   const productNames = new Map(selection?.lines.map((line) => [line.productId, line.name]) ?? []);
+  const groupedAllocations = Array.from((selection?.allocations ?? []).reduce((groups, allocation) => {
+    const existing = groups.get(allocation.rollId);
+    if (existing) {
+      existing.qty += allocation.qty;
+      existing.beforeQty = Math.max(existing.beforeQty, allocation.beforeQty);
+      existing.remainingQty = Math.min(existing.remainingQty, allocation.remainingQty);
+      existing.pieces.push(allocation);
+    } else {
+      groups.set(allocation.rollId, { ...allocation, pieces: [allocation] });
+    }
+    return groups;
+  }, new Map<string, SaleRollAllocation & { pieces: SaleRollAllocation[] }>()).values());
   return (
     <section className={cx("mt-4 rounded-2xl border p-4", border, isDark ? "bg-white/[0.04]" : "bg-white shadow-sm")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2751,12 +2966,25 @@ function AutomaticSaleRollPanel({
         )}
       </div>
 
+      {measurements.length > 0 && (
+        <div className={cx("mt-4 flex flex-wrap gap-2 border-t pt-3", border)}>
+          {measurements.map((measurement) => (
+            <span key={measurement.rollId} className={cx("inline-flex h-8 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold", isDark ? "bg-amber-400/10 text-amber-300" : "bg-amber-50 text-amber-700")}>
+              {measurement.rollNo}: {measurement.previousQty} → {measurement.actualQty} mt
+              <button type="button" title="Ölçü düzəlişini sil" onClick={() => onRemoveMeasurement(measurement.rollId)} className="text-rose-500"><I.X className="h-3.5 w-3.5" /></button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className={cx("mt-4 rounded-xl border px-4 py-5 text-sm", border, muted)}>Miqdara uyğun rulolar hesablanır...</div>
-      ) : selection?.allocations.length ? (
+      ) : groupedAllocations.length ? (
         <div className="mt-4 grid gap-2 lg:grid-cols-2">
-          {selection.allocations.map((allocation) => (
-            <div key={`${allocation.rollId}:${allocation.productId}`} className={cx("rounded-xl border px-3 py-3", border, isDark ? "bg-slate-950/20" : "bg-slate-50")}>
+          {groupedAllocations.map((allocation) => {
+            const measurement = measurements.find((item) => item.rollId === allocation.rollId);
+            return (
+            <div key={allocation.rollId} className={cx("rounded-xl border px-3 py-3", border, isDark ? "bg-slate-950/20" : "bg-slate-50")}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">{allocation.rollNo}</div>
@@ -2771,13 +2999,30 @@ function AutomaticSaleRollPanel({
                 <div><div className={muted}>İstifadə</div><div className="mt-0.5 font-semibold tabular-nums text-indigo-600">{allocation.qty} mt</div></div>
                 <div><div className={muted}>Qalır</div><div className="mt-0.5 font-semibold tabular-nums">{allocation.remainingQty} mt</div></div>
               </div>
+              {allocation.pieces.some((piece) => Number.isInteger(piece.pieceIndex)) && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {allocation.pieces
+                    .slice()
+                    .sort((a, b) => Number(a.pieceIndex) - Number(b.pieceIndex))
+                    .map((piece) => (
+                      <span key={`${piece.rollId}:${piece.pieceIndex}`} className={cx("rounded-md px-2 py-1 text-[10px] font-semibold", isDark ? "bg-indigo-400/10 text-indigo-300" : "bg-indigo-50 text-indigo-700")}>
+                        Parça {Number(piece.pieceIndex) + 1} · {piece.qty} mt
+                      </span>
+                    ))}
+                </div>
+              )}
               <div className={cx("mt-2 truncate text-[10px]", muted)}>{[allocation.containerNumber, allocation.palletNumber].filter(Boolean).join(" · ") || "Depo"}</div>
+              <div className={cx("mt-3 flex items-center justify-between gap-2 border-t pt-3", border)}>
+                <span className={cx("text-[10px] font-semibold uppercase", muted)}>Barkodsuz yoxlama</span>
+                <MeasuredQtyInput value={measurement?.actualQty ?? allocation.beforeQty} onCommit={(value) => onMeasure(allocation, value)} isDark={isDark} />
+              </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       ) : (
         <div className={cx("mt-4 rounded-xl border px-4 py-5 text-sm", border, selection?.incomplete ? "text-amber-700" : muted)}>
-          {selection?.incomplete ? "Tələbi qarşılamaq üçün uyğun rulo stoku tapılmadı." : "Məhsul və miqdar daxil ediləndə rulo planı burada görünəcək."}
+          {selection?.incomplete ? selection.lines.find((line) => !line.complete)?.planError || "Təhvil formasına uyğun rulo stoku tapılmadı." : "Məhsul və miqdar daxil ediləndə rulo planı burada görünəcək."}
         </div>
       )}
     </section>

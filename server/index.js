@@ -1455,6 +1455,22 @@ function reverseMovementStock(db, document) {
   }
 }
 
+function reverseRegularSaleStock(db, document) {
+  if (document?.posted === false || document?.type !== "sale" || document.saleMode === "export" || document.exportMode) return;
+  const account = normalizeWarehouse(document.account);
+  for (const line of document.lines ?? []) {
+    const product = db.products.find((item) => Number(item.id) === Number(line.productId));
+    const qty = numberValue(line.qty);
+    if (!product || product.type === "service" || qty <= 0) continue;
+    changeStock(product, account, qty);
+  }
+  for (const measurement of document.rollMeasurements ?? []) {
+    const product = db.products.find((item) => Number(item.id) === Number(measurement.productId));
+    if (!product || product.type === "service") continue;
+    changeStock(product, account, -numberValue(measurement.variance));
+  }
+}
+
 function hasMovementSelection(document) {
   return Array.isArray(document?.movementSelection?.containers) && document.movementSelection.containers.length > 0;
 }
@@ -1932,6 +1948,7 @@ async function handleDocuments(req, res) {
       const rollResult = validateAutomaticSaleRollSelection(db, updatedDocument);
       if (!rollResult.ok) return send(res, 409, { error: rollResult.error });
       updatedDocument.rollSelection = rollResult.selection;
+      updatedDocument.rollMeasurements = rollResult.measurements;
     }
     if (previousDocument.type === "movement" || (previousDocument.type === "sale" && (previousDocument.saleMode === "export" || previousDocument.exportMode))) {
       reverseMovementStock(db, previousDocument);
@@ -1939,6 +1956,10 @@ async function handleDocuments(req, res) {
       const stockResult = applyDocumentStock(db, updatedDocument);
       if (!stockResult.ok) return send(res, 409, { error: stockResult.error });
       markMovementSelection(db, updatedDocument);
+    } else if (previousDocument.type === "sale" && previousDocument.saleMode !== "export" && !previousDocument.exportMode) {
+      reverseRegularSaleStock(db, previousDocument);
+      const stockResult = applyDocumentStock(db, updatedDocument);
+      if (!stockResult.ok) return send(res, 409, { error: stockResult.error });
     }
     db.documents = db.documents.filter((item) => !(item.generatedFromPayment && String(item.linkedDocumentId) === String(id)));
     const sourceIndex = db.documents.findIndex((item) => String(item.id) === String(id));
@@ -1965,6 +1986,7 @@ async function handleDocuments(req, res) {
       const rollResult = validateAutomaticSaleRollSelection(db, document);
       if (!rollResult.ok) return send(res, 409, { error: rollResult.error });
       document.rollSelection = rollResult.selection;
+      document.rollMeasurements = rollResult.measurements;
     }
     const stockResult = applyDocumentStock(db, document);
     if (!stockResult.ok) return send(res, 409, { error: stockResult.error });
@@ -2054,6 +2076,15 @@ function applyDocumentStock(db, document) {
   const from = normalizeWarehouse(document.fromAccount ?? document.account);
   const to = normalizeWarehouse(document.toAccount ?? "ERSA ANTREPO");
   const touched = [];
+
+  if (kind === "sale" && document.saleMode !== "export" && !document.exportMode) {
+    for (const measurement of document.rollMeasurements ?? []) {
+      const product = db.products.find((item) => Number(item.id) === Number(measurement.productId));
+      if (!product || product.type === "service") continue;
+      changeStock(product, account, numberValue(measurement.variance));
+      touched.push(product);
+    }
+  }
 
   for (const line of lines) {
     const product = db.products.find((item) => Number(item.id) === Number(line.productId));
