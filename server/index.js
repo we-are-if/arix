@@ -6,6 +6,14 @@ import { randomUUID } from "node:crypto";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
+import {
+  buildEDocumentDraft,
+  eDocumentOverview,
+  normalizeEDocumentSettings,
+  normalizeEDocumentStore,
+  publicEDocumentSettings,
+  testEDocumentConnection,
+} from "./eDocuments.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
@@ -59,6 +67,7 @@ const defaultCompanySettings = {
       AZN: 0,
     },
   },
+  eDocumentSettings: normalizeEDocumentSettings(),
   printSettings: defaultPrintSettings,
 };
 
@@ -160,6 +169,7 @@ function normalizeDb(db) {
         : defaultCompanySettings.exchangeSettings.symbols,
     },
   };
+  normalizeEDocumentStore(db);
   db.stockContainers ??= [];
   db.stockPallets ??= [];
   db.stockRolls ??= [];
@@ -689,7 +699,12 @@ async function handleOnlineCollections(req, res, parts) {
 
 async function handleCompanySettings(req, res) {
   const db = await readDb();
-  if (req.method === "GET") return send(res, 200, { data: db.companySettings });
+  if (req.method === "GET") return send(res, 200, {
+    data: {
+      ...db.companySettings,
+      eDocumentSettings: publicEDocumentSettings(db.companySettings.eDocumentSettings),
+    },
+  });
   if (req.method === "PATCH") {
     const body = await parseBody(req);
     const nextStockMode = body.stockMode === "bondedRolls" ? "bondedRolls" : body.stockMode === "simple" ? "simple" : db.companySettings.stockMode;
@@ -716,6 +731,17 @@ async function handleCompanySettings(req, res) {
             : db.companySettings.exchangeSettings?.symbols ?? defaultCompanySettings.exchangeSettings.symbols,
         }
       : db.companySettings.exchangeSettings;
+    const nextEDocumentSettings = body.eDocumentSettings
+      ? normalizeEDocumentSettings({
+          ...db.companySettings.eDocumentSettings,
+          ...body.eDocumentSettings,
+          company: { ...db.companySettings.eDocumentSettings.company, ...(body.eDocumentSettings.company ?? {}) },
+          aliases: { ...db.companySettings.eDocumentSettings.aliases, ...(body.eDocumentSettings.aliases ?? {}) },
+          modules: { ...db.companySettings.eDocumentSettings.modules, ...(body.eDocumentSettings.modules ?? {}) },
+          series: { ...db.companySettings.eDocumentSettings.series, ...(body.eDocumentSettings.series ?? {}) },
+          automation: { ...db.companySettings.eDocumentSettings.automation, ...(body.eDocumentSettings.automation ?? {}) },
+        })
+      : db.companySettings.eDocumentSettings;
     db.companySettings = {
       ...db.companySettings,
       ...body,
@@ -723,10 +749,74 @@ async function handleCompanySettings(req, res) {
       rollTracking: nextStockMode === "bondedRolls",
       printSettings: nextPrintSettings,
       exchangeSettings: nextExchangeSettings,
+      eDocumentSettings: nextEDocumentSettings,
       updatedAt: new Date().toISOString(),
     };
     await writeDb(db);
-    return send(res, 200, { data: db.companySettings });
+    return send(res, 200, {
+      data: {
+        ...db.companySettings,
+        eDocumentSettings: publicEDocumentSettings(db.companySettings.eDocumentSettings),
+      },
+    });
+  }
+  return notFound(res);
+}
+
+async function handleEDocuments(req, res, parts) {
+  const db = await readDb();
+  const action = parts[1];
+  if (req.method === "GET" && !action) {
+    return send(res, 200, {
+      data: db.eDocuments.documents,
+      overview: eDocumentOverview(db),
+      settings: publicEDocumentSettings(db.companySettings.eDocumentSettings),
+    });
+  }
+  if (req.method === "POST" && action === "connection-test") {
+    const result = testEDocumentConnection(db.companySettings.eDocumentSettings);
+    db.eDocuments.events.unshift({
+      id: randomUUID(),
+      type: "connection-test",
+      provider: db.companySettings.eDocumentSettings.provider,
+      environment: db.companySettings.eDocumentSettings.environment,
+      ok: result.ok,
+      message: result.message,
+      createdAt: new Date().toISOString(),
+    });
+    db.eDocuments.events = db.eDocuments.events.slice(0, 200);
+    await writeDb(db);
+    return send(res, result.ok ? 200 : 409, { data: result });
+  }
+  if (req.method === "POST" && action === "drafts") {
+    const body = await parseBody(req);
+    const sourceDocument = db.documents.find((item) => String(item.id) === String(body.sourceDocumentId));
+    if (!sourceDocument) return send(res, 404, { error: "Mənbə sənəd tapılmadı." });
+    if (body.documentType !== "eDespatch" && sourceDocument.type !== "sale") {
+      return send(res, 409, { error: "Fatura qaralaması yalnız satış sənədindən yaradıla bilər." });
+    }
+    const existing = db.eDocuments.documents.find((item) =>
+      item.status === "draft"
+      && String(item.sourceDocumentId) === String(sourceDocument.id)
+      && item.documentType === body.documentType
+    );
+    if (existing) return send(res, 200, { data: existing, reused: true });
+    let draft;
+    try {
+      draft = buildEDocumentDraft({ id: randomUUID(), sourceDocument, documentType: body.documentType });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Qaralama yaradıla bilmədi." });
+    }
+    db.eDocuments.documents.unshift(draft);
+    db.eDocuments.events.unshift({
+      id: randomUUID(),
+      type: "draft-created",
+      eDocumentId: draft.id,
+      sourceDocumentId: sourceDocument.id,
+      createdAt: draft.createdAt,
+    });
+    await writeDb(db);
+    return send(res, 201, { data: draft, reused: false });
   }
   return notFound(res);
 }
@@ -2192,6 +2282,7 @@ const server = createServer(async (req, res) => {
     if (parts[1] === "customer-prices") return await handleCustomerPrices(req, res, url, parts.slice(1));
     if (parts[1] === "online-collections") return await handleOnlineCollections(req, res, parts.slice(1));
     if (parts[1] === "company-settings") return await handleCompanySettings(req, res);
+    if (parts[1] === "e-documents") return await handleEDocuments(req, res, parts.slice(1));
     if (parts[1] === "exchange-rates") return await handleExchangeRates(req, res, url);
     if (parts[1] === "documents") return await handleDocuments(req, res);
     if (parts[1] === "stock-containers") return await handleStockContainers(req, res);

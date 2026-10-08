@@ -298,6 +298,7 @@ export default function App() {
     { to: "/company/accounts", label: t("nav.accounts"), section: "accounts" },
     { to: "/company/loyalty", label: t("nav.loyalty"), section: "loyalty" },
     { to: "/company/print-forms", label: t("nav.printForms"), section: "printForms" },
+    { to: "/company/e-documents", label: t("nav.eDocuments"), section: "eDocuments" },
   ];
   const collectionMenuGroups: Array<{
     title: string;

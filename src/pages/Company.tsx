@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState, type SVGProps } from "react";
 import { requestJson } from "../api";
 import AriXLogo from "../components/AriXLogo";
 import { defaultPrintSettings, mergePrintSettings, type PrintFormKey, type PrintSettings } from "../print/printSettings";
+import EDocumentsSettings from "../components/EDocumentsSettings";
 
-export type CompanySection = "settings" | "employees" | "stores" | "accounts" | "loyalty" | "printForms";
+export type CompanySection = "settings" | "employees" | "stores" | "accounts" | "loyalty" | "printForms" | "eDocuments";
 type StockMode = "simple" | "bondedRolls";
 type ExchangeRateSource = "tcmb" | "cbar" | "frankfurter" | "manual";
 type DocumentRateDay = "instant" | "previousDay" | "twoDaysBefore";
@@ -177,6 +178,7 @@ const titles: Record<CompanySection, { title: string; subtitle: string }> = {
   accounts: { title: "Hesablar", subtitle: "Kassa, bank və mağaza hesabları." },
   loyalty: { title: "Sadiqlik", subtitle: "Endirim, bonus və müştəri sadiqliyi qaydaları." },
   printForms: { title: "Çap formaları", subtitle: "Sənəd, qəbz və etiket şablonları." },
+  eDocuments: { title: "e-Belgələr", subtitle: "e-Fatura, e-Arşiv və e-İrsaliye bağlantıları." },
 };
 
 const employees = [
@@ -269,6 +271,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
     ];
     if (section === "accounts") return [{ label: "Balans", value: "-625,722.87 ₼" }, { label: "Kassa", value: "2" }, { label: "Mağaza hesabı", value: "2" }];
     if (section === "printForms") return [{ label: "Şablon", value: "8" }, { label: "Aktiv", value: "8" }, { label: "Qrup", value: "4" }];
+    if (section === "eDocuments") return [{ label: "Mühit", value: "Test" }, { label: "Provayder", value: "AriX Test" }, { label: "Modul", value: "5" }];
     return [{ label: "Profil", value: "Hazır" }, { label: "Valyuta", value: "AZN" }, { label: "Ölkə", value: "Azərbaycan" }];
   }, [companyStores, section]);
 
@@ -296,7 +299,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
             <h1 className="mt-1 text-2xl font-semibold">{meta.title}</h1>
             <p className={cx("mt-1 text-sm", subtle)}>{meta.subtitle}</p>
           </div>
-          {section !== "settings" && section !== "printForms" && (
+          {section !== "settings" && section !== "printForms" && section !== "eDocuments" && (
             <button
               type="button"
               onClick={() => section === "stores" && window.dispatchEvent(new Event("arix:create-store"))}
@@ -323,6 +326,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
       {section === "accounts" && <AccountsView border={border} card={card} soft={soft} subtle={subtle} />}
       {section === "loyalty" && <LoyaltyView border={border} card={card} soft={soft} subtle={subtle} />}
       {section === "printForms" && <PrintFormsView border={border} card={card} soft={soft} subtle={subtle} input={input} isDark={isDark} />}
+      {section === "eDocuments" && <EDocumentsSettings border={border} card={card} subtle={subtle} input={input} isDark={isDark} />}
     </div>
   );
 }
