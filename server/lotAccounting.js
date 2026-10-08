@@ -472,21 +472,50 @@ function applyBondedExit(document, purchaseLots, depotLots, rollIndex, unresolve
   }
 }
 
+function selectedDepotAllocations(document, productId, depotLots) {
+  const grouped = new Map();
+  for (const row of document.rollSelection?.allocations ?? []) {
+    if (Number(row.productId) !== Number(productId)) continue;
+    const lot = depotLots.find((item) =>
+      item.productId === Number(productId) && (item.rollIds ?? []).some((rollId) => String(rollId) === String(row.rollId))
+    );
+    if (!lot) continue;
+    const current = grouped.get(lot.id) ?? { lot, qty: 0, rollIds: [] };
+    current.qty += numberValue(row.qty);
+    current.rollIds.push(String(row.rollId));
+    grouped.set(lot.id, current);
+  }
+  return Array.from(grouped.values());
+}
+
 function applyRegularSale(document, depotLots, unresolved) {
   for (const line of document.lines ?? []) {
     const productId = Number(line.productId);
-    const result = consumeLots(
-      depotLots.filter((lot) => lot.productId === productId),
-      line.qty,
-      "currentUnitCost",
-      "remainingQty"
-    );
-    for (const allocation of result.allocations) {
+    const allocations = [];
+    for (const selected of selectedDepotAllocations(document, productId, depotLots)) {
+      const consumed = Math.min(numberValue(selected.qty), selected.lot.remainingQty);
+      if (consumed <= EPSILON) continue;
+      selected.lot.remainingQty = round(selected.lot.remainingQty - consumed, 4);
+      selected.lot.soldQty = round(selected.lot.soldQty + consumed, 4);
+      allocations.push(allocationSnapshot(selected.lot, consumed, selected.lot.currentUnitCost, { rollIds: selected.rollIds }));
+    }
+    const selectedQty = allocations.reduce((sum, allocation) => sum + numberValue(allocation.qty), 0);
+    const missingSelectionQty = Math.max(0, numberValue(line.qty) - selectedQty);
+    const fallback = missingSelectionQty > EPSILON
+      ? consumeLots(
+        depotLots.filter((lot) => lot.productId === productId),
+        missingSelectionQty,
+        "currentUnitCost",
+        "remainingQty"
+      )
+      : { allocations: [], missingQty: 0 };
+    for (const allocation of fallback.allocations) {
       const lot = depotLots.find((item) => item.id === allocation.lotId);
       if (lot) lot.soldQty = round(lot.soldQty + allocation.qty, 4);
     }
-    if (result.allocations.length > 0) applyLineCost(document, productId, result.allocations, "depot-lot");
-    if (result.missingQty > EPSILON) unresolved.push({ documentId: document.id, type: document.type, productId, missingQty: result.missingQty, reason: "Depo partiyası çatmır" });
+    const allAllocations = [...allocations, ...fallback.allocations];
+    if (allAllocations.length > 0) applyLineCost(document, productId, allAllocations, "depot-roll");
+    if (fallback.missingQty > EPSILON) unresolved.push({ documentId: document.id, type: document.type, productId, missingQty: fallback.missingQty, reason: "Depo partiyası çatmır" });
   }
 }
 

@@ -21,6 +21,7 @@ type ProductLine = {
   name: string;
   code: string;
   sku: string;
+  type?: string;
   unit: string;
   variant: string;
   stock: number;
@@ -121,6 +122,7 @@ export type ApiDocumentDraft = {
     containers?: ContainerDraft[];
   };
   movementSelection?: MovementSuggestion;
+  rollSelection?: SaleRollSelection;
   saleMode?: SaleMode;
   exportMode?: boolean;
 };
@@ -269,6 +271,43 @@ type MovementSuggestion = {
       rollCount: number;
       rolls: MovementSuggestionRoll[];
     }>;
+  }>;
+};
+
+type SaleRollAllocation = {
+  rollId: string;
+  rollNo: string;
+  productId: number;
+  qty: number;
+  initialQty: number;
+  beforeQty: number;
+  remainingQty: number;
+  opened: boolean;
+  receivedAt: string;
+  sourceDocumentId: string;
+  purchaseDocumentId: string;
+  containerNumber: string;
+  palletId: string;
+  palletNumber: string;
+};
+
+type SaleRollSelection = {
+  automatic: true;
+  strategy: string;
+  calculatedAt: string;
+  requestedQty: number;
+  selectedQty: number;
+  rollCount: number;
+  incomplete: boolean;
+  allocations: SaleRollAllocation[];
+  lines: Array<{
+    productId: number;
+    name: string;
+    requestedQty: number;
+    selectedQty: number;
+    shortageQty: number;
+    rollCount: number;
+    complete: boolean;
   }>;
 };
 
@@ -546,7 +585,7 @@ const toDraftNumber = (value: string) => {
   const parsed = Number(String(value).replace(",", "."));
   return Number.isFinite(parsed) ? parsed : 0;
 };
-const createRollDraft = (productId = 0, _index = 1): RollDraft => ({
+const createRollDraft = (productId = 0): RollDraft => ({
   id: draftId(),
   productId,
   rollNo: "",
@@ -559,7 +598,7 @@ const createRollDraft = (productId = 0, _index = 1): RollDraft => ({
 const createPalletDraft = (productId = 0, index = 1): PalletDraft => ({
   id: draftId(),
   number: `Palet ${index}`,
-  rolls: [createRollDraft(productId, 1)],
+  rolls: [createRollDraft(productId)],
 });
 const createContainerDraft = (productId = 0, index = 1): ContainerDraft => ({
   id: draftId(),
@@ -587,6 +626,7 @@ const mapApiProduct = (product: ApiProduct, store = "ERSA DEPO", kind: DocumentC
   name: product.name,
   code: product.code,
   sku: product.sku,
+  type: product.type,
   unit: product.unit,
   variant: "Standart",
   stock: Number(product.warehouses?.depo ?? product.warehouses?.antrepo ?? 0),
@@ -847,9 +887,12 @@ export default function DocumentCreatePanel({
   const [selectedMovementSuggestion, setSelectedMovementSuggestion] = useState<MovementSuggestion | null>(editingDocument?.movementSelection ?? null);
   const [movementSuggestionAction, setMovementSuggestionAction] = useState<MovementSuggestionAction>("replace");
   const [movementSuggestionsLoading, setMovementSuggestionsLoading] = useState(false);
+  const [saleRollSelection, setSaleRollSelection] = useState<SaleRollSelection | null>(editingDocument?.rollSelection ?? null);
+  const [saleRollSelectionLoading, setSaleRollSelectionLoading] = useState(false);
   const [documentDate, setDocumentDate] = useState(() => documentDateInput(editingDocument?.documentDate ?? editingDocument?.createdAt));
   const [availableProducts, setAvailableProducts] = useState<ProductLine[]>(productSeed);
   const [selectedProducts, setSelectedProducts] = useState<ProductLine[]>(() => mapDocumentLinesToProducts(editingDocument, productSeed));
+  const selectedProductsRef = useRef(selectedProducts);
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [counterparties, setCounterparties] = useState<ApiCounterparty[]>([]);
   const [counterpartyId, setCounterpartyId] = useState(editingDocument?.counterpartyId ? String(editingDocument.counterpartyId) : "");
@@ -891,6 +934,9 @@ export default function DocumentCreatePanel({
   const muted = isDark ? "text-slate-400" : "text-slate-500";
   const isExportSale = kind === "sale" && saleMode === "export";
   const usesMovementSelection = kind === "movement" || isExportSale;
+  const usesAutomaticSaleRollSelection = kind === "sale" && saleMode === "regular" && companySettings.stockMode === "bondedRolls";
+  const trackedSaleProducts = useMemo(() => selectedProducts.filter((product) => product.type !== "service"), [selectedProducts]);
+  const requiresAutomaticSaleRollSelection = usesAutomaticSaleRollSelection && trackedSaleProducts.length > 0;
   const stockSelectionFromAccount = isExportSale ? documentAccount : movementFromAccount;
   const stockSelectionToAccount = isExportSale ? "İxracat" : movementToAccount;
   const filteredProducts = availableProducts.filter((product) => [product.name, product.code, product.sku, product.variant].join(" ").toLowerCase().includes(query.toLowerCase()));
@@ -901,6 +947,9 @@ export default function DocumentCreatePanel({
       window.localStorage.setItem(documentPanelSizeStorageKey, JSON.stringify(panelSize));
     }
   }, [panelSize]);
+  useEffect(() => {
+    selectedProductsRef.current = selectedProducts;
+  }, [selectedProducts]);
   useEffect(() => {
     if (isEditing) return;
     setDocumentAccount(kind === "purchase" && companySettings.stockMode === "bondedRolls" ? "ERSA ANTREPO" : "ERSA DEPO");
@@ -1111,11 +1160,27 @@ export default function DocumentCreatePanel({
         }),
       });
       const suggestions = Array.isArray(payload.data) ? payload.data : [];
-      setMovementSuggestions(suggestions);
       if (suggestions.length === 0) {
+        setMovementSuggestions([]);
         setMessage(action === "append"
           ? "Çatışmayan hissəni tamamlamaq üçün əlavə stok tapılmadı."
           : "Seçilən məhsullar üzrə köçürülə biləcək stok yoxdur.");
+      } else {
+        const suggestion = suggestions[0];
+        const nextSelection = action === "append" && selectedMovementSuggestion
+          ? summarizeMovementSelection(
+            mergeMovementContainers(selectedMovementSuggestion.containers, suggestion.containers),
+            selectedProducts,
+            {
+              ...selectedMovementSuggestion,
+              id: `${selectedMovementSuggestion.id}+${suggestion.id}`,
+              reason: [selectedMovementSuggestion.reason, suggestion.reason].filter(Boolean).join(" "),
+            }
+          )
+          : summarizeMovementSelection(suggestion.containers, selectedProducts, suggestion);
+        setSelectedMovementSuggestion(nextSelection);
+        setMovementSuggestions([]);
+        setMessage(nextSelection.incomplete ? "Rulo planı qismən hesablandı." : "Rulo planı avtomatik hesablandı.");
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Alternativlər hesablanmadı.");
@@ -1143,11 +1208,6 @@ export default function DocumentCreatePanel({
     setMessage(movementSuggestionAction === "append"
       ? "Çatışmayan stok seçilmiş rezervə əlavə edildi. Tələb miqdarı seçilmiş metrajla yeniləndi."
       : `${suggestion.title} seçildi. Tələb miqdarı seçilmiş metrajla yeniləndi.`);
-  };
-  const clearMovementSelection = () => {
-    setSelectedMovementSuggestion(null);
-    setMovementSuggestions([]);
-    setMessage("Seçilmiş stok təmizləndi. Yeni variant hesablaya bilərsən.");
   };
   const updateContainer = (containerId: string, patch: Partial<ContainerDraft>) => {
     setContainers((current) => current.map((container) => container.id === containerId ? { ...container, ...patch } : container));
@@ -1210,7 +1270,7 @@ export default function DocumentCreatePanel({
                     ...pallet,
                     rolls: [
                       ...pallet.rolls,
-                      ...Array.from({ length: count }, (_, index) => createRollDraft(firstProductId, pallet.rolls.length + index + 1)),
+                      ...Array.from({ length: count }, () => createRollDraft(firstProductId)),
                     ],
                   }
                 : pallet
@@ -1356,7 +1416,7 @@ export default function DocumentCreatePanel({
         setAvailableProducts(nextProducts);
         const nextSelectedProducts = isEditing && editingDocument?.lines?.length
           ? mapDocumentLinesToProducts(editingDocument, nextProducts)
-          : selectedProducts.filter((item) => nextProducts.some((product) => product.id === item.id));
+          : selectedProductsRef.current.filter((item) => nextProducts.some((product) => product.id === item.id));
         if ((kind === "movement" || editingDocument?.saleMode === "export" || editingDocument?.exportMode) && editingDocument?.movementSelection) {
           const restoredSelection = summarizeMovementSelection(editingDocument.movementSelection.containers, nextSelectedProducts, editingDocument.movementSelection);
           const restoredProducts = alignProductsToMovementSelection(nextSelectedProducts, restoredSelection);
@@ -1376,7 +1436,7 @@ export default function DocumentCreatePanel({
     return () => {
       cancelled = true;
     };
-  }, [isMoney, kind, isEditing, editingDocument]);
+  }, [documentAccount, isMoney, kind, isEditing, editingDocument]);
 
   useEffect(() => {
     if (!productsLoaded || !["sale", "saleReturn"].includes(kind)) return;
@@ -1481,6 +1541,88 @@ export default function DocumentCreatePanel({
     };
   }, [kind]);
 
+  useEffect(() => {
+    if (!usesMovementSelection || !productsLoaded || selectedProducts.length === 0) {
+      if (!usesMovementSelection || selectedProducts.length === 0) setSelectedMovementSuggestion(null);
+      setMovementSuggestionsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setMovementSuggestionsLoading(true);
+    const timer = window.setTimeout(() => {
+      requestJson<{ data: MovementSuggestion[] }>("/api/movement-suggestions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          currentMovementDocumentId: editingDocument?.id ? String(editingDocument.id) : undefined,
+          fromAccount: stockSelectionFromAccount,
+          toAccount: stockSelectionToAccount,
+          lines: selectedProducts.map((product) => ({
+            productId: product.id,
+            name: product.name,
+            qty: product.qty ?? 1,
+            mode: product.movementMode ?? "meters",
+          })),
+        }),
+      })
+        .then((payload) => {
+          if (cancelled) return;
+          const suggestion = Array.isArray(payload.data) ? payload.data[0] : undefined;
+          setMovementSuggestions([]);
+          setSelectedMovementSuggestion(suggestion
+            ? summarizeMovementSelection(suggestion.containers, selectedProducts, suggestion)
+            : null);
+        })
+        .catch(() => {
+          if (!cancelled) setSelectedMovementSuggestion(null);
+        })
+        .finally(() => {
+          if (!cancelled) setMovementSuggestionsLoading(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editingDocument?.id, productsLoaded, selectedProducts, stockSelectionFromAccount, stockSelectionToAccount, usesMovementSelection]);
+
+  useEffect(() => {
+    if (!requiresAutomaticSaleRollSelection || !productsLoaded) {
+      setSaleRollSelection(null);
+      setSaleRollSelectionLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSaleRollSelectionLoading(true);
+    const timer = window.setTimeout(() => {
+      requestJson<{ data: SaleRollSelection }>("/api/sale-roll-suggestion", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          currentDocumentId: editingDocument?.id ? String(editingDocument.id) : undefined,
+          lines: trackedSaleProducts.map((product) => ({
+            productId: product.id,
+            name: product.name,
+            qty: product.qty ?? 1,
+          })),
+        }),
+      })
+        .then((payload) => {
+          if (!cancelled) setSaleRollSelection(payload.data);
+        })
+        .catch(() => {
+          if (!cancelled) setSaleRollSelection(null);
+        })
+        .finally(() => {
+          if (!cancelled) setSaleRollSelectionLoading(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editingDocument?.id, productsLoaded, requiresAutomaticSaleRollSelection, trackedSaleProducts]);
+
   const saveDocument = async () => {
     if (!isMoney && selectedProducts.length === 0) {
       setMessage("Ən az bir məhsul seç.");
@@ -1491,12 +1633,21 @@ export default function DocumentCreatePanel({
       return false;
     }
     if (usesMovementSelection && !selectedMovementSuggestion) {
-      setMessage("Əvvəl ağıllı stok seçimindən bir variant seç.");
+      setMessage("Avtomatik rulo planı hələ hazır deyil.");
       return false;
     }
     if (usesMovementSelection && selectedMovementSuggestion?.incomplete) {
       const incompleteLine = selectedMovementSuggestion.lines.find((line) => !line.complete);
       setMessage(`${incompleteLine?.name ?? "Məhsul"} üçün seçilmiş stok tələbi tam qarşılamır. Çatışmayanı tamamla və ya miqdarı düzəlt.`);
+      return false;
+    }
+    if (requiresAutomaticSaleRollSelection && (saleRollSelectionLoading || !saleRollSelection)) {
+      setMessage("Rulo planı hesablanır. Bir an sonra yenidən saxla.");
+      return false;
+    }
+    if (requiresAutomaticSaleRollSelection && saleRollSelection?.incomplete) {
+      const incompleteLine = saleRollSelection.lines.find((line) => !line.complete);
+      setMessage(`${incompleteLine?.name ?? "Məhsul"} üçün rulo stoku çatmır: ${incompleteLine?.shortageQty ?? 0} mt`);
       return false;
     }
     if (["sale", "saleReturn", "purchase", "purchaseReturn"].includes(kind) && !counterpartyId) {
@@ -1587,6 +1738,7 @@ export default function DocumentCreatePanel({
         } : undefined,
         lines: documentLines,
         movementSelection: usesMovementSelection ? selectedMovementSuggestion ?? undefined : undefined,
+        rollSelection: requiresAutomaticSaleRollSelection ? saleRollSelection ?? undefined : undefined,
         bondedStock: isBondedPurchase ? {
           mode: "container-pallet-roll",
           destination: documentAccount,
@@ -1918,6 +2070,13 @@ export default function DocumentCreatePanel({
                       onRemove={removeProduct}
                       onUpdate={updateProduct}
                     />
+                    {requiresAutomaticSaleRollSelection && (
+                      <AutomaticSaleRollPanel
+                        selection={saleRollSelection}
+                        loading={saleRollSelectionLoading}
+                        isDark={isDark}
+                      />
+                    )}
                     {usesMovementSelection && (
                       <>
                         {selectedMovementSuggestion && (
@@ -1925,9 +2084,7 @@ export default function DocumentCreatePanel({
                             selection={selectedMovementSuggestion}
                             loading={movementSuggestionsLoading}
                             isDark={isDark}
-                            onComplete={() => findMovementSuggestions("append")}
-                            onChange={() => findMovementSuggestions("replace")}
-                            onClear={clearMovementSelection}
+                            onRefresh={() => findMovementSuggestions("replace")}
                           />
                         )}
                         <MovementSuggestionPanel
@@ -2555,20 +2712,88 @@ function BondedPurchasePanel({
   );
 }
 
+function AutomaticSaleRollPanel({
+  selection,
+  loading,
+  isDark,
+}: {
+  selection: SaleRollSelection | null;
+  loading: boolean;
+  isDark: boolean;
+}) {
+  const border = isDark ? "border-white/10" : "border-slate-200";
+  const muted = isDark ? "text-slate-400" : "text-slate-500";
+  const productNames = new Map(selection?.lines.map((line) => [line.productId, line.name]) ?? []);
+  return (
+    <section className={cx("mt-4 rounded-2xl border p-4", border, isDark ? "bg-white/[0.04]" : "bg-white shadow-sm")}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold">Avtomatik rulo planı</h3>
+            <span className={cx(
+              "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+              loading
+                ? "bg-indigo-500/10 text-indigo-600"
+                : selection?.incomplete
+                  ? "bg-amber-500/12 text-amber-700"
+                  : "bg-emerald-500/12 text-emerald-700"
+            )}>
+              {loading ? "Hesablanır" : selection?.incomplete ? "Stok çatmır" : "Hazır"}
+            </span>
+          </div>
+          <p className={cx("mt-1 text-xs", muted)}>Sistem ruloları özü seçir; partiya seçimi tələb olunmur.</p>
+        </div>
+        {selection && !loading && (
+          <div className="text-right text-xs">
+            <div className="font-semibold">{selection.rollCount} rulo · {selection.selectedQty} mt</div>
+            <div className={muted}>Tələb: {selection.requestedQty} mt</div>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div className={cx("mt-4 rounded-xl border px-4 py-5 text-sm", border, muted)}>Miqdara uyğun rulolar hesablanır...</div>
+      ) : selection?.allocations.length ? (
+        <div className="mt-4 grid gap-2 lg:grid-cols-2">
+          {selection.allocations.map((allocation) => (
+            <div key={`${allocation.rollId}:${allocation.productId}`} className={cx("rounded-xl border px-3 py-3", border, isDark ? "bg-slate-950/20" : "bg-slate-50")}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{allocation.rollNo}</div>
+                  <div className={cx("mt-0.5 truncate text-[11px]", muted)}>{productNames.get(allocation.productId) || `Məhsul #${allocation.productId}`}</div>
+                </div>
+                <span className={cx("shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold", allocation.remainingQty > 0 ? "bg-amber-500/12 text-amber-700" : "bg-emerald-500/12 text-emerald-700")}>
+                  {allocation.remainingQty > 0 ? "Açıq qalır" : "Tam çıxır"}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div><div className={muted}>Əvvəl</div><div className="mt-0.5 font-semibold tabular-nums">{allocation.beforeQty} mt</div></div>
+                <div><div className={muted}>İstifadə</div><div className="mt-0.5 font-semibold tabular-nums text-indigo-600">{allocation.qty} mt</div></div>
+                <div><div className={muted}>Qalır</div><div className="mt-0.5 font-semibold tabular-nums">{allocation.remainingQty} mt</div></div>
+              </div>
+              <div className={cx("mt-2 truncate text-[10px]", muted)}>{[allocation.containerNumber, allocation.palletNumber].filter(Boolean).join(" · ") || "Depo"}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={cx("mt-4 rounded-xl border px-4 py-5 text-sm", border, selection?.incomplete ? "text-amber-700" : muted)}>
+          {selection?.incomplete ? "Tələbi qarşılamaq üçün uyğun rulo stoku tapılmadı." : "Məhsul və miqdar daxil ediləndə rulo planı burada görünəcək."}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SelectedMovementStockPanel({
   selection,
   loading,
   isDark,
-  onComplete,
-  onChange,
-  onClear,
+  onRefresh,
 }: {
   selection: MovementSuggestion;
   loading: boolean;
   isDark: boolean;
-  onComplete: () => void;
-  onChange: () => void;
-  onClear: () => void;
+  onRefresh: () => void;
 }) {
   const border = isDark ? "border-white/10" : "border-slate-200";
   const soft = isDark ? "bg-white/5" : "bg-slate-50";
@@ -2578,22 +2803,16 @@ function SelectedMovementStockPanel({
       <div className={cx("flex flex-col gap-3 border-b p-4 xl:flex-row xl:items-center xl:justify-between", border, soft)}>
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold">Seçilmiş stok</h3>
+            <h3 className="font-semibold">Avtomatik rulo planı</h3>
             <span className={cx("rounded-full px-2 py-0.5 text-[11px] font-semibold", selection.incomplete ? "bg-amber-500/12 text-amber-700" : "bg-emerald-500/12 text-emerald-700")}>
               {selection.incomplete ? "Tamamlanmalıdır" : "Tələb qarşılanır"}
             </span>
           </div>
-          <p className={cx("mt-1 text-xs", muted)}>Bu konkret palet və rulolar sənədlə birlikdə saxlanır və redaktədə dəyişmədən qalır.</p>
+          <p className={cx("mt-1 text-xs", muted)}>Sistem uyğun palet və ruloları özü hesablayır; istifadəçi partiya seçmir.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {selection.incomplete && (
-            <button type="button" onClick={onComplete} disabled={loading} className="surface-primary h-10 rounded-xl px-4 text-sm font-semibold">
-              Çatışmayanı tamamla
-            </button>
-          )}
-          <button type="button" onClick={onChange} disabled={loading} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold", border)}>Seçimi dəyiş</button>
-          <button type="button" onClick={onClear} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold text-rose-600", border)}>Təmizlə</button>
-        </div>
+        <button type="button" onClick={onRefresh} disabled={loading} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold", border)}>
+          {loading ? "Hesablanır..." : "Yenidən hesabla"}
+        </button>
       </div>
 
       <div className="grid gap-3 p-3 lg:grid-cols-2">
@@ -2683,14 +2902,14 @@ function MovementSuggestionPanel({
     <section className={cx("mt-5 overflow-hidden rounded-2xl border", border)}>
       <div className={cx("flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between", border, soft)}>
         <div>
-          <h3 className="font-semibold">Ağıllı stok seçimi</h3>
+          <h3 className="font-semibold">Rulo hesablaması</h3>
           <p className={cx("mt-1 text-xs", muted)}>
-            Hər məhsul üçün tələb olunan metr, palet və ya rulo sayına görə ən uyğun stok seçilir.
+            Miqdar dəyişəndə ən uyğun stok sistem tərəfindən avtomatik yenilənir.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={onFind} disabled={loading} className={cx("surface-primary h-11 rounded-xl px-4 text-sm font-semibold", loading && "opacity-60")}>
-            {loading ? "Hesablanır..." : hasSelection ? "Hamısını yenidən hesabla" : "Ən yaxşı variantları tap"}
+            {loading ? "Hesablanır..." : hasSelection ? "Yenidən hesabla" : "İndi hesabla"}
           </button>
         </div>
       </div>

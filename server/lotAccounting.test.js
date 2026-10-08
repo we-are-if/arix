@@ -124,6 +124,9 @@ function scenarioDocuments() {
       createdAt: "2026-02-20T10:00:00Z",
       documentDate: "2026-02-20T10:00:00Z",
       lines: [{ productId: 1, qty: 100, price: 5, total: 500 }],
+      rollSelection: {
+        allocations: [{ rollId: "R-MOVE-FEB", productId: 1, qty: 100 }],
+      },
     },
   ];
 }
@@ -138,15 +141,15 @@ test("costs exports and depot layers follow their effective timestamps", () => {
 
   assert.equal(documentById(db, "export-jan").lines[0].unitCost, 2.2);
   assert.equal(documentById(db, "export-feb").lines[0].unitCost, 2.22);
-  assert.equal(documentById(db, "regular-sale").lines[0].unitCost, 2.8);
+  assert.equal(documentById(db, "regular-sale").lines[0].unitCost, 2.92);
   assert.equal(result.purchaseLots[0].remainingBondedQty, 3000);
 
   const januaryDepotLot = result.depotLots.find((lot) => lot.sourceMovementDocumentId === "move-jan");
   const februaryDepotLot = result.depotLots.find((lot) => lot.sourceMovementDocumentId === "move-feb");
   assert.equal(januaryDepotLot.currentUnitCost, 2.8);
-  assert.equal(januaryDepotLot.remainingQty, 400);
+  assert.equal(januaryDepotLot.remainingQty, 500);
   assert.equal(februaryDepotLot.currentUnitCost, 2.92);
-  assert.equal(februaryDepotLot.remainingQty, 500);
+  assert.equal(februaryDepotLot.remainingQty, 400);
   assert.equal(result.unresolved.length, 0);
 });
 
@@ -166,7 +169,7 @@ test("a forgotten backdated cost recalculates every dependent result", () => {
 
   assert.equal(documentById(db, "export-jan").lines[0].unitCost, 2.22);
   assert.equal(documentById(db, "export-feb").lines[0].unitCost, 2.24);
-  assert.equal(documentById(db, "regular-sale").lines[0].unitCost, 2.82);
+  assert.equal(documentById(db, "regular-sale").lines[0].unitCost, 2.94);
   assert.equal(result.depotLots.find((lot) => lot.sourceMovementDocumentId === "move-jan").currentUnitCost, 2.82);
   assert.equal(result.depotLots.find((lot) => lot.sourceMovementDocumentId === "move-feb").currentUnitCost, 2.94);
   assert.ok(db.lotRecalculations[0].changes.some((change) => change.documentId === "export-jan"));

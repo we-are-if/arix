@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 import { buildProductLedger } from "./productLedger.js";
+import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
@@ -1667,6 +1668,17 @@ async function handleMovementSuggestions(req, res) {
   return send(res, 200, { data: createMovementSuggestions(db, body) });
 }
 
+async function handleSaleRollSuggestion(req, res) {
+  const db = await readDb();
+  if (req.method !== "POST") return notFound(res);
+  const body = await parseBody(req);
+  const trackedLines = (Array.isArray(body.lines) ? body.lines : []).filter((line) => {
+    const product = db.products.find((item) => Number(item.id) === Number(line.productId));
+    return product && product.type !== "service";
+  });
+  return send(res, 200, { data: createAutomaticSaleRollSelection(db, { ...body, lines: trackedLines }) });
+}
+
 async function handleTestMovementPurchases(req, res) {
   const db = await readDb();
   if (req.method !== "POST") return notFound(res);
@@ -1916,6 +1928,11 @@ async function handleDocuments(req, res) {
       id: previousDocument.id,
       updatedAt: new Date().toISOString(),
     };
+    if (updatedDocument.type === "sale" && updatedDocument.saleMode !== "export" && !updatedDocument.exportMode && db.companySettings?.stockMode === "bondedRolls") {
+      const rollResult = validateAutomaticSaleRollSelection(db, updatedDocument);
+      if (!rollResult.ok) return send(res, 409, { error: rollResult.error });
+      updatedDocument.rollSelection = rollResult.selection;
+    }
     if (previousDocument.type === "movement" || (previousDocument.type === "sale" && (previousDocument.saleMode === "export" || previousDocument.exportMode))) {
       reverseMovementStock(db, previousDocument);
       releaseMovementSelection(db, previousDocument);
@@ -1944,6 +1961,11 @@ async function handleDocuments(req, res) {
       createdAt: new Date().toISOString(),
       ...body,
     };
+    if (document.type === "sale" && document.saleMode !== "export" && !document.exportMode && db.companySettings?.stockMode === "bondedRolls") {
+      const rollResult = validateAutomaticSaleRollSelection(db, document);
+      if (!rollResult.ok) return send(res, 409, { error: rollResult.error });
+      document.rollSelection = rollResult.selection;
+    }
     const stockResult = applyDocumentStock(db, document);
     if (!stockResult.ok) return send(res, 409, { error: stockResult.error });
     markMovementSelection(db, document);
@@ -2130,6 +2152,7 @@ const server = createServer(async (req, res) => {
     if (parts[1] === "documents") return await handleDocuments(req, res);
     if (parts[1] === "stock-containers") return await handleStockContainers(req, res);
     if (parts[1] === "movement-suggestions") return await handleMovementSuggestions(req, res);
+    if (parts[1] === "sale-roll-suggestion") return await handleSaleRollSuggestion(req, res);
     if (parts[1] === "test-data" && parts[2] === "movement-purchases") return await handleTestMovementPurchases(req, res);
     if (parts[1] === "landed-costs") return await handleLandedCosts(req, res);
     if (parts[1] === "inventory-lots") return await handleInventoryLots(req, res, url);
