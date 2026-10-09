@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildEDocumentDraft,
+  buildGibDocumentModel,
+  buildGibQrPayload,
+  buildUblTrXml,
   credentialStatus,
   defaultEDocumentSettings,
   normalizeEDocumentSettings,
@@ -92,7 +95,64 @@ test("blocks sending until company and recipient requirements are complete", () 
   const ready = validateEDocumentForSending(draft, {
     ...defaultEDocumentSettings,
     enabled: true,
-    company: { ...defaultEDocumentSettings.company, title: "AriX Ltd.", taxNumber: "1234567890" },
+    company: { ...defaultEDocumentSettings.company, title: "AriX Ltd.", taxNumber: "1234567890", address: "İstanbul", city: "İstanbul" },
   }, {});
-  assert.equal(ready.ready, true);
+  assert.equal(ready.ready, false);
+  draft.number = "EAR2026000000001";
+  draft.uuid = "04e26a62-7c00-46d0-878c-6f7c60834525";
+  assert.equal(validateEDocumentForSending(draft, {
+    ...defaultEDocumentSettings,
+    enabled: true,
+    company: { ...defaultEDocumentSettings.company, title: "AriX Ltd.", taxNumber: "1234567890", address: "İstanbul", city: "İstanbul" },
+  }, {}).ready, true);
+});
+
+test("builds GIB QR fields and UBL-TR invoice from the same snapshot", () => {
+  const draft = buildEDocumentDraft({
+    id: "edoc-gib",
+    documentType: "eInvoice",
+    sourceDocument: {
+      id: "sale-gib",
+      counterpartyName: "Alıcı AŞ",
+      counterpartyTaxNumber: "1111111111",
+      currency: "TRY",
+      documentDate: "2026-10-09T09:30:00.000Z",
+      lines: [{ name: "Folyo", code: "ERSA 010", qty: 10, unit: "mt", price: 12, taxRate: 20 }],
+      eDocumentSupplier: { title: "AriX Ltd.", taxNumber: "1234567890", taxOffice: "İstanbul", country: "TR", address: "Adres", city: "İstanbul" },
+    },
+  });
+  draft.number = "EAR2026000000001";
+  draft.uuid = "04e26a62-7c00-46d0-878c-6f7c60834525";
+
+  const model = buildGibDocumentModel(draft);
+  const qr = buildGibQrPayload(draft);
+  const xml = buildUblTrXml(draft);
+  assert.equal(model.profileId, "TEMELFATURA");
+  assert.equal(qr.no, draft.number);
+  assert.equal(qr.ettn, draft.uuid);
+  assert.equal(qr["kdvmatrah(20)"], "120.00");
+  assert.match(xml, /<cbc:CustomizationID>TR1\.2<\/cbc:CustomizationID>/);
+  assert.match(xml, /<cbc:ID>EAR2026000000001<\/cbc:ID>/);
+  assert.match(xml, /<cbc:InvoicedQuantity unitCode="MTR">10<\/cbc:InvoicedQuantity>/);
+});
+
+test("builds e-İrsaliye QR shipment fields", () => {
+  const draft = buildEDocumentDraft({
+    id: "edoc-irs",
+    documentType: "eDespatch",
+    sourceDocument: {
+      id: "sale-irs",
+      counterpartyName: "Alıcı AŞ",
+      counterpartyTaxNumber: "1111111111",
+      shipment: { actualDespatchDate: "2026-10-09", actualDespatchTime: "15:30:00", carrierTaxNumber: "2222222222", plate: "34 abc 123" },
+      lines: [{ name: "Folyo", qty: 1, unit: "rulo" }],
+    },
+  });
+  draft.number = "IRS2026000000001";
+  draft.uuid = "04e26a62-7c00-46d0-878c-6f7c60834525";
+  const qr = buildGibQrPayload(draft);
+  assert.equal(qr.senaryo, "TEMELIRSALIYE");
+  assert.equal(qr.sevktarihi, "2026-10-09");
+  assert.equal(qr.sevkzamani, "15:30:00");
+  assert.equal(qr.plaka, "34ABC123");
 });

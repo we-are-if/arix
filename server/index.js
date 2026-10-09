@@ -8,6 +8,9 @@ import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
 import {
   buildEDocumentDraft,
+  buildGibDocumentModel,
+  buildGibQrPayload,
+  buildUblTrXml,
   eDocumentOverview,
   normalizeEDocumentSettings,
   normalizeEDocumentStore,
@@ -775,6 +778,7 @@ function eDocumentSourceWithCounterparty(db, sourceDocument) {
     counterpartyEmail: sourceDocument?.counterpartyEmail ?? counterparty?.email ?? "",
     counterpartyEDocumentPreference: sourceDocument?.counterpartyEDocumentPreference ?? counterparty?.eDocumentPreference ?? "auto",
     counterpartyEInvoiceRegistered: sourceDocument?.counterpartyEInvoiceRegistered ?? counterparty?.eInvoiceRegistered,
+    eDocumentSupplier: { ...db.companySettings.eDocumentSettings.company },
   };
 }
 
@@ -829,6 +833,18 @@ async function handleEDocuments(req, res, url, parts) {
       },
     });
   }
+  if (req.method === "GET" && parts[2] === "artifact") {
+    const document = db.eDocuments.documents.find((item) => String(item.id) === String(action));
+    if (!document) return send(res, 404, { error: "e-Belge tapılmadı." });
+    try {
+      const model = buildGibDocumentModel(document, db.companySettings.eDocumentSettings);
+      const qrPayload = buildGibQrPayload(document, db.companySettings.eDocumentSettings);
+      const xml = buildUblTrXml(document, db.companySettings.eDocumentSettings);
+      return send(res, 200, { data: { model, qrPayload, qrText: JSON.stringify(qrPayload), xml, draft: document.status !== "completed" } });
+    } catch (error) {
+      return send(res, 409, { error: error instanceof Error ? error.message : "GİB sənədi hazırlana bilmədi." });
+    }
+  }
   if (req.method === "POST" && action === "connection-test") {
     const result = testEDocumentConnection(db.companySettings.eDocumentSettings);
     db.eDocuments.events.unshift({
@@ -860,6 +876,12 @@ async function handleEDocuments(req, res, url, parts) {
     let draft;
     try {
       draft = buildEDocumentDraft({ id: randomUUID(), sourceDocument: eDocumentSourceWithCounterparty(db, sourceDocument), documentType: body.documentType });
+      draft.number = nextEDocumentNumber(db, body.documentType, db.companySettings.eDocumentSettings);
+      draft.uuid = randomUUID();
+      draft.gib = {
+        profileId: body.documentType === "eArchive" ? "EARSIVFATURA" : body.documentType === "eDespatch" ? "TEMELIRSALIYE" : body.documentType === "exportInvoice" ? "IHRACAT" : "TEMELFATURA",
+        typeCode: body.documentType === "eDespatch" ? "SEVK" : "SATIS",
+      };
     } catch (error) {
       return send(res, 400, { error: error instanceof Error ? error.message : "Qaralama yaradıla bilmədi." });
     }
@@ -876,6 +898,37 @@ async function handleEDocuments(req, res, url, parts) {
   }
   const documentId = parts[1];
   const operation = parts[2];
+  if (req.method === "PATCH" && documentId && !operation) {
+    const document = db.eDocuments.documents.find((item) => String(item.id) === String(documentId));
+    if (!document) return send(res, 404, { error: "e-Belge tapılmadı." });
+    if (document.status === "completed") return send(res, 409, { error: "Göndərilmiş e-Belge dəyişdirilə bilməz." });
+    const body = await parseBody(req);
+    const allowedProfiles = document.documentType === "eInvoice"
+      ? new Set(["TEMELFATURA", "TICARIFATURA"])
+      : document.documentType === "eDespatch"
+        ? new Set(["TEMELIRSALIYE"])
+        : document.documentType === "eArchive"
+          ? new Set(["EARSIVFATURA"])
+          : new Set(["IHRACAT"]);
+    if (body.profileId && allowedProfiles.has(body.profileId)) {
+      document.gib = { ...(document.gib ?? {}), profileId: body.profileId };
+    }
+    if (body.shipment && document.documentType === "eDespatch") {
+      document.snapshot.shipment = {
+        ...(document.snapshot.shipment ?? {}),
+        actualDespatchDate: String(body.shipment.actualDespatchDate ?? "").slice(0, 10),
+        actualDespatchTime: String(body.shipment.actualDespatchTime ?? "").slice(0, 8),
+        carrierTaxNumber: String(body.shipment.carrierTaxNumber ?? "").replace(/\D/g, "").slice(0, 11),
+        carrierName: String(body.shipment.carrierName ?? "").trim(),
+        plate: String(body.shipment.plate ?? "").toUpperCase().replace(/\s/g, "").slice(0, 16),
+      };
+    }
+    document.number ||= nextEDocumentNumber(db, document.documentType, db.companySettings.eDocumentSettings);
+    document.uuid ||= randomUUID();
+    document.updatedAt = new Date().toISOString();
+    await writeDb(db);
+    return send(res, 200, { data: document });
+  }
   if (req.method === "POST" && documentId && operation === "send") {
     const document = db.eDocuments.documents.find((item) => String(item.id) === String(documentId));
     if (!document) return send(res, 404, { error: "e-Belge tapılmadı." });
@@ -887,8 +940,8 @@ async function handleEDocuments(req, res, url, parts) {
     }
     const sentAt = new Date().toISOString();
     document.status = "completed";
-    document.number = nextEDocumentNumber(db, document.documentType, db.companySettings.eDocumentSettings, new Date(sentAt));
-    document.uuid = randomUUID();
+    document.number ||= nextEDocumentNumber(db, document.documentType, db.companySettings.eDocumentSettings, new Date(sentAt));
+    document.uuid ||= randomUUID();
     document.sentAt = sentAt;
     document.updatedAt = sentAt;
     document.provider = "mock";

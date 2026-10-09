@@ -8,7 +8,7 @@ type EDocumentSettings = {
   enabled: boolean;
   provider: ProviderId;
   environment: Environment;
-  company: { title: string; taxNumber: string; taxOffice: string; country: string };
+  company: { title: string; taxNumber: string; taxOffice: string; country: string; address: string; city: string; district: string; postalCode: string; email: string; phone: string };
   aliases: { sender: string; receiver: string; despatch: string };
   modules: { eInvoice: boolean; eArchive: boolean; eDespatch: boolean; exportInvoice: boolean; storage: boolean };
   series: { eInvoice: string; eArchive: string; eDespatch: string; exportInvoice: string };
@@ -42,7 +42,7 @@ const defaults: EDocumentSettings = {
   enabled: false,
   provider: "mock",
   environment: "test",
-  company: { title: "", taxNumber: "", taxOffice: "", country: "TR" },
+  company: { title: "", taxNumber: "", taxOffice: "", country: "TR", address: "", city: "", district: "", postalCode: "", email: "", phone: "" },
   aliases: { sender: "", receiver: "", despatch: "" },
   modules: { eInvoice: true, eArchive: true, eDespatch: true, exportInvoice: true, storage: true },
   series: { eInvoice: "EAR", eArchive: "ARS", eDespatch: "IRS", exportInvoice: "IHR" },
@@ -279,12 +279,20 @@ export default function EDocumentsSettings({
           <p className={cx("mt-1 text-sm", subtle)}>Bu məlumatlar rəsmi UBL-TR sənədinin göndərən tərəfini təşkil edəcək.</p>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
-          <Field label="Rəsmi ünvan"><input className={input} value={settings.company.title} onChange={(event) => patchCompany({ title: event.target.value })} placeholder="ERSAFOLYO ... LTD. ŞTİ." /></Field>
+          <Field label="Rəsmi firma adı"><input className={input} value={settings.company.title} onChange={(event) => patchCompany({ title: event.target.value })} placeholder="ERSAFOLYO ... LTD. ŞTİ." /></Field>
           <div className="grid gap-4 sm:grid-cols-[1fr_0.7fr]">
             <Field label="VKN / TCKN"><input className={input} value={settings.company.taxNumber} onChange={(event) => patchCompany({ taxNumber: event.target.value.replace(/\D/g, "").slice(0, 11) })} inputMode="numeric" placeholder="10 və ya 11 rəqəm" /></Field>
             <Field label="Ölkə"><input className={input} value={settings.company.country} onChange={(event) => patchCompany({ country: event.target.value.toUpperCase().slice(0, 2) })} /></Field>
           </div>
           <Field label="Vergi dairəsi"><input className={input} value={settings.company.taxOffice} onChange={(event) => patchCompany({ taxOffice: event.target.value })} /></Field>
+          <Field label="Rəsmi ünvan"><input className={input} value={settings.company.address} onChange={(event) => patchCompany({ address: event.target.value })} placeholder="Küçə, bina və qapı nömrəsi" /></Field>
+          <div className="grid gap-4 sm:grid-cols-3 lg:col-span-2">
+            <Field label="Şəhər"><input className={input} value={settings.company.city} onChange={(event) => patchCompany({ city: event.target.value })} /></Field>
+            <Field label="Rayon"><input className={input} value={settings.company.district} onChange={(event) => patchCompany({ district: event.target.value })} /></Field>
+            <Field label="Poçt indeksi"><input className={input} value={settings.company.postalCode} onChange={(event) => patchCompany({ postalCode: event.target.value })} /></Field>
+          </div>
+          <Field label="Telefon"><input className={input} value={settings.company.phone} onChange={(event) => patchCompany({ phone: event.target.value })} /></Field>
+          <Field label="E-poçt"><input className={input} value={settings.company.email} onChange={(event) => patchCompany({ email: event.target.value })} type="email" /></Field>
           <Field label="Göndərən birim etiketi"><input className={input} value={settings.aliases.sender} onChange={(event) => patchAliases({ sender: event.target.value })} placeholder="urn:mail:defaultgb@firma.com.tr" /></Field>
           <Field label="Posta qutusu etiketi"><input className={input} value={settings.aliases.receiver} onChange={(event) => patchAliases({ receiver: event.target.value })} placeholder="urn:mail:defaultpk@firma.com.tr" /></Field>
           <Field label="e-İrsaliye etiketi"><input className={input} value={settings.aliases.despatch} onChange={(event) => patchAliases({ despatch: event.target.value })} placeholder="urn:mail:defaultpk@firma.com.tr" /></Field>

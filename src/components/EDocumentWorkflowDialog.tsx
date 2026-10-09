@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { requestJson } from "../api";
+import EDocumentPreviewDialog, { type EDocumentArtifact } from "./EDocumentPreviewDialog";
 
 type EDocumentType = "eInvoice" | "eArchive" | "eDespatch" | "exportInvoice";
 type EDocumentRecord = {
@@ -12,7 +13,10 @@ type EDocumentRecord = {
   createdAt?: string;
   sentAt?: string;
   providerResponse?: { code?: string; message?: string };
+  gib?: { profileId?: string; typeCode?: string };
+  snapshot?: { shipment?: ShipmentDraft };
 };
+type ShipmentDraft = { actualDespatchDate: string; actualDespatchTime: string; carrierTaxNumber: string; carrierName: string; plate: string };
 type Readiness = { ready: boolean; issues: string[] };
 type WorkflowContext = {
   sourceDocument: {
@@ -52,6 +56,14 @@ const statusLabels: Record<string, string> = {
 
 const cx = (...values: Array<string | false | undefined>) => values.filter(Boolean).join(" ");
 const money = (value?: number, currency = "TRY") => `${Number(value ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+const now = new Date();
+const initialShipment: ShipmentDraft = {
+  actualDespatchDate: now.toISOString().slice(0, 10),
+  actualDespatchTime: now.toTimeString().slice(0, 5),
+  carrierTaxNumber: "",
+  carrierName: "",
+  plate: "",
+};
 
 export default function EDocumentWorkflowDialog({
   sourceDocumentId,
@@ -68,6 +80,9 @@ export default function EDocumentWorkflowDialog({
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
+  const [profileId, setProfileId] = useState("TEMELFATURA");
+  const [shipment, setShipment] = useState<ShipmentDraft>(initialShipment);
+  const [previewArtifact, setPreviewArtifact] = useState<EDocumentArtifact | null>(null);
   const border = isDark ? "border-white/10" : "border-slate-200";
   const panel = isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-900";
   const soft = isDark ? "bg-white/5" : "bg-slate-50";
@@ -97,6 +112,13 @@ export default function EDocumentWorkflowDialog({
   );
   const readiness = selectedType ? context?.readiness[selectedType] : undefined;
 
+  useEffect(() => {
+    if (!selectedType) return;
+    const current = context?.documents.find((item) => item.documentType === selectedType);
+    setProfileId(current?.gib?.profileId ?? (selectedType === "eArchive" ? "EARSIVFATURA" : selectedType === "eDespatch" ? "TEMELIRSALIYE" : selectedType === "exportInvoice" ? "IHRACAT" : "TEMELFATURA"));
+    if (current?.snapshot?.shipment) setShipment((value) => ({ ...value, ...current.snapshot?.shipment }));
+  }, [context?.documents, selectedType]);
+
   const createDraft = async () => {
     if (!selectedType) return null;
     const payload = await requestJson<{ data: EDocumentRecord }>("/api/e-documents/drafts", {
@@ -106,11 +128,21 @@ export default function EDocumentWorkflowDialog({
     return payload.data;
   };
 
+  const saveConfiguration = async (document: EDocumentRecord) => {
+    if (document.status === "completed") return document;
+    const payload = await requestJson<{ data: EDocumentRecord }>(`/api/e-documents/${document.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ profileId, shipment: selectedType === "eDespatch" ? { ...shipment, actualDespatchTime: shipment.actualDespatchTime.length === 5 ? `${shipment.actualDespatchTime}:00` : shipment.actualDespatchTime } : undefined }),
+    });
+    return payload.data;
+  };
+
   const prepare = async () => {
     setWorking(true);
     setMessage("");
     try {
-      await createDraft();
+      const draft = await createDraft();
+      if (draft) await saveConfiguration(draft);
       setMessageTone("success");
       setMessage("e-Belge qaralaması hazırlandı.");
       window.dispatchEvent(new CustomEvent("arix:e-documents-updated"));
@@ -123,13 +155,50 @@ export default function EDocumentWorkflowDialog({
     }
   };
 
+  const saveDetails = async () => {
+    if (!selectedDocument) return;
+    setWorking(true);
+    setMessage("");
+    try {
+      await saveConfiguration(selectedDocument);
+      setMessageTone("success");
+      setMessage("GİB sənəd məlumatları saxlandı.");
+      await load();
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Sənəd məlumatları saxlanmadı.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const openPreview = async () => {
+    setWorking(true);
+    setMessage("");
+    try {
+      const draft = selectedDocument ?? await createDraft();
+      if (!draft) return;
+      const configured = await saveConfiguration(draft);
+      const payload = await requestJson<{ data: EDocumentArtifact }>(`/api/e-documents/${configured.id}/artifact`);
+      setPreviewArtifact(payload.data);
+      window.dispatchEvent(new CustomEvent("arix:e-documents-updated"));
+      await load();
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Sənəd önizləməsi hazırlanmadı.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const sendDocument = async () => {
     setWorking(true);
     setMessage("");
     try {
       const draft = selectedDocument ?? await createDraft();
       if (!draft) return;
-      const payload = await requestJson<{ data: EDocumentRecord; testMode?: boolean }>(`/api/e-documents/${draft.id}/send`, { method: "POST" });
+      const configured = await saveConfiguration(draft);
+      const payload = await requestJson<{ data: EDocumentRecord; testMode?: boolean }>(`/api/e-documents/${configured.id}/send`, { method: "POST" });
       setMessageTone("success");
       setMessage(payload.testMode ? "Test sənədi qəbul edildi. GİB-ə məlumat göndərilmədi." : "e-Belge provayderə göndərildi.");
       window.dispatchEvent(new CustomEvent("arix:e-documents-updated"));
@@ -185,6 +254,32 @@ export default function EDocumentWorkflowDialog({
                 </div>
               </section>
 
+              {selectedType === "eInvoice" && (
+                <section className={cx("rounded-xl border p-4", border, soft)}>
+                  <label className="block text-sm font-semibold">GİB fatura ssenarisi</label>
+                  <select value={profileId} onChange={(event) => setProfileId(event.target.value)} disabled={selectedDocument?.status === "completed"} className={cx("mt-2 h-11 w-full rounded-xl border bg-transparent px-3 text-sm outline-none sm:max-w-sm", border)}>
+                    <option value="TEMELFATURA">TEMELFATURA</option>
+                    <option value="TICARIFATURA">TICARIFATURA</option>
+                  </select>
+                </section>
+              )}
+
+              {selectedType === "eDespatch" && (
+                <section className={cx("rounded-xl border p-4", border, soft)}>
+                  <div className="mb-3">
+                    <h3 className="font-semibold">Sevkiyyat məlumatları</h3>
+                    <p className={cx("mt-1 text-xs", subtle)}>Karekod və UBL-TR e-İrsaliye üçün faktiki tarix və saat məcburidir.</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <WorkflowField label="Faktiki sevk tarixi" border={border}><input type="date" value={shipment.actualDespatchDate} onChange={(event) => setShipment((value) => ({ ...value, actualDespatchDate: event.target.value }))} /></WorkflowField>
+                    <WorkflowField label="Faktiki sevk saatı" border={border}><input type="time" step="1" value={shipment.actualDespatchTime} onChange={(event) => setShipment((value) => ({ ...value, actualDespatchTime: event.target.value }))} /></WorkflowField>
+                    <WorkflowField label="Daşıyıcı adı" border={border}><input value={shipment.carrierName} onChange={(event) => setShipment((value) => ({ ...value, carrierName: event.target.value }))} placeholder="Firma və ya şəxs" /></WorkflowField>
+                    <WorkflowField label="Daşıyıcı VKN/TCKN" border={border}><input value={shipment.carrierTaxNumber} onChange={(event) => setShipment((value) => ({ ...value, carrierTaxNumber: event.target.value.replace(/\D/g, "").slice(0, 11) }))} inputMode="numeric" /></WorkflowField>
+                    <WorkflowField label="Nəqliyyat plakası" border={border}><input value={shipment.plate} onChange={(event) => setShipment((value) => ({ ...value, plate: event.target.value.toUpperCase() }))} placeholder="34ABC123" /></WorkflowField>
+                  </div>
+                </section>
+              )}
+
               {selectedType && readiness && !readiness.ready && (
                 <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
                   <div className="font-semibold">Göndərişdən əvvəl tamamlanmalıdır</div>
@@ -215,17 +310,24 @@ export default function EDocumentWorkflowDialog({
 
         <footer className={cx("flex flex-col-reverse gap-2 border-t px-5 py-4 sm:flex-row sm:justify-end", border)}>
           <button type="button" onClick={onClose} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border, soft)}>Bağla</button>
+          {context && selectedType && <button type="button" onClick={() => void openPreview()} disabled={working} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border, soft, working && "opacity-60")}>Önizlə / XML</button>}
           {context && selectedType && selectedDocument?.status !== "completed" && (
             <>
               {!selectedDocument && <button type="button" onClick={() => void prepare()} disabled={working} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border, soft, working && "opacity-60")}>Qaralama saxla</button>}
+              {selectedDocument && <button type="button" onClick={() => void saveDetails()} disabled={working} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border, soft, working && "opacity-60")}>Məlumatları saxla</button>}
               <button type="button" onClick={() => void sendDocument()} disabled={working || !readiness?.ready} className={cx("surface-primary h-11 rounded-xl px-5 text-sm font-semibold", (working || !readiness?.ready) && "opacity-50")}>{working ? "İşlənir..." : context.settings.provider === "mock" ? "Test göndərişi" : "Provayderə göndər"}</button>
             </>
           )}
         </footer>
       </section>
+      {previewArtifact && <EDocumentPreviewDialog artifact={previewArtifact} onClose={() => setPreviewArtifact(null)} />}
     </div>,
     window.document.body,
   );
+}
+
+function WorkflowField({ label, border, children }: { label: string; border: string; children: React.ReactElement<{ className?: string }> }) {
+  return <label className="block"><span className="mb-1.5 block text-xs font-semibold">{label}</span>{children && <div className={cx("[&>input]:h-10 [&>input]:w-full [&>input]:rounded-lg [&>input]:border [&>input]:bg-transparent [&>input]:px-3 [&>input]:text-sm [&>input]:outline-none", border)}>{children}</div>}</label>;
 }
 
 function Info({ label, value, border, soft, subtle }: { label: string; value: string; border: string; soft: string; subtle: string }) {
