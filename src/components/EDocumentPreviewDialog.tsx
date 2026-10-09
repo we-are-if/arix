@@ -15,11 +15,15 @@ export type GibDocumentModel = {
   issueTime: string;
   currency: string;
   supplier: { title: string; taxNumber: string; taxOffice: string; country: string; address: string; city: string; district: string; postalCode: string; email: string; phone: string };
-  buyer: { name: string; taxNumber: string; originalTaxNumber: string; taxOffice: string; address: string; email: string };
-  shipment: { actualDespatchDate?: string; actualDespatchTime?: string; carrierTaxNumber?: string; carrierName?: string; plate?: string };
-  lines: Array<{ id: string; name: string; code: string; quantity: number; unit: string; unitCode: string; unitPrice: number; discountRate: number; taxRate: number; extensionAmount: number; taxAmount: number }>;
+  buyer: { name: string; taxNumber: string; originalTaxNumber: string; taxOffice: string; address: string; city?: string; countryCode?: string; countryName?: string; registrationName?: string; companyId?: string; email: string };
+  accountingCustomer?: { title: string; taxNumber: string } | null;
+  shipment: { actualDespatchDate?: string; actualDespatchTime?: string; carrierTaxNumber?: string; carrierName?: string; plate?: string; driverFirstName?: string; driverLastName?: string; driverNationalId?: string; deliveryAddress?: string };
+  exportDetails?: { incoterm?: string; transportModeCode?: string; packageTypeCode?: string; packageId?: string; packageQuantity?: number; exchangeRate?: number; deliveryAddress?: string; countryName?: string };
+  lines: Array<{ id: string; name: string; code: string; quantity: number; unit: string; unitCode: string; unitPrice: number; discountRate: number; taxRate: number; extensionAmount: number; taxAmount: number; gtip?: string }>;
   totals: { goodsTotal: number; taxTotal: number; taxInclusive: number; payable: number; discountTotal: number };
   taxBreakdown: Array<{ rate: number; taxableAmount: number; taxAmount: number }>;
+  taxExemption?: { code: string; reason: string } | null;
+  standards?: { ublTr: string; qr: string; signature: string };
 };
 
 export type EDocumentArtifact = {
@@ -28,6 +32,13 @@ export type EDocumentArtifact = {
   qrText: string;
   xml: string;
   draft: boolean;
+  compliance?: {
+    checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
+    passed: number;
+    total: number;
+    readyForSigning: boolean;
+    signatureState: string;
+  };
 };
 
 const titles = {
@@ -44,6 +55,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
   const [qrUrl, setQrUrl] = useState("");
   const model = artifact.model;
   const isDespatch = model.documentType === "eDespatch";
+  const isExport = model.documentType === "exportInvoice";
 
   useEffect(() => {
     let active = true;
@@ -80,6 +92,12 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
       <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6">
         <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[12mm] text-[11px] text-slate-900 shadow-2xl">
           {artifact.draft && <div className="mb-4 border border-amber-400 bg-amber-50 px-3 py-2 text-center font-semibold text-amber-900">TASLAK · GİB-ə göndərilməyib</div>}
+          {artifact.compliance && (
+            <div className={`mb-4 border px-3 py-3 ${artifact.compliance.readyForSigning ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
+              <div className="flex items-center justify-between gap-3"><b>GİB texniki ön yoxlama</b><span>{artifact.compliance.passed}/{artifact.compliance.total}</span></div>
+              <div className="mt-2 grid gap-1 sm:grid-cols-2">{artifact.compliance.checks.map((check) => <div key={check.id} className="flex items-start gap-2 text-[9px]"><span className={check.ok ? "text-emerald-600" : "text-amber-700"}>{check.ok ? "✓" : "!"}</span><span><b>{check.label}:</b> {check.detail}</span></div>)}</div>
+            </div>
+          )}
           <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-5 border-b-2 border-slate-900 pb-4">
             <div>
               <div className="text-lg font-bold tracking-normal">{model.supplier.title || "Firma adı"}</div>
@@ -88,7 +106,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               {model.supplier.email && <div className="text-slate-600">E-poçt: {model.supplier.email}</div>}
             </div>
             <div className="text-center">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full border-2 border-teal-800 text-sm font-black text-teal-800">GİB</div>
+              <div className="mx-auto inline-flex h-11 items-center justify-center border-2 border-teal-800 px-3 text-[10px] font-black text-teal-800">GİB UBL-TR</div>
               <div className="mt-2 text-xl font-black text-teal-900">{titles[model.documentType]}</div>
               <div className="mt-1 text-[9px] font-semibold text-slate-500">UBL-TR {model.customizationId}</div>
             </div>
@@ -122,6 +140,19 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               <Meta label="Fiili sevk zamanı" value={model.shipment.actualDespatchTime || "-"} />
               <Meta label="Taşıyıcı" value={model.shipment.carrierName || "-"} />
               <Meta label="Taşıyıcı VKN / Plaka" value={[model.shipment.carrierTaxNumber, model.shipment.plate].filter(Boolean).join(" · ") || "-"} />
+              <Meta label="Sürücü" value={[model.shipment.driverFirstName, model.shipment.driverLastName].filter(Boolean).join(" ") || "-"} />
+              <Meta label="Sürücü TCKN" value={model.shipment.driverNationalId || "-"} />
+            </div>
+          )}
+
+          {isExport && (
+            <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-2 border-y border-slate-300 bg-slate-50 px-3 py-3">
+              <Meta label="Gömrük alıcısı" value={model.accountingCustomer ? `${model.accountingCustomer.title} · ${model.accountingCustomer.taxNumber}` : "-"} />
+              <Meta label="Xarici alıcı" value={model.buyer.registrationName || model.buyer.name || "-"} />
+              <Meta label="Incoterms" value={model.exportDetails?.incoterm || "-"} />
+              <Meta label="Nəqliyyat" value={model.exportDetails?.transportModeCode || "-"} />
+              <Meta label="Qab" value={[model.exportDetails?.packageTypeCode, model.exportDetails?.packageId, model.exportDetails?.packageQuantity].filter(Boolean).join(" · ") || "-"} />
+              <Meta label="KDV istisnası" value={model.taxExemption ? `${model.taxExemption.code} · ${model.taxExemption.reason}` : "-"} />
             </div>
           )}
 
@@ -131,6 +162,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
                 <th className="border border-slate-700 px-2 py-2 text-left">#</th>
                 <th className="border border-slate-700 px-2 py-2 text-left">Mal / Hizmet</th>
                 <th className="border border-slate-700 px-2 py-2 text-left">Kod</th>
+                {isExport && <th className="border border-slate-700 px-2 py-2 text-left">GTİP</th>}
                 <th className="border border-slate-700 px-2 py-2 text-right">Miktar</th>
                 {!isDespatch && <><th className="border border-slate-700 px-2 py-2 text-right">Birim fiyat</th><th className="border border-slate-700 px-2 py-2 text-right">KDV</th><th className="border border-slate-700 px-2 py-2 text-right">Tutar</th></>}
               </tr>
@@ -141,6 +173,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
                   <td className="border border-slate-300 px-2 py-2">{line.id}</td>
                   <td className="border border-slate-300 px-2 py-2 font-medium">{line.name}</td>
                   <td className="border border-slate-300 px-2 py-2">{line.code || "-"}</td>
+                  {isExport && <td className="border border-slate-300 px-2 py-2">{line.gtip || "-"}</td>}
                   <td className="border border-slate-300 px-2 py-2 text-right">{formatQuantity(line.quantity)} {line.unit}</td>
                   {!isDespatch && <><td className="border border-slate-300 px-2 py-2 text-right">{formatMoney(line.unitPrice, model.currency)}</td><td className="border border-slate-300 px-2 py-2 text-right">%{line.taxRate}</td><td className="border border-slate-300 px-2 py-2 text-right font-semibold">{formatMoney(line.extensionAmount, model.currency)}</td></>}
                 </tr>
@@ -159,7 +192,8 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
 
           <div className="mt-12 border-t border-slate-300 pt-4 text-[9px] leading-4 text-slate-500">
             <div>Bu belge UBL-TR {model.customizationId} veri modeli esas alınarak oluşturulmuştur.</div>
-            <div>Karekod içeriği GİB Karekod veya Barkod Standardı Kılavuzu v1.0 alan adlarıyla üretilmiştir.</div>
+            <div>Karekod içeriği GİB Karekod Standardı v1.2 alanları ilə hazırlanmışdır.</div>
+            <div>XML daxilində XSLT görünüşü mövcuddur; rəsmi göndərişdə provayder XAdES-BES mali möhür/e-imza əlavə etməlidir.</div>
             <div className="mt-1 break-all">ETTN: {model.uuid || "Taslak"}</div>
           </div>
         </article>

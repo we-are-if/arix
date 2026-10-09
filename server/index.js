@@ -8,6 +8,7 @@ import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
 import {
   buildEDocumentDraft,
+  buildGibComplianceReport,
   buildGibDocumentModel,
   buildGibQrPayload,
   buildUblTrXml,
@@ -775,7 +776,15 @@ function eDocumentSourceWithCounterparty(db, sourceDocument) {
     counterpartyTaxNumber: sourceDocument?.counterpartyTaxNumber ?? counterparty?.taxId ?? "",
     counterpartyTaxOffice: sourceDocument?.counterpartyTaxOffice ?? counterparty?.taxOffice ?? "",
     counterpartyAddress: sourceDocument?.counterpartyAddress ?? counterparty?.address ?? "",
+    counterpartyCity: sourceDocument?.counterpartyCity ?? counterparty?.city ?? "",
+    counterpartyDistrict: sourceDocument?.counterpartyDistrict ?? counterparty?.district ?? "",
+    counterpartyPostalCode: sourceDocument?.counterpartyPostalCode ?? counterparty?.postalCode ?? "",
+    counterpartyCountryCode: sourceDocument?.counterpartyCountryCode ?? counterparty?.countryCode ?? counterparty?.country ?? "",
+    counterpartyCountryName: sourceDocument?.counterpartyCountryName ?? counterparty?.countryName ?? "",
+    counterpartyRegistrationName: sourceDocument?.counterpartyRegistrationName ?? counterparty?.registrationName ?? counterparty?.name ?? "",
+    counterpartyCompanyId: sourceDocument?.counterpartyCompanyId ?? counterparty?.companyId ?? counterparty?.taxId ?? "",
     counterpartyEmail: sourceDocument?.counterpartyEmail ?? counterparty?.email ?? "",
+    counterpartyPhone: sourceDocument?.counterpartyPhone ?? counterparty?.phone ?? "",
     counterpartyEDocumentPreference: sourceDocument?.counterpartyEDocumentPreference ?? counterparty?.eDocumentPreference ?? "auto",
     counterpartyEInvoiceRegistered: sourceDocument?.counterpartyEInvoiceRegistered ?? counterparty?.eInvoiceRegistered,
     eDocumentSupplier: { ...db.companySettings.eDocumentSettings.company },
@@ -840,7 +849,8 @@ async function handleEDocuments(req, res, url, parts) {
       const model = buildGibDocumentModel(document, db.companySettings.eDocumentSettings);
       const qrPayload = buildGibQrPayload(document, db.companySettings.eDocumentSettings);
       const xml = buildUblTrXml(document, db.companySettings.eDocumentSettings);
-      return send(res, 200, { data: { model, qrPayload, qrText: JSON.stringify(qrPayload), xml, draft: document.status !== "completed" } });
+      const compliance = buildGibComplianceReport(document, db.companySettings.eDocumentSettings);
+      return send(res, 200, { data: { model, qrPayload, qrText: JSON.stringify(qrPayload), xml, compliance, draft: document.status !== "completed" } });
     } catch (error) {
       return send(res, 409, { error: error instanceof Error ? error.message : "GİB sənədi hazırlana bilmədi." });
     }
@@ -880,7 +890,7 @@ async function handleEDocuments(req, res, url, parts) {
       draft.uuid = randomUUID();
       draft.gib = {
         profileId: body.documentType === "eArchive" ? "EARSIVFATURA" : body.documentType === "eDespatch" ? "TEMELIRSALIYE" : body.documentType === "exportInvoice" ? "IHRACAT" : "TEMELFATURA",
-        typeCode: body.documentType === "eDespatch" ? "SEVK" : "SATIS",
+        typeCode: body.documentType === "eDespatch" ? "SEVK" : body.documentType === "exportInvoice" ? "ISTISNA" : "SATIS",
       };
     } catch (error) {
       return send(res, 400, { error: error instanceof Error ? error.message : "Qaralama yaradıla bilmədi." });
@@ -921,7 +931,41 @@ async function handleEDocuments(req, res, url, parts) {
         carrierTaxNumber: String(body.shipment.carrierTaxNumber ?? "").replace(/\D/g, "").slice(0, 11),
         carrierName: String(body.shipment.carrierName ?? "").trim(),
         plate: String(body.shipment.plate ?? "").toUpperCase().replace(/\s/g, "").slice(0, 16),
+        driverFirstName: String(body.shipment.driverFirstName ?? "").trim().slice(0, 80),
+        driverLastName: String(body.shipment.driverLastName ?? "").trim().slice(0, 80),
+        driverNationalId: String(body.shipment.driverNationalId ?? "").replace(/\D/g, "").slice(0, 11),
+        deliveryAddress: String(body.shipment.deliveryAddress ?? "").trim().slice(0, 500),
       };
+    }
+    if (body.exportDetails && document.documentType === "exportInvoice") {
+      const gtips = Object.fromEntries(Object.entries(body.exportDetails.gtips ?? {}).map(([key, value]) => [
+        String(key).replace(/\D/g, "").slice(0, 4),
+        String(value ?? "").replace(/\D/g, "").slice(0, 12),
+      ]));
+      document.snapshot.exportDetails = {
+        ...(document.snapshot.exportDetails ?? {}),
+        incoterm: String(body.exportDetails.incoterm ?? "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3),
+        transportModeCode: String(body.exportDetails.transportModeCode ?? "").replace(/\D/g, "").slice(0, 2),
+        packageTypeCode: String(body.exportDetails.packageTypeCode ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3),
+        packageId: String(body.exportDetails.packageId ?? "").trim().slice(0, 50),
+        packageQuantity: Math.max(0, Number(body.exportDetails.packageQuantity ?? 0)),
+        exchangeRate: Math.max(0, Number(body.exportDetails.exchangeRate ?? 0)),
+        deliveryAddress: String(body.exportDetails.deliveryAddress ?? "").trim().slice(0, 500),
+        countryCode: String(body.exportDetails.countryCode ?? "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2),
+        countryName: String(body.exportDetails.countryName ?? "").trim().slice(0, 100),
+        city: String(body.exportDetails.city ?? "").trim().slice(0, 100),
+        gtips,
+      };
+      document.snapshot.counterparty = {
+        ...(document.snapshot.counterparty ?? {}),
+        registrationName: String(body.exportDetails.registrationName ?? document.snapshot.counterparty?.name ?? "").trim().slice(0, 200),
+        companyId: String(body.exportDetails.companyId ?? "").trim().slice(0, 80),
+        address: String(body.exportDetails.buyerAddress ?? document.snapshot.counterparty?.address ?? "").trim().slice(0, 500),
+        city: String(body.exportDetails.city ?? "").trim().slice(0, 100),
+        countryCode: String(body.exportDetails.countryCode ?? "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2),
+        countryName: String(body.exportDetails.countryName ?? "").trim().slice(0, 100),
+      };
+      document.gib = { ...(document.gib ?? {}), profileId: "IHRACAT", typeCode: "ISTISNA" };
     }
     document.number ||= nextEDocumentNumber(db, document.documentType, db.companySettings.eDocumentSettings);
     document.uuid ||= randomUUID();
