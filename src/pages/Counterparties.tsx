@@ -13,6 +13,10 @@ type ApiCounterparty = {
   type?: ContactType;
   phone?: string;
   email?: string;
+  taxId?: string;
+  taxOffice?: string;
+  eDocumentPreference?: "auto" | "eInvoice" | "eArchive";
+  eInvoiceRegistered?: boolean;
   description?: string;
   address?: string;
   balance?: number;
@@ -36,6 +40,10 @@ type CounterpartyRow = {
   type: ContactType;
   phone: string;
   email: string;
+  taxId?: string;
+  taxOffice?: string;
+  eDocumentPreference?: "auto" | "eInvoice" | "eArchive";
+  eInvoiceRegistered?: boolean;
   description: string;
   address: string;
   balance: number;
@@ -80,6 +88,8 @@ type CounterpartyForm = {
   email: string;
   phone: string;
   taxId: string;
+  taxOffice: string;
+  eDocumentPreference: "auto" | "eInvoice" | "eArchive";
   address: string;
   description: string;
   discount: string;
@@ -95,6 +105,8 @@ const emptyForm = (): CounterpartyForm => ({
   email: "",
   phone: "",
   taxId: "",
+  taxOffice: "",
+  eDocumentPreference: "auto",
   address: "",
   description: "",
   discount: "",
@@ -117,6 +129,10 @@ const mapApiCounterparty = (item: ApiCounterparty, kind: CounterpartyKind): Coun
   type: item.type ?? "company",
   phone: item.phone ?? "",
   email: item.email ?? "",
+  taxId: item.taxId ?? "",
+  taxOffice: item.taxOffice ?? "",
+  eDocumentPreference: item.eDocumentPreference ?? "auto",
+  eInvoiceRegistered: item.eInvoiceRegistered,
   description: item.description ?? "",
   address: item.address ?? "",
   balance: Number(item.balance ?? 0),
@@ -749,6 +765,10 @@ function CreatePanel({
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Telefon</span><input className={field} value={form.phone} onChange={(e) => setField("phone", e.target.value)} /></label>
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>E-poçt</span><input className={field} value={form.email} onChange={(e) => setField("email", e.target.value)} /></label>
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>VÖEN / kod</span><input className={field} value={form.taxId} onChange={(e) => setField("taxId", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vergi dairəsi</span><input className={field} value={form.taxOffice} onChange={(e) => setField("taxOffice", e.target.value)} /></label>
+                {kind === "customers" && (
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>e-Belge seçimi</span><select className={field} value={form.eDocumentPreference} onChange={(e) => setField("eDocumentPreference", e.target.value as CounterpartyForm["eDocumentPreference"])}><option value="auto">Avtomatik yoxla</option><option value="eInvoice">e-Fatura</option><option value="eArchive">e-Arşiv</option></select></label>
+                )}
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ünvan</span><input className={field} value={form.address} onChange={(e) => setField("address", e.target.value)} /></label>
               </div>
             </section>
@@ -910,11 +930,13 @@ function CustomerCardOverview({
           </div>
           <span className={cx("rounded-full px-3 py-1 text-xs font-medium", soft)}>{row.type === "company" ? "Şirkət" : "Fiziki şəxs"}</span>
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {[
             [<I.Phone className="h-4 w-4" />, "Telefon", row.phone || "Əlavə edilməyib"],
             [<I.Mail className="h-4 w-4" />, "E-poçt", row.email || "Əlavə edilməyib"],
             [<I.MapPin className="h-4 w-4" />, "Ünvan", row.address || "Əlavə edilməyib"],
+            [<I.Receipt className="h-4 w-4" />, "VKN / TCKN", row.taxId || "Əlavə edilməyib"],
+            [<I.Receipt className="h-4 w-4" />, "e-Belge", isSupplier ? "Təchizatçı" : row.eDocumentPreference === "eInvoice" ? "e-Fatura" : row.eDocumentPreference === "eArchive" ? "e-Arşiv" : "Avtomatik"],
           ].map(([icon, label, value]) => (
             <div key={String(label)} className={cx("rounded-xl border p-3", border, isDark ? "bg-white/[0.03]" : "bg-white/70")}>
               <div className={cx("flex items-center gap-2 text-xs font-medium", subtle)}>{icon}{label}</div>
@@ -1058,6 +1080,9 @@ function DetailPanel({
           type: draft.type,
           phone: draft.phone,
           email: draft.email,
+          taxId: draft.taxId ?? "",
+          taxOffice: draft.taxOffice ?? "",
+          eDocumentPreference: draft.eDocumentPreference ?? "auto",
           description: draft.description,
           address: draft.address,
           status: draft.status,
@@ -1255,6 +1280,24 @@ function DetailPanel({
                     <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>E-poçt</span>
                     <input value={draft.email} onChange={(event) => setDraftField("email", event.target.value)} className={editField} />
                   </label>
+                  <label>
+                    <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>VKN / TCKN</span>
+                    <input value={draft.taxId ?? ""} onChange={(event) => setDraftField("taxId", event.target.value.replace(/\D/g, "").slice(0, 11))} className={editField} inputMode="numeric" />
+                  </label>
+                  <label>
+                    <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vergi dairəsi</span>
+                    <input value={draft.taxOffice ?? ""} onChange={(event) => setDraftField("taxOffice", event.target.value)} className={editField} />
+                  </label>
+                  {!isSupplier && (
+                    <label className="sm:col-span-2">
+                      <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>e-Belge seçimi</span>
+                      <select value={draft.eDocumentPreference ?? "auto"} onChange={(event) => setDraftField("eDocumentPreference", event.target.value as CounterpartyRow["eDocumentPreference"])} className={editField}>
+                        <option value="auto">Avtomatik yoxla</option>
+                        <option value="eInvoice">e-Fatura</option>
+                        <option value="eArchive">e-Arşiv</option>
+                      </select>
+                    </label>
+                  )}
                   <label className="sm:col-span-2">
                     <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ünvan</span>
                     <input value={draft.address} onChange={(event) => setDraftField("address", event.target.value)} className={editField} />
@@ -1449,6 +1492,9 @@ export default function Counterparties({ isDark, kind }: Props) {
       type: form.type,
       phone: form.phone,
       email: form.email,
+      taxId: form.taxId,
+      taxOffice: form.taxOffice,
+      eDocumentPreference: form.eDocumentPreference,
       description: form.description,
       address: form.address,
       balance: 0,
@@ -1470,6 +1516,9 @@ export default function Counterparties({ isDark, kind }: Props) {
           type: form.type,
           phone: form.phone,
           email: form.email,
+          taxId: form.taxId,
+          taxOffice: form.taxOffice,
+          eDocumentPreference: form.eDocumentPreference,
           description: form.description,
           address: form.address,
           balance: 0,

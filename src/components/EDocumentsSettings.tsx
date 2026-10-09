@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { requestJson } from "../api";
+import EDocumentWorkflowDialog from "./EDocumentWorkflowDialog";
 
 type ProviderId = "mock" | "izibiz" | "edm" | "qnb";
 type Environment = "test" | "production";
@@ -28,6 +29,7 @@ type Overview = {
 
 type EDocument = {
   id: string;
+  sourceDocumentId?: string | number;
   documentType?: string;
   direction?: string;
   number?: string;
@@ -96,6 +98,7 @@ export default function EDocumentsSettings({
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
+  const [selectedSourceDocumentId, setSelectedSourceDocumentId] = useState<string | number | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -114,6 +117,9 @@ export default function EDocumentsSettings({
 
   useEffect(() => {
     void load();
+    const refresh = () => void load();
+    window.addEventListener("arix:e-documents-updated", refresh);
+    return () => window.removeEventListener("arix:e-documents-updated", refresh);
   }, []);
 
   const provider = useMemo(() => providers.find((item) => item.id === settings.provider) ?? providers[0], [settings.provider]);
@@ -171,6 +177,7 @@ export default function EDocumentsSettings({
   const sectionClass = cx("rounded-2xl border p-5", border, card);
 
   return (
+    <>
     <div className="space-y-4">
       <section className={sectionClass}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -184,6 +191,10 @@ export default function EDocumentsSettings({
             <p className={cx("mt-1 text-sm", subtle)}>AriX sənədləri vahid modeldə saxlayır; provayder dəyişəndə satış axını dəyişmir.</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <label className={cx("flex h-10 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-semibold", border)}>
+              <input type="checkbox" checked={settings.enabled} onChange={(event) => setSettings((current) => ({ ...current, enabled: event.target.checked }))} className="h-4 w-4 accent-indigo-600" />
+              Axın aktivdir
+            </label>
             <button type="button" onClick={() => void testConnection()} disabled={testing || loading} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold", border, "hover:bg-white/50 disabled:opacity-60")}>
               {testing ? "Yoxlanılır..." : "Bağlantını yoxla"}
             </button>
@@ -340,7 +351,7 @@ export default function EDocumentsSettings({
           <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200/70">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead className={isDark ? "bg-white/5 text-slate-300" : "bg-slate-50 text-slate-600"}>
-                <tr><th className="px-4 py-3">Tarix</th><th className="px-4 py-3">Növ</th><th className="px-4 py-3">Nömrə</th><th className="px-4 py-3">Kontragent</th><th className="px-4 py-3">İstiqamət</th><th className="px-4 py-3">Status</th></tr>
+                <tr><th className="px-4 py-3">Tarix</th><th className="px-4 py-3">Növ</th><th className="px-4 py-3">Nömrə</th><th className="px-4 py-3">Kontragent</th><th className="px-4 py-3">İstiqamət</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Əməliyyat</th></tr>
               </thead>
               <tbody>
                 {documents.map((document) => (
@@ -351,6 +362,7 @@ export default function EDocumentsSettings({
                     <td className="px-4 py-3">{document.counterpartyName ?? "-"}</td>
                     <td className="px-4 py-3">{document.direction === "incoming" ? "Gələn" : "Gedən"}</td>
                     <td className="px-4 py-3">{document.status ?? "draft"}</td>
+                    <td className="px-4 py-3 text-right">{document.sourceDocumentId ? <button type="button" onClick={() => setSelectedSourceDocumentId(document.sourceDocumentId ?? null)} className="font-semibold text-indigo-600 hover:underline">Aç</button> : "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -363,6 +375,8 @@ export default function EDocumentsSettings({
         )}
       </section>
     </div>
+    {selectedSourceDocumentId && <EDocumentWorkflowDialog sourceDocumentId={selectedSourceDocumentId} isDark={isDark} onClose={() => setSelectedSourceDocumentId(null)} />}
+    </>
   );
 }
 

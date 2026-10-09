@@ -12,7 +12,9 @@ import {
   normalizeEDocumentSettings,
   normalizeEDocumentStore,
   publicEDocumentSettings,
+  resolveEDocumentPlan,
   testEDocumentConnection,
+  validateEDocumentForSending,
 } from "./eDocuments.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -763,14 +765,68 @@ async function handleCompanySettings(req, res) {
   return notFound(res);
 }
 
-async function handleEDocuments(req, res, parts) {
+function eDocumentSourceWithCounterparty(db, sourceDocument) {
+  const counterparty = db.counterparties.find((item) => Number(item.id) === Number(sourceDocument?.counterpartyId));
+  return {
+    ...sourceDocument,
+    counterpartyTaxNumber: sourceDocument?.counterpartyTaxNumber ?? counterparty?.taxId ?? "",
+    counterpartyTaxOffice: sourceDocument?.counterpartyTaxOffice ?? counterparty?.taxOffice ?? "",
+    counterpartyAddress: sourceDocument?.counterpartyAddress ?? counterparty?.address ?? "",
+    counterpartyEmail: sourceDocument?.counterpartyEmail ?? counterparty?.email ?? "",
+    counterpartyEDocumentPreference: sourceDocument?.counterpartyEDocumentPreference ?? counterparty?.eDocumentPreference ?? "auto",
+    counterpartyEInvoiceRegistered: sourceDocument?.counterpartyEInvoiceRegistered ?? counterparty?.eInvoiceRegistered,
+  };
+}
+
+function nextEDocumentNumber(db, documentType, settings, now = new Date()) {
+  const series = settings.series?.[documentType] ?? "BEL";
+  const year = now.getFullYear();
+  const prefix = `${series}${year}`;
+  const sequence = (db.eDocuments.documents ?? []).filter((item) => String(item.number ?? "").startsWith(prefix)).length + 1;
+  return `${prefix}${String(sequence).padStart(9, "0")}`;
+}
+
+async function handleEDocuments(req, res, url, parts) {
   const db = await readDb();
   const action = parts[1];
   if (req.method === "GET" && !action) {
+    const sourceDocumentId = url.searchParams.get("sourceDocumentId");
+    const documents = sourceDocumentId
+      ? db.eDocuments.documents.filter((item) => String(item.sourceDocumentId) === String(sourceDocumentId))
+      : db.eDocuments.documents;
     return send(res, 200, {
-      data: db.eDocuments.documents,
+      data: documents,
       overview: eDocumentOverview(db),
       settings: publicEDocumentSettings(db.companySettings.eDocumentSettings),
+    });
+  }
+  if (req.method === "GET" && action === "context") {
+    const sourceDocumentId = url.searchParams.get("sourceDocumentId");
+    const sourceDocument = db.documents.find((item) => String(item.id) === String(sourceDocumentId));
+    if (!sourceDocument) return send(res, 404, { error: "Satış sənədi tapılmadı." });
+    const counterparty = db.counterparties.find((item) => Number(item.id) === Number(sourceDocument.counterpartyId)) ?? null;
+    const enrichedSource = eDocumentSourceWithCounterparty(db, sourceDocument);
+    let plan;
+    try {
+      plan = resolveEDocumentPlan(enrichedSource, counterparty ?? {}, db.companySettings.eDocumentSettings);
+    } catch (error) {
+      return send(res, 409, { error: error instanceof Error ? error.message : "e-Belge planı hazırlana bilmədi." });
+    }
+    const relatedDocuments = db.eDocuments.documents.filter((item) => String(item.sourceDocumentId) === String(sourceDocument.id));
+    const readiness = Object.fromEntries(plan.availableTypes.map((documentType) => {
+      const existing = relatedDocuments.find((item) => item.documentType === documentType);
+      const candidate = existing ?? buildEDocumentDraft({ id: "preview", sourceDocument: enrichedSource, documentType });
+      return [documentType, validateEDocumentForSending(candidate, db.companySettings.eDocumentSettings)];
+    }));
+    return send(res, 200, {
+      data: {
+        sourceDocument: enrichedSource,
+        counterparty,
+        plan,
+        readiness,
+        documents: relatedDocuments,
+        settings: publicEDocumentSettings(db.companySettings.eDocumentSettings),
+      },
     });
   }
   if (req.method === "POST" && action === "connection-test") {
@@ -803,7 +859,7 @@ async function handleEDocuments(req, res, parts) {
     if (existing) return send(res, 200, { data: existing, reused: true });
     let draft;
     try {
-      draft = buildEDocumentDraft({ id: randomUUID(), sourceDocument, documentType: body.documentType });
+      draft = buildEDocumentDraft({ id: randomUUID(), sourceDocument: eDocumentSourceWithCounterparty(db, sourceDocument), documentType: body.documentType });
     } catch (error) {
       return send(res, 400, { error: error instanceof Error ? error.message : "Qaralama yaradıla bilmədi." });
     }
@@ -817,6 +873,36 @@ async function handleEDocuments(req, res, parts) {
     });
     await writeDb(db);
     return send(res, 201, { data: draft, reused: false });
+  }
+  const documentId = parts[1];
+  const operation = parts[2];
+  if (req.method === "POST" && documentId && operation === "send") {
+    const document = db.eDocuments.documents.find((item) => String(item.id) === String(documentId));
+    if (!document) return send(res, 404, { error: "e-Belge tapılmadı." });
+    if (document.status === "completed") return send(res, 200, { data: document, reused: true });
+    const validation = validateEDocumentForSending(document, db.companySettings.eDocumentSettings);
+    if (!validation.ready) return send(res, 409, { error: validation.issues.join(" "), validation });
+    if (db.companySettings.eDocumentSettings.provider !== "mock") {
+      return send(res, 501, { error: "Seçilmiş provayderin canlı göndəriş adapteri hələ aktiv deyil. Test göndərişi üçün AriX Test seçin." });
+    }
+    const sentAt = new Date().toISOString();
+    document.status = "completed";
+    document.number = nextEDocumentNumber(db, document.documentType, db.companySettings.eDocumentSettings, new Date(sentAt));
+    document.uuid = randomUUID();
+    document.sentAt = sentAt;
+    document.updatedAt = sentAt;
+    document.provider = "mock";
+    document.providerResponse = { code: "MOCK_ACCEPTED", message: "Test sənədi qəbul edildi; GİB-ə məlumat göndərilmədi." };
+    db.eDocuments.events.unshift({
+      id: randomUUID(),
+      type: "document-sent",
+      eDocumentId: document.id,
+      provider: "mock",
+      status: document.status,
+      createdAt: sentAt,
+    });
+    await writeDb(db);
+    return send(res, 200, { data: document, testMode: true });
   }
   return notFound(res);
 }
@@ -2282,7 +2368,7 @@ const server = createServer(async (req, res) => {
     if (parts[1] === "customer-prices") return await handleCustomerPrices(req, res, url, parts.slice(1));
     if (parts[1] === "online-collections") return await handleOnlineCollections(req, res, parts.slice(1));
     if (parts[1] === "company-settings") return await handleCompanySettings(req, res);
-    if (parts[1] === "e-documents") return await handleEDocuments(req, res, parts.slice(1));
+    if (parts[1] === "e-documents") return await handleEDocuments(req, res, url, parts.slice(1));
     if (parts[1] === "exchange-rates") return await handleExchangeRates(req, res, url);
     if (parts[1] === "documents") return await handleDocuments(req, res);
     if (parts[1] === "stock-containers") return await handleStockContainers(req, res);

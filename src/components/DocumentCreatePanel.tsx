@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState, type PointerEvent, type SVGProps } from "react";
 import { requestJson } from "../api";
+import EDocumentWorkflowDialog from "./EDocumentWorkflowDialog";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -68,6 +69,12 @@ type ApiCounterparty = {
   id: number;
   name: string;
   kind: "customer" | "supplier";
+  taxId?: string;
+  taxOffice?: string;
+  address?: string;
+  email?: string;
+  eDocumentPreference?: "auto" | "eInvoice" | "eArchive";
+  eInvoiceRegistered?: boolean;
 };
 
 type ResolvedPrice = {
@@ -92,6 +99,12 @@ export type ApiDocumentDraft = {
   toAccount?: string;
   counterpartyId?: string | number | null;
   counterpartyName?: string;
+  counterpartyTaxNumber?: string;
+  counterpartyTaxOffice?: string;
+  counterpartyAddress?: string;
+  counterpartyEmail?: string;
+  counterpartyEDocumentPreference?: "auto" | "eInvoice" | "eArchive";
+  counterpartyEInvoiceRegistered?: boolean;
   category?: string;
   method?: string;
   amount?: number;
@@ -943,6 +956,7 @@ export default function DocumentCreatePanel({
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [eDocumentSourceId, setEDocumentSourceId] = useState<string | number | null>(null);
   const [companySettings, setCompanySettings] = useState<CompanySettings>(defaultCompanySettings);
   const [containers, setContainers] = useState<ContainerDraft[]>(() => cloneContainers(editingDocument?.bondedStock?.containers));
   const [panelSize, setPanelSize] = useState(initialDocumentPanelSize);
@@ -1829,6 +1843,12 @@ export default function DocumentCreatePanel({
         toAccount: kind === "cashTransfer" ? moneyTarget : kind === "movement" ? movementToAccount : undefined,
         counterpartyId: counterpartyId ? Number(counterpartyId) : null,
         counterpartyName: isMoney ? moneyTarget : selectedCounterparty?.name ?? editingDocument?.counterpartyName ?? "",
+        counterpartyTaxNumber: selectedCounterparty?.taxId ?? editingDocument?.counterpartyTaxNumber ?? "",
+        counterpartyTaxOffice: selectedCounterparty?.taxOffice ?? editingDocument?.counterpartyTaxOffice ?? "",
+        counterpartyAddress: selectedCounterparty?.address ?? editingDocument?.counterpartyAddress ?? "",
+        counterpartyEmail: selectedCounterparty?.email ?? editingDocument?.counterpartyEmail ?? "",
+        counterpartyEDocumentPreference: selectedCounterparty?.eDocumentPreference ?? editingDocument?.counterpartyEDocumentPreference ?? "auto",
+        counterpartyEInvoiceRegistered: selectedCounterparty?.eInvoiceRegistered ?? editingDocument?.counterpartyEInvoiceRegistered,
         category: isMoney ? moneyCategory : undefined,
         method: isMoney ? moneyMethod : undefined,
         amount: isMoney ? moneyTotal : undefined,
@@ -1881,7 +1901,7 @@ export default function DocumentCreatePanel({
             preview: costPreview,
           } : undefined,
       };
-      await requestJson<{ data: unknown; products?: unknown[] }>(isEditing ? `/api/documents/${editingDocument?.id}` : "/api/documents", {
+      const response = await requestJson<{ data: ApiDocument; products?: unknown[] }>(isEditing ? `/api/documents/${editingDocument?.id}` : "/api/documents", {
         method: isEditing ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(documentPayload),
@@ -1890,7 +1910,7 @@ export default function DocumentCreatePanel({
       window.dispatchEvent(new CustomEvent("arix:products-updated"));
       window.dispatchEvent(new CustomEvent("arix:documents-updated"));
       if (isEditing) onSaved?.();
-      return true;
+      return response.data;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sənəd saxlanmadı");
       return false;
@@ -1903,6 +1923,11 @@ export default function DocumentCreatePanel({
     const saved = await saveDocument();
     if (!saved) return;
     window.print();
+  };
+  const saveAndPrepareEDocument = async () => {
+    const saved = await saveDocument();
+    if (saved === false || !saved.id) return;
+    setEDocumentSourceId(saved.id);
   };
   const printDocumentPanel = () => {
     window.print();
@@ -1970,6 +1995,16 @@ export default function DocumentCreatePanel({
                 ))}
               </div>
             )}
+            {kind === "sale" && (
+              <button
+                type="button"
+                onClick={saveAndPrepareEDocument}
+                disabled={saving}
+                className={cx("h-10 rounded-xl border border-indigo-300 bg-indigo-50 px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-100", saving && "opacity-70")}
+              >
+                Saxla və e-Belge hazırla
+              </button>
+            )}
             <button
               type="button"
               onClick={printDocumentPanel}
@@ -2024,6 +2059,13 @@ export default function DocumentCreatePanel({
             isDark={isDark}
             onClose={() => setCloseWarningOpen(false)}
             onConfirm={confirmClose}
+          />
+        )}
+        {eDocumentSourceId && (
+          <EDocumentWorkflowDialog
+            sourceDocumentId={eDocumentSourceId}
+            isDark={isDark}
+            onClose={() => setEDocumentSourceId(null)}
           />
         )}
 

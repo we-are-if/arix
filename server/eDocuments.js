@@ -155,6 +155,67 @@ export function testEDocumentConnection(settings, environment = process.env) {
 
 const documentTypes = new Set(["eInvoice", "eArchive", "eDespatch", "exportInvoice"]);
 
+const moduleForDocumentType = {
+  eInvoice: "eInvoice",
+  eArchive: "eArchive",
+  eDespatch: "eDespatch",
+  exportInvoice: "exportInvoice",
+};
+
+export function resolveEDocumentPlan(sourceDocument, counterparty = {}, settings = defaultEDocumentSettings) {
+  if (!sourceDocument?.id || sourceDocument.type !== "sale") {
+    throw new Error("e-Belge yalnız satış sənədindən hazırlana bilər.");
+  }
+  const normalized = normalizeEDocumentSettings(settings);
+  const isExport = sourceDocument.saleMode === "export" || sourceDocument.exportMode === true;
+  if (isExport) {
+    const availableTypes = ["exportInvoice", "eDespatch"].filter((type) => normalized.modules[moduleForDocumentType[type]]);
+    return {
+      recommendedType: availableTypes[0] ?? "exportInvoice",
+      availableTypes,
+      reason: "İxrac satışı üçün ihracat faturası əsas sənəddir; sevkiyyat zamanı e-İrsaliye də yaradıla bilər.",
+      recipientStatus: "export",
+    };
+  }
+
+  const preference = sourceDocument.counterpartyEDocumentPreference ?? counterparty.eDocumentPreference ?? "auto";
+  const registered = sourceDocument.counterpartyEInvoiceRegistered ?? counterparty.eInvoiceRegistered;
+  const recommendedType = preference === "eInvoice" || preference === "eArchive"
+    ? preference
+    : registered === true
+      ? "eInvoice"
+      : "eArchive";
+  const availableTypes = ["eInvoice", "eArchive"].filter((type) => normalized.modules[moduleForDocumentType[type]]);
+  return {
+    recommendedType: availableTypes.includes(recommendedType) ? recommendedType : availableTypes[0] ?? recommendedType,
+    availableTypes,
+    reason: preference !== "auto"
+      ? "Müştəri kartındakı e-Belge seçimi tətbiq edildi."
+      : registered === true
+        ? "Müştəri e-Fatura istifadəçisi kimi işarələnib."
+        : "Provayder reyestri qoşulana qədər e-Arşiv təhlükəsiz başlanğıc seçimi kimi istifadə olunur.",
+    recipientStatus: registered === true ? "registered" : registered === false ? "not-registered" : "unknown",
+  };
+}
+
+export function validateEDocumentForSending(document, settings, environment = process.env) {
+  const normalized = normalizeEDocumentSettings(settings);
+  const issues = [];
+  if (!normalized.enabled) issues.push("Şirkət ayarlarında e-Belge axını aktiv edilməyib.");
+  if (!normalized.modules[moduleForDocumentType[document?.documentType]]) issues.push("Seçilmiş e-Belge modulu aktiv deyil.");
+  if (!normalized.company.title) issues.push("Rəsmi firma adı daxil edilməyib.");
+  if (![10, 11].includes(normalized.company.taxNumber.length)) issues.push("Firma VKN/TCKN məlumatı 10 və ya 11 rəqəm olmalıdır.");
+  if (!document?.snapshot?.counterparty?.name) issues.push("Alıcı adı yoxdur.");
+  if (document?.documentType === "eInvoice" && ![10, 11].includes(String(document.snapshot.counterparty.taxNumber ?? "").length)) {
+    issues.push("e-Fatura üçün alıcının VKN/TCKN məlumatı olmalıdır.");
+  }
+  if ((document?.snapshot?.lines ?? []).length === 0) issues.push("Sənəddə məhsul sətri yoxdur.");
+  if ((document?.snapshot?.lines ?? []).some((line) => Number(line.quantity) <= 0)) issues.push("Məhsul miqdarlarından biri düzgün deyil.");
+  const credentials = credentialStatus(normalized, environment);
+  if (!credentials.configured) issues.push("Provayder giriş məlumatları serverdə təyin edilməyib.");
+  return { ready: issues.length === 0, issues, credentials };
+}
+
 export function buildEDocumentDraft({ id, sourceDocument, documentType, createdAt = new Date().toISOString() }) {
   if (!sourceDocument?.id) throw new Error("Mənbə sənəd tapılmadı.");
   if (!documentTypes.has(documentType)) throw new Error("e-Belge növü düzgün deyil.");
@@ -184,7 +245,9 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, createdA
         id: sourceDocument.counterpartyId ?? null,
         name: sourceDocument.counterpartyName ?? "",
         taxNumber: sourceDocument.counterpartyTaxNumber ?? "",
+        taxOffice: sourceDocument.counterpartyTaxOffice ?? "",
         address: sourceDocument.counterpartyAddress ?? "",
+        email: sourceDocument.counterpartyEmail ?? "",
       },
       lines: lines.map((line) => ({
         productId: line.productId ?? line.id ?? null,

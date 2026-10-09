@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type Dispatch, type SetStateAction, type 
 import { createPortal } from "react-dom";
 import { requestJson } from "../api";
 import DocumentCreatePanel, { type ApiDocumentDraft, type DocumentCreateKind } from "../components/DocumentCreatePanel";
+import EDocumentWorkflowDialog from "../components/EDocumentWorkflowDialog";
 import { arixPrintBaseCss, renderArixPrintFooter, renderArixPrintHeader } from "../print/arixPrintTemplate";
 import { defaultPrintSettings, mergePrintSettings, type PrintFormKey, type PrintSettings } from "../print/printSettings";
 
@@ -1858,6 +1859,8 @@ function ActivityDetailPanel({
   const containers = document?.bondedStock?.containers ?? [];
   const hasCustomsSelection = (document?.movementSelection?.containers?.length ?? 0) > 0;
   const [printOpen, setPrintOpen] = useState(false);
+  const [eDocumentOpen, setEDocumentOpen] = useState(false);
+  const isSaleDocument = row.kind === "sale" || row.documentType === "sale";
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-md">
@@ -1871,6 +1874,12 @@ function ActivityDetailPanel({
               <I.Edit className="h-4 w-4" />
               Redaktə
             </button>
+            {isSaleDocument && document?.id && (
+              <button type="button" onClick={() => setEDocumentOpen(true)} className={cx("inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold text-indigo-600", border, isDark ? "hover:bg-white/10" : "hover:bg-indigo-50")}>
+                <I.Printer className="h-4 w-4" />
+                e-Belge
+              </button>
+            )}
             <button
               type="button"
               onClick={(event) => {
@@ -2025,6 +2034,9 @@ function ActivityDetailPanel({
           onClose={() => setPrintOpen(false)}
         />,
         window.document.body
+      )}
+      {eDocumentOpen && document?.id && (
+        <EDocumentWorkflowDialog sourceDocumentId={document.id} isDark={isDark} onClose={() => setEDocumentOpen(false)} />
       )}
     </div>
   );

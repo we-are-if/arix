@@ -5,7 +5,9 @@ import {
   credentialStatus,
   defaultEDocumentSettings,
   normalizeEDocumentSettings,
+  resolveEDocumentPlan,
   testEDocumentConnection,
+  validateEDocumentForSending,
 } from "./eDocuments.js";
 
 test("normalizes provider settings and document series", () => {
@@ -60,4 +62,37 @@ test("builds an immutable e-document snapshot from a sale", () => {
   assert.equal(draft.sourceDocumentId, "sale-1");
   assert.equal(draft.snapshot.lines[0].quantity, 10);
   assert.equal(draft.snapshot.total, 120);
+});
+
+test("chooses export documents from sale mode and regular documents from customer status", () => {
+  const exportPlan = resolveEDocumentPlan({ id: "sale-export", type: "sale", saleMode: "export" });
+  assert.equal(exportPlan.recommendedType, "exportInvoice");
+  assert.deepEqual(exportPlan.availableTypes, ["exportInvoice", "eDespatch"]);
+
+  const invoicePlan = resolveEDocumentPlan(
+    { id: "sale-local", type: "sale", saleMode: "regular" },
+    { eInvoiceRegistered: true },
+  );
+  assert.equal(invoicePlan.recommendedType, "eInvoice");
+});
+
+test("blocks sending until company and recipient requirements are complete", () => {
+  const source = {
+    id: "sale-2",
+    type: "sale",
+    counterpartyName: "Test Alıcı",
+    counterpartyTaxNumber: "1234567890",
+    lines: [{ productId: 7, name: "Folyo", qty: 10, unit: "mt", price: 12 }],
+  };
+  const draft = buildEDocumentDraft({ id: "edoc-2", sourceDocument: source, documentType: "eInvoice" });
+  const blocked = validateEDocumentForSending(draft, defaultEDocumentSettings, {});
+  assert.equal(blocked.ready, false);
+  assert.ok(blocked.issues.some((issue) => issue.includes("aktiv")));
+
+  const ready = validateEDocumentForSending(draft, {
+    ...defaultEDocumentSettings,
+    enabled: true,
+    company: { ...defaultEDocumentSettings.company, title: "AriX Ltd.", taxNumber: "1234567890" },
+  }, {});
+  assert.equal(ready.ready, true);
 });
