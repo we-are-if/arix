@@ -135,6 +135,8 @@ test("builds GIB QR fields and UBL-TR invoice from the same snapshot", () => {
   assert.match(xml, /<cbc:CustomizationID>TR1\.2<\/cbc:CustomizationID>/);
   assert.match(xml, /<cbc:ID>EAR2026000000001<\/cbc:ID>/);
   assert.match(xml, /<cbc:InvoicedQuantity unitCode="MTR">10<\/cbc:InvoicedQuantity>/);
+  const invoiceXslt = Buffer.from(xml.match(/<cbc:EmbeddedDocumentBinaryObject[^>]*>([^<]+)<\/cbc:EmbeddedDocumentBinaryObject>/)?.[1] ?? "", "base64").toString("utf8");
+  assert.match(invoiceXslt, /<title>e-Belge<\/title>/);
 });
 
 test("builds e-İrsaliye QR shipment fields", () => {
@@ -165,6 +167,8 @@ test("builds e-İrsaliye QR shipment fields", () => {
   assert.match(xml, /<cbc:LicensePlateID schemeID="PLAKA">34ABC123<\/cbc:LicensePlateID>/);
   assert.match(xml, /<cbc:NationalityID>12345678901<\/cbc:NationalityID>/);
   assert.match(xml, /<cbc:DocumentTypeCode>XSLT<\/cbc:DocumentTypeCode>/);
+  const despatchXslt = Buffer.from(xml.match(/<cbc:EmbeddedDocumentBinaryObject[^>]*>([^<]+)<\/cbc:EmbeddedDocumentBinaryObject>/)?.[1] ?? "", "base64").toString("utf8");
+  assert.match(despatchXslt, /<title>e-İrsaliye<\/title>/);
 });
 
 test("builds a customs export invoice with the official GIB scenario fields", () => {

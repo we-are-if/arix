@@ -847,6 +847,13 @@ async function handleEDocuments(req, res, url, parts) {
     if (!document) return send(res, 404, { error: "e-Belge tapılmadı." });
     try {
       const model = buildGibDocumentModel(document, db.companySettings.eDocumentSettings);
+      model.relatedDocuments = db.eDocuments.documents
+        .filter((item) => item.id !== document.id && String(item.sourceDocumentId) === String(document.sourceDocumentId))
+        .map((item) => ({
+          documentType: item.documentType,
+          number: item.number ?? "",
+          issueDate: item.snapshot?.documentDate ?? item.createdAt ?? "",
+        }));
       const qrPayload = buildGibQrPayload(document, db.companySettings.eDocumentSettings);
       const xml = buildUblTrXml(document, db.companySettings.eDocumentSettings);
       const compliance = buildGibComplianceReport(document, db.companySettings.eDocumentSettings);

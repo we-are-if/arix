@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 
@@ -24,6 +24,7 @@ export type GibDocumentModel = {
   taxBreakdown: Array<{ rate: number; taxableAmount: number; taxAmount: number }>;
   taxExemption?: { code: string; reason: string } | null;
   standards?: { ublTr: string; qr: string; signature: string };
+  relatedDocuments?: Array<{ documentType: string; number: string; issueDate: string }>;
 };
 
 export type EDocumentArtifact = {
@@ -56,6 +57,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
   const model = artifact.model;
   const isDespatch = model.documentType === "eDespatch";
   const isExport = model.documentType === "exportInvoice";
+  const relatedDespatch = model.relatedDocuments?.find((item) => item.documentType === "eDespatch");
 
   useEffect(() => {
     let active = true;
@@ -90,111 +92,73 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6">
-        <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[12mm] text-[11px] text-slate-900 shadow-2xl">
-          {artifact.draft && <div className="mb-4 border border-amber-400 bg-amber-50 px-3 py-2 text-center font-semibold text-amber-900">TASLAK · GİB-ə göndərilməyib</div>}
+        <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[7mm] font-[Arial] text-[9px] text-black shadow-2xl">
+          {artifact.draft && <div className="mb-3 border border-amber-400 bg-amber-50 px-3 py-2 text-center font-semibold text-amber-900 print:hidden">TASLAK · GİB-ə göndərilməyib</div>}
           {artifact.compliance && (
-            <div className={`mb-4 border px-3 py-3 ${artifact.compliance.readyForSigning ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
+            <div className={`mb-3 border px-3 py-3 print:hidden ${artifact.compliance.readyForSigning ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
               <div className="flex items-center justify-between gap-3"><b>GİB texniki ön yoxlama</b><span>{artifact.compliance.passed}/{artifact.compliance.total}</span></div>
               <div className="mt-2 grid gap-1 sm:grid-cols-2">{artifact.compliance.checks.map((check) => <div key={check.id} className="flex items-start gap-2 text-[9px]"><span className={check.ok ? "text-emerald-600" : "text-amber-700"}>{check.ok ? "✓" : "!"}</span><span><b>{check.label}:</b> {check.detail}</span></div>)}</div>
             </div>
           )}
-          <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-5 border-b-2 border-slate-900 pb-4">
-            <div>
-              <div className="text-lg font-bold tracking-normal">{model.supplier.title || "Firma adı"}</div>
-              <div className="mt-2 leading-5 text-slate-600">{model.supplier.address}<br />{[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}</div>
-              {model.supplier.phone && <div className="text-slate-600">Tel: {model.supplier.phone}</div>}
-              {model.supplier.email && <div className="text-slate-600">E-poçt: {model.supplier.email}</div>}
-            </div>
-            <div className="text-center">
-              <div className="mx-auto inline-flex h-11 items-center justify-center border-2 border-teal-800 px-3 text-[10px] font-black text-teal-800">GİB UBL-TR</div>
-              <div className="mt-2 text-xl font-black text-teal-900">{titles[model.documentType]}</div>
-              <div className="mt-1 text-[9px] font-semibold text-slate-500">UBL-TR {model.customizationId}</div>
-            </div>
+          <div className="grid grid-cols-[1.25fr_.7fr_.85fr] items-start gap-7">
+            <PartyBlock party={model.supplier} supplier />
+            <DocumentEmblem label={titles[model.documentType]} isDespatch={isDespatch} />
             <div className="flex justify-end">
-              {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-28 w-28" /> : <div className="flex h-28 w-28 items-center justify-center border text-[9px] text-slate-400">Karekod hazırlanır</div>}
+              {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-[42mm] w-[42mm]" /> : <div className="flex h-[42mm] w-[42mm] items-center justify-center border text-[8px]">Karekod hazırlanır</div>}
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-8">
-            <section>
-              <div className="text-[9px] font-bold uppercase text-slate-500">Alıcı</div>
-              <div className="mt-1 text-base font-bold">{model.buyer.name || "-"}</div>
-              <div className="mt-2 leading-5 text-slate-600">{model.buyer.address || "Adres eklenmemiş"}</div>
-              {model.buyer.email && <div className="text-slate-600">{model.buyer.email}</div>}
-              <div className="mt-2"><b>VKN/TCKN:</b> {model.buyer.originalTaxNumber || model.buyer.taxNumber || "-"}</div>
-              {model.buyer.taxOffice && <div><b>Vergi dairesi:</b> {model.buyer.taxOffice}</div>}
-            </section>
-            <section className="ml-auto min-w-64">
-              <Meta label="Belge no" value={model.number || "Taslak"} />
-              <Meta label="ETTN" value={model.uuid || "-"} breakAll />
-              <Meta label="Düzenleme tarihi" value={`${model.issueDate} ${model.issueTime}`} />
-              <Meta label="Senaryo" value={model.profileId} />
-              <Meta label="Belge tipi" value={model.typeCode} />
-              {!isDespatch && <Meta label="Para birimi" value={model.currency} />}
-            </section>
+          <div className="mt-5 grid grid-cols-[1.2fr_.8fr] items-end gap-9">
+            <PartyBlock party={{ ...model.buyer, title: model.buyer.name }} />
+            <DocumentMeta model={model} />
           </div>
 
-          {isDespatch && (
-            <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-2 border-y border-slate-300 bg-slate-50 px-3 py-3">
-              <Meta label="Fiili sevk tarihi" value={model.shipment.actualDespatchDate || "-"} />
-              <Meta label="Fiili sevk zamanı" value={model.shipment.actualDespatchTime || "-"} />
-              <Meta label="Taşıyıcı" value={model.shipment.carrierName || "-"} />
-              <Meta label="Taşıyıcı VKN / Plaka" value={[model.shipment.carrierTaxNumber, model.shipment.plate].filter(Boolean).join(" · ") || "-"} />
-              <Meta label="Sürücü" value={[model.shipment.driverFirstName, model.shipment.driverLastName].filter(Boolean).join(" ") || "-"} />
-              <Meta label="Sürücü TCKN" value={model.shipment.driverNationalId || "-"} />
-            </div>
-          )}
+          <div className="mt-4 border-t-2 border-black pt-2"><b>ETTN:</b> <span className="break-all">{model.uuid || "-"}</span></div>
 
           {isExport && (
-            <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-2 border-y border-slate-300 bg-slate-50 px-3 py-3">
-              <Meta label="Gömrük alıcısı" value={model.accountingCustomer ? `${model.accountingCustomer.title} · ${model.accountingCustomer.taxNumber}` : "-"} />
-              <Meta label="Xarici alıcı" value={model.buyer.registrationName || model.buyer.name || "-"} />
-              <Meta label="Incoterms" value={model.exportDetails?.incoterm || "-"} />
-              <Meta label="Nəqliyyat" value={model.exportDetails?.transportModeCode || "-"} />
-              <Meta label="Qab" value={[model.exportDetails?.packageTypeCode, model.exportDetails?.packageId, model.exportDetails?.packageQuantity].filter(Boolean).join(" · ") || "-"} />
-              <Meta label="KDV istisnası" value={model.taxExemption ? `${model.taxExemption.code} · ${model.taxExemption.reason}` : "-"} />
+            <div className="mt-4 grid grid-cols-2 border border-black bg-slate-50">
+              <PrintMeta label="Gömrük alıcısı" value={model.accountingCustomer ? `${model.accountingCustomer.title} · ${model.accountingCustomer.taxNumber}` : "-"} />
+              <PrintMeta label="Xarici alıcı" value={model.buyer.registrationName || model.buyer.name || "-"} />
+              <PrintMeta label="Incoterms" value={model.exportDetails?.incoterm || "-"} />
+              <PrintMeta label="Nəqliyyat" value={model.exportDetails?.transportModeCode || "-"} />
+              <PrintMeta label="Qab" value={[model.exportDetails?.packageTypeCode, model.exportDetails?.packageId, model.exportDetails?.packageQuantity].filter(Boolean).join(" · ") || "-"} />
+              <PrintMeta label="KDV istisnası" value={model.taxExemption ? `${model.taxExemption.code} · ${model.taxExemption.reason}` : "-"} />
             </div>
           )}
 
-          <table className="mt-6 w-full border-collapse">
+          <table className="mt-4 w-full table-fixed border-collapse">
             <thead>
-              <tr className="bg-slate-900 text-white">
-                <th className="border border-slate-700 px-2 py-2 text-left">#</th>
-                <th className="border border-slate-700 px-2 py-2 text-left">Mal / Hizmet</th>
-                <th className="border border-slate-700 px-2 py-2 text-left">Kod</th>
-                {isExport && <th className="border border-slate-700 px-2 py-2 text-left">GTİP</th>}
-                <th className="border border-slate-700 px-2 py-2 text-right">Miktar</th>
-                {!isDespatch && <><th className="border border-slate-700 px-2 py-2 text-right">Birim fiyat</th><th className="border border-slate-700 px-2 py-2 text-right">KDV</th><th className="border border-slate-700 px-2 py-2 text-right">Tutar</th></>}
+              <tr className="bg-[#e4e7e9]">
+                <PrintTh className="w-8">#</PrintTh>
+                <PrintTh className="w-[18%]">Stok Kodu</PrintTh>
+                <PrintTh>Mal / Hizmet</PrintTh>
+                {isExport && <PrintTh className="w-[14%]">GTİP</PrintTh>}
+                <PrintTh className="w-[15%]">Miktar</PrintTh>
+                {isDespatch ? <><PrintTh className="w-[13%]">Etiket Numarası</PrintTh><PrintTh className="w-[14%]">Sonra Gönderilecek Miktar</PrintTh></> : <><PrintTh className="w-[14%]">Birim Fiyat</PrintTh><PrintTh className="w-[10%]">KDV Oranı</PrintTh><PrintTh className="w-[13%]">KDV Tutarı</PrintTh><PrintTh className="w-[14%]">Tutar</PrintTh>{relatedDespatch && <PrintTh className="w-[15%]">İrsaliye No</PrintTh>}</>}
               </tr>
             </thead>
             <tbody>
               {model.lines.map((line) => (
                 <tr key={line.id}>
-                  <td className="border border-slate-300 px-2 py-2">{line.id}</td>
-                  <td className="border border-slate-300 px-2 py-2 font-medium">{line.name}</td>
-                  <td className="border border-slate-300 px-2 py-2">{line.code || "-"}</td>
-                  {isExport && <td className="border border-slate-300 px-2 py-2">{line.gtip || "-"}</td>}
-                  <td className="border border-slate-300 px-2 py-2 text-right">{formatQuantity(line.quantity)} {line.unit}</td>
-                  {!isDespatch && <><td className="border border-slate-300 px-2 py-2 text-right">{formatMoney(line.unitPrice, model.currency)}</td><td className="border border-slate-300 px-2 py-2 text-right">%{line.taxRate}</td><td className="border border-slate-300 px-2 py-2 text-right font-semibold">{formatMoney(line.extensionAmount, model.currency)}</td></>}
+                  <PrintTd>{line.id}</PrintTd>
+                  <PrintTd>{line.code || "-"}</PrintTd>
+                  <PrintTd>{line.name}</PrintTd>
+                  {isExport && <PrintTd>{line.gtip || "-"}</PrintTd>}
+                  <PrintTd>{formatQuantity(line.quantity)} {line.unit}</PrintTd>
+                  {isDespatch ? <><PrintTd>-</PrintTd><PrintTd>-</PrintTd></> : <><PrintTd>{formatMoney(line.unitPrice, model.currency)}</PrintTd><PrintTd>%{line.taxRate}</PrintTd><PrintTd>{formatMoney(line.taxAmount, model.currency)}</PrintTd><PrintTd>{formatMoney(line.extensionAmount, model.currency)}</PrintTd>{relatedDespatch && <PrintTd>{relatedDespatch.number}</PrintTd>}</>}
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {!isDespatch && (
-            <div className="mt-5 ml-auto w-full max-w-80 space-y-2 border-t-2 border-slate-900 pt-3">
-              <Total label="Mal / hizmet toplamı" value={formatMoney(model.totals.goodsTotal, model.currency)} />
-              {model.taxBreakdown.map((tax) => <Total key={tax.rate} label={`Hesaplanan KDV (%${tax.rate})`} value={formatMoney(tax.taxAmount, model.currency)} />)}
-              <Total label="Vergiler dahil toplam" value={formatMoney(model.totals.taxInclusive, model.currency)} />
-              <Total label="Ödenecek tutar" value={formatMoney(model.totals.payable, model.currency)} strong />
-            </div>
+          {isDespatch ? (
+            <DespatchFooter model={model} />
+          ) : (
+            <InvoiceFooter model={model} />
           )}
 
-          <div className="mt-12 border-t border-slate-300 pt-4 text-[9px] leading-4 text-slate-500">
-            <div>Bu belge UBL-TR {model.customizationId} veri modeli esas alınarak oluşturulmuştur.</div>
-            <div>Karekod içeriği GİB Karekod Standardı v1.2 alanları ilə hazırlanmışdır.</div>
-            <div>XML daxilində XSLT görünüşü mövcuddur; rəsmi göndərişdə provayder XAdES-BES mali möhür/e-imza əlavə etməlidir.</div>
-            <div className="mt-1 break-all">ETTN: {model.uuid || "Taslak"}</div>
+          <div className="mt-8 border-t border-black pt-2 text-[8px] leading-4 text-slate-600 print:hidden">
+            UBL-TR {model.customizationId} · GİB Karekod Standardı v1.2 · Rəsmi göndərişdə provayder XAdES-BES mali möhür/e-imza əlavə etməlidir.
           </div>
         </article>
       </div>
@@ -203,10 +167,137 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
   );
 }
 
-function Meta({ label, value, breakAll = false }: { label: string; value: string; breakAll?: boolean }) {
-  return <div className="grid grid-cols-[112px_1fr] gap-2 border-b border-slate-200 py-1.5"><span className="font-semibold text-slate-500">{label}</span><span className={breakAll ? "break-all" : ""}>{value}</span></div>;
+type PrintableParty = {
+  title?: string;
+  name?: string;
+  taxNumber?: string;
+  originalTaxNumber?: string;
+  taxOffice?: string;
+  address?: string;
+  city?: string;
+  district?: string;
+  postalCode?: string;
+  email?: string;
+  phone?: string;
+};
+
+function displayDate(value?: string) {
+  const date = String(value ?? "").slice(0, 10).split("-");
+  return date.length === 3 ? `${date[2]}-${date[1]}-${date[0]}` : value || "-";
 }
 
-function Total({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
-  return <div className={`flex items-center justify-between gap-4 ${strong ? "border-t border-slate-400 pt-2 text-sm font-bold" : ""}`}><span>{label}</span><span>{value}</span></div>;
+function PartyBlock({ party, supplier = false }: { party: PrintableParty; supplier?: boolean }) {
+  const taxNumber = party.originalTaxNumber || party.taxNumber || "-";
+  return (
+    <section className="border-y-2 border-black py-2 leading-[1.25]">
+      {!supplier && <div className="mb-1 font-bold">SAYIN</div>}
+      <div className="text-[12px] font-bold uppercase">{party.title || party.name || "-"}</div>
+      <div className="mt-1">Adres: {party.address || "-"}</div>
+      <div>{[party.postalCode, party.district, party.city].filter(Boolean).join(" / ") || "-"}</div>
+      {party.phone && <div className="mt-1">Tel: {party.phone}</div>}
+      {party.email && <div>E-Posta: {party.email}</div>}
+      <div className="mt-1">Vergi Dairesi: {party.taxOffice || "-"}</div>
+      <div>VKN/TCKN: {taxNumber}</div>
+    </section>
+  );
+}
+
+function DocumentEmblem({ label, isDespatch }: { label: string; isDespatch: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center">
+      <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-20 w-20 object-contain" />
+      <div className="mt-1 text-[11px] font-bold">{label}</div>
+    </div>
+  );
+}
+
+function DocumentMeta({ model }: { model: GibDocumentModel }) {
+  const isDespatch = model.documentType === "eDespatch";
+  const relatedDespatch = model.relatedDocuments?.find((item) => item.documentType === "eDespatch");
+  const rows = isDespatch
+    ? [
+        ["Özelleştirme No", model.customizationId],
+        ["Senaryo", model.profileId],
+        ["İrsaliye Tipi", model.typeCode],
+        ["İrsaliye No", model.number || "-"],
+        ["İrsaliye Tarihi", displayDate(model.issueDate)],
+        ["İrsaliye Zamanı", model.issueTime || "-"],
+        ["Sevk Tarihi", displayDate(model.shipment.actualDespatchDate || model.issueDate)],
+        ["Sevk Zamanı", model.shipment.actualDespatchTime || model.issueTime || "-"],
+      ]
+    : [
+        ["Özelleştirme No", model.customizationId],
+        ["Fatura Tipi", model.typeCode],
+        ["Fatura No", model.number || "-"],
+        ["Fatura Tarihi", displayDate(model.issueDate)],
+        ["Fatura Zamanı", model.issueTime || "-"],
+        ["Senaryo", model.profileId],
+        ...(relatedDespatch ? [["İrsaliye No", relatedDespatch.number], ["İrsaliye Tarihi", displayDate(relatedDespatch.issueDate)]] : []),
+      ];
+
+  return (
+    <table className="w-full border-collapse text-[8px]">
+      <tbody>{rows.map(([label, value]) => <tr key={label}><td className="w-[48%] border border-black bg-[#e4e7e9] px-1 py-0.5 font-bold">{label} :</td><td className="border border-black px-1 py-0.5">{value}</td></tr>)}</tbody>
+    </table>
+  );
+}
+
+function PrintMeta({ label, value }: { label: string; value: string }) {
+  return <div className="grid grid-cols-[100px_1fr] border-b border-r border-black px-2 py-1"><b>{label}</b><span>{value}</span></div>;
+}
+
+function PrintTh({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <th className={`border border-black px-1 py-1.5 text-center align-middle font-bold ${className}`}>{children}</th>;
+}
+
+function PrintTd({ children }: { children?: ReactNode }) {
+  return <td className="border border-black px-1 py-1 align-top">{children}</td>;
+}
+
+function DespatchFooter({ model }: { model: GibDocumentModel }) {
+  const driver = [model.shipment.driverFirstName, model.shipment.driverLastName].filter(Boolean).join(" ") || "-";
+  return (
+    <>
+      <div className="mt-16 text-[11px] font-bold">İlgili Dokümanlar</div>
+      <table className="w-full border-collapse text-[8px]">
+        <thead><tr className="bg-[#e4e7e9]"><PrintTh>Doküman No</PrintTh><PrintTh className="w-28">Tarih</PrintTh><PrintTh className="w-28">Doküman Tipi</PrintTh><PrintTh className="w-28">Açıklama</PrintTh></tr></thead>
+        <tbody><tr><PrintTd>{model.uuid || "-"}</PrintTd><PrintTd>{displayDate(model.issueDate)}</PrintTd><PrintTd>XSLT</PrintTd><PrintTd /></tr></tbody>
+      </table>
+      <div className="mt-8 grid grid-cols-2 border border-black">
+        <section className="min-h-28 border-r border-black p-1.5">
+          <div className="border-b border-black font-bold">Açıklamalar</div>
+          <div className="mt-5"><b>Asıl Alıcı VKN:</b> {model.buyer.originalTaxNumber || model.buyer.taxNumber || "-"}</div>
+          <div><b>Asıl Alıcı Ünvan:</b> {model.buyer.name || "-"}</div>
+          <div><b>Teslimat Adresi:</b> {model.shipment.deliveryAddress || model.buyer.address || "-"}</div>
+        </section>
+        <section className="min-h-28 p-1.5">
+          <div className="border-b border-black font-bold">Taşıyıcı Bilgileri</div>
+          <div className="mt-5"><b>Taşıyıcı:</b> {model.shipment.carrierName || "-"} {model.shipment.carrierTaxNumber ? `· ${model.shipment.carrierTaxNumber}` : ""}</div>
+          <div><b>Araç plaka numarası:</b> {model.shipment.plate || "-"}</div>
+          <div><b>Şoför:</b> {driver}, TCKN: {model.shipment.driverNationalId || "-"}</div>
+        </section>
+      </div>
+    </>
+  );
+}
+
+function InvoiceFooter({ model }: { model: GibDocumentModel }) {
+  return (
+    <>
+      <table className="mt-3 ml-auto w-[44%] border-collapse text-[8px]">
+        <tbody>
+          <SummaryRow label="Mal Hizmet Toplam Tutarı" value={formatMoney(model.totals.goodsTotal, model.currency)} />
+          <SummaryRow label="Toplam İskonto" value={formatMoney(model.totals.discountTotal, model.currency)} />
+          {model.taxBreakdown.map((tax) => <SummaryRow key={tax.rate} label={`Hesaplanan KDV (%${tax.rate})`} value={formatMoney(tax.taxAmount, model.currency)} />)}
+          <SummaryRow label="Vergiler Dahil Toplam Tutar" value={formatMoney(model.totals.taxInclusive, model.currency)} />
+          <SummaryRow label="Ödenecek Tutar" value={formatMoney(model.totals.payable, model.currency)} strong />
+        </tbody>
+      </table>
+      <div className="mt-3 border border-black p-1.5"><b>Fatura Açıklaması:</b><div>{model.documentType === "exportInvoice" ? "KDV istisnası: 301 · 11/1-a Mal ihracatı" : "-"}</div></div>
+    </>
+  );
+}
+
+function SummaryRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return <tr className={strong ? "font-bold" : ""}><td className="border border-black bg-[#e4e7e9] px-1 py-1 font-bold">{label}</td><td className="border border-black px-1 py-1">{value}</td></tr>;
 }

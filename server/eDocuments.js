@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 const providerIds = new Set(["mock", "izibiz", "edm", "qnb"]);
 const environments = new Set(["test", "production"]);
 
@@ -610,9 +612,13 @@ function signatureReferenceXml(model) {
   return `<cac:Signature><cbc:ID schemeID="${partyIdScheme(model.supplier.taxNumber)}">${xmlEscape(model.supplier.taxNumber)}</cbc:ID><cac:SignatoryParty><cac:PartyIdentification><cbc:ID schemeID="${partyIdScheme(model.supplier.taxNumber)}">${xmlEscape(model.supplier.taxNumber)}</cbc:ID></cac:PartyIdentification><cac:PostalAddress>${postalAddressXml(model.supplier).replace(/^<cac:PostalAddress>|<\/cac:PostalAddress>$/g, "")}</cac:PostalAddress></cac:SignatoryParty><cac:DigitalSignatureAttachment><cac:ExternalReference><cbc:URI>#Signature</cbc:URI></cac:ExternalReference></cac:DigitalSignatureAttachment></cac:Signature>`;
 }
 
+const officialXslt = {
+  invoice: readFileSync(new URL("./gib-templates/general.xslt", import.meta.url), "utf8"),
+  despatch: readFileSync(new URL("./gib-templates/irsaliye.xslt", import.meta.url), "utf8"),
+};
+
 function draftXslt(model) {
-  const heading = model.documentType === "eDespatch" ? "e-İRSALİYE" : model.documentType === "eArchive" ? "e-ARŞİV FATURA" : model.documentType === "exportInvoice" ? "İHRACAT FATURASI" : "e-FATURA";
-  return `<?xml version="1.0" encoding="UTF-8"?><xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output method="html" encoding="UTF-8"/><xsl:template match="/"><html><head><meta charset="UTF-8"/><title>${heading}</title><style>body{font-family:Arial,sans-serif;color:#172033;margin:32px}h1{text-align:center;color:#285f6c}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #ccd5df;padding:7px;text-align:left}th{background:#eef3f7}.meta{display:grid;grid-template-columns:180px 1fr;gap:6px;max-width:760px;margin:auto}.label{font-weight:bold;color:#64748b}</style></head><body><h1>${heading}</h1><div class="meta"><span class="label">Belge No</span><span><xsl:value-of select="/*/*[local-name()='ID'][1]"/></span><span class="label">ETTN</span><span><xsl:value-of select="/*/*[local-name()='UUID']"/></span><span class="label">Tarih</span><span><xsl:value-of select="/*/*[local-name()='IssueDate']"/></span><span class="label">Senaryo</span><span><xsl:value-of select="/*/*[local-name()='ProfileID']"/></span></div><table><thead><tr><th>XML alanı</th><th>Değer</th></tr></thead><tbody><xsl:for-each select="//*[not(*) and normalize-space(.)!='']"><tr><td><xsl:value-of select="name()"/></td><td><xsl:value-of select="."/></td></tr></xsl:for-each></tbody></table></body></html></xsl:template></xsl:stylesheet>`;
+  return model.documentType === "eDespatch" ? officialXslt.despatch : officialXslt.invoice;
 }
 
 function xsltReferenceXml(model) {
