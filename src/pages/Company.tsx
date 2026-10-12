@@ -1296,7 +1296,7 @@ function PrintFormPreview({ settings, form, subtle }: { settings: PrintSettings;
           <div className="flex items-center gap-2">
             <AriXLogo className="h-9 w-9" />
             <div>
-              <div className="text-base font-semibold">AriX</div>
+              <div className="text-sm font-medium text-slate-700">AriX</div>
               <div className="text-[8px] text-slate-500">Sənəd sistemi</div>
             </div>
           </div>

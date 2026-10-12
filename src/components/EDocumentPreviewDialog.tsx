@@ -113,7 +113,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </div>
             <div className="flex h-24 flex-col items-center justify-center text-center">
               <AriXLogo className="h-14 w-14" />
-              <div className="mt-1 text-lg font-black text-slate-900">AriX</div>
+              <div className="mt-1 text-sm font-medium text-slate-700">AriX</div>
             </div>
             <div className="flex h-24 items-center justify-center">
               <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-20 w-20 object-contain" />

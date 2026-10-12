@@ -66,7 +66,7 @@ export const arixPrintBaseCss = `
   .arix-logo { width: 35px; height: 38px; }
   .company-brand { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
   .company-logo { width: auto; max-width: 130px; height: 42px; object-fit: contain; object-position: center; }
-  .arix-wordmark strong { display: block; color: var(--arix-ink); font-size: 19px; font-weight: 700; line-height: 1; }
+  .arix-wordmark strong { display: block; color: #334155; font-size: 15px; font-weight: 500; line-height: 1; }
   .arix-wordmark span { display: block; margin-top: 4px; color: var(--arix-muted); font-size: 7px; font-weight: 400; }
   .arix-doc-identity { min-width: 0; text-align: right; }
   .arix-doc-identity .eyebrow { color: var(--arix-primary); font-size: 8px; font-weight: 600; }
