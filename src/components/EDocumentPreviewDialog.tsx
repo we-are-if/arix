@@ -137,15 +137,15 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           <div className="grid grid-cols-[1.35fr_1fr] gap-8 border-b border-slate-300 py-4">
             <div className="min-w-0">
               <div className="text-lg font-bold tracking-normal">{model.supplier.title || "Firma adı"}</div>
-              <div className="mt-2 leading-5 text-slate-600">{model.supplier.address}<br />{[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}</div>
+              <div className="mt-2 leading-5"><b>Vergi dairesi:</b> {model.supplier.taxOffice || "-"}</div>
+              <div className="leading-5"><b>VKN/TCKN:</b> {model.supplier.taxNumber || "-"}</div>
             </div>
             <div className="leading-5">
+              <div className="mb-1 text-slate-600">{model.supplier.address}<br />{[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}</div>
               {model.supplier.phone && <div className="text-slate-600">Tel: {model.supplier.phone}</div>}
               {model.supplier.fax && <div className="text-slate-600">Faks: {model.supplier.fax}</div>}
               {model.supplier.website && <div className="text-slate-600">Web: {model.supplier.website}</div>}
               {model.supplier.email && <div className="text-slate-600">E-poçt: {model.supplier.email}</div>}
-              <div className="mt-1"><b>Vergi dairesi:</b> {model.supplier.taxOffice || "-"}</div>
-              <div><b>VKN/TCKN:</b> {model.supplier.taxNumber || "-"}</div>
             </div>
           </div>
 
