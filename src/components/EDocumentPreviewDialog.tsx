@@ -79,8 +79,15 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[170] flex flex-col bg-slate-950/55 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="gib-preview-title">
-      <style>{`@media print { body * { visibility: hidden !important; } .gib-document-print, .gib-document-print * { visibility: visible !important; } .gib-document-print { position: absolute !important; inset: 0 !important; width: 210mm !important; min-height: 297mm !important; margin: 0 !important; box-shadow: none !important; } @page { size: A4; margin: 0; } }`}</style>
+    <div className="gib-print-portal fixed inset-0 z-[170] flex flex-col bg-slate-950/55 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="gib-preview-title">
+      <style>{`@media print {
+        @page { size: A4; margin: 0; }
+        html, body { width: 210mm !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; background: #fff !important; }
+        body > * { display: none !important; }
+        body > .gib-print-portal { display: block !important; position: static !important; width: 210mm !important; height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; }
+        .gib-print-scroll { display: block !important; position: static !important; height: auto !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; }
+        .gib-document-print { position: static !important; width: 210mm !important; min-width: 0 !important; min-height: 0 !important; margin: 0 !important; box-shadow: none !important; break-after: auto !important; }
+      }`}</style>
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-slate-950/85 px-4 py-3 text-white print:hidden">
         <div>
           <div className="text-xs font-semibold text-slate-400">GİB texniki önizləmə</div>
@@ -93,7 +100,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6">
+      <div className="gib-print-scroll min-h-0 flex-1 overflow-auto p-3 sm:p-6">
         <div className="mx-auto mb-6 w-[210mm] min-w-[210mm] space-y-3 print:hidden">
           {artifact.draft && <div className="mb-4 border border-amber-400 bg-amber-50 px-3 py-2 text-center font-semibold text-amber-900">TASLAK · GİB-ə göndərilməyib</div>}
           {artifact.compliance && (
@@ -115,8 +122,11 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               <AriXLogo className="h-14 w-14" />
               <div className="mt-1 text-sm font-medium text-slate-700">AriX</div>
             </div>
-            <div className="flex h-24 items-center justify-center">
-              <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-20 w-20 object-contain" />
+              <div className="flex h-24 flex-col items-center justify-center text-center">
+                <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-16 w-20 object-contain" />
+                <div className="mt-1 text-[11px] font-bold text-slate-800">
+                  {titles[model.documentType]}
+                </div>
             </div>
             <div className="flex h-24 items-center justify-center">
               {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-24 w-24" /> : <div className="flex h-24 w-24 items-center justify-center border text-[9px] text-slate-400">Karekod hazırlanır</div>}
