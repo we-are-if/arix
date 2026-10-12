@@ -200,7 +200,7 @@ export function resolveEDocumentPlan(sourceDocument, counterparty = {}, settings
     return {
       recommendedType: availableTypes[0] ?? "exportInvoice",
       availableTypes,
-      reason: "İxrac satışı üçün ihracat faturası əsas sənəddir; sevkiyyat zamanı e-İrsaliye də yaradıla bilər.",
+      reason: "İxrac satışı üçün IHRACAT ssenarili e-Fatura əsas sənəddir; sevkiyyat zamanı e-İrsaliye də yaradıla bilər.",
       recipientStatus: "export",
     };
   }

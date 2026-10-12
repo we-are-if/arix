@@ -48,7 +48,7 @@ const titles = {
   eInvoice: "e-FATURA",
   eArchive: "e-ARŞİV FATURA",
   eDespatch: "e-İRSALİYE",
-  exportInvoice: "İHRACAT FATURASI",
+  exportInvoice: "e-FATURA",
 };
 
 const formatMoney = (value: number, currency: string) => `${Number(value).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
@@ -83,49 +83,58 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
       <style>{`@media print { body * { visibility: hidden !important; } .gib-document-print, .gib-document-print * { visibility: visible !important; } .gib-document-print { position: absolute !important; inset: 0 !important; width: 210mm !important; min-height: 297mm !important; margin: 0 !important; box-shadow: none !important; } @page { size: A4; margin: 0; } }`}</style>
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-slate-950/85 px-4 py-3 text-white print:hidden">
         <div>
-          <div className="text-xs font-semibold text-slate-400">GİB UBL-TR önizləmə</div>
+          <div className="text-xs font-semibold text-slate-400">GİB texniki önizləmə</div>
           <h2 id="gib-preview-title" className="mt-0.5 text-lg font-semibold">{titles[model.documentType]} · {model.number || "Taslak"}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={downloadXml} className="h-10 rounded-lg border border-white/20 px-4 text-sm font-semibold hover:bg-white/10">UBL-TR XML</button>
+          <button type="button" onClick={downloadXml} className="h-10 rounded-lg border border-white/20 px-4 text-sm font-semibold hover:bg-white/10">XML endir</button>
           <button type="button" onClick={() => window.print()} className="h-10 rounded-lg bg-indigo-500 px-4 text-sm font-semibold hover:bg-indigo-400">Çap et</button>
           <button type="button" onClick={onClose} aria-label="Bağla" className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 text-xl hover:bg-white/10">×</button>
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6">
-        <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[12mm] text-[11px] text-slate-900 shadow-2xl">
+        <div className="mx-auto mb-6 w-[210mm] min-w-[210mm] space-y-3 print:hidden">
           {artifact.draft && <div className="mb-4 border border-amber-400 bg-amber-50 px-3 py-2 text-center font-semibold text-amber-900">TASLAK · GİB-ə göndərilməyib</div>}
           {artifact.compliance && (
-            <div className={`mb-4 border px-3 py-3 ${artifact.compliance.readyForSigning ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
+            <div className={`border px-3 py-3 ${artifact.compliance.readyForSigning ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
               <div className="flex items-center justify-between gap-3"><b>GİB texniki ön yoxlama</b><span>{artifact.compliance.passed}/{artifact.compliance.total}</span></div>
               <div className="mt-2 grid gap-1 sm:grid-cols-2">{artifact.compliance.checks.map((check) => <div key={check.id} className="flex items-start gap-2 text-[9px]"><span className={check.ok ? "text-emerald-600" : "text-amber-700"}>{check.ok ? "✓" : "!"}</span><span><b>{check.label}:</b> {check.detail}</span></div>)}</div>
             </div>
           )}
-          <div className="grid grid-cols-[minmax(0,1.6fr)_0.65fr_0.9fr_auto] items-start gap-5 border-b-2 border-slate-900 pb-4">
+        </div>
+
+        <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[12mm] text-[11px] text-slate-900 shadow-2xl">
+          <div className="grid grid-cols-4 items-center gap-6 border-b-2 border-slate-900 pb-4">
+            <div className="flex h-24 items-center justify-center">
+              {artifact.companyLogo
+                ? <img src={artifact.companyLogo} alt="Şirkət loqosu" className="max-h-20 max-w-40 object-contain" />
+                : <div className="max-w-40 text-center text-base font-black uppercase leading-tight text-slate-800">{model.supplier.title || "Şirkət"}</div>}
+            </div>
+            <div className="flex h-24 flex-col items-center justify-center text-center">
+              <AriXLogo className="h-14 w-14" />
+              <div className="mt-1 text-lg font-black text-slate-900">AriX</div>
+            </div>
+            <div className="flex h-24 items-center justify-center">
+              <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-20 w-20 object-contain" />
+            </div>
+            <div className="flex h-24 items-center justify-center">
+              {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-24 w-24" /> : <div className="flex h-24 w-24 items-center justify-center border text-[9px] text-slate-400">Karekod hazırlanır</div>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-[1.35fr_1fr] gap-8 border-b border-slate-300 py-4">
             <div className="min-w-0">
-              {artifact.companyLogo && <img src={artifact.companyLogo} alt="Şirkət loqosu" className="mb-3 h-14 max-w-44 object-contain object-left" />}
               <div className="text-lg font-bold tracking-normal">{model.supplier.title || "Firma adı"}</div>
               <div className="mt-2 leading-5 text-slate-600">{model.supplier.address}<br />{[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}</div>
+            </div>
+            <div className="leading-5">
               {model.supplier.phone && <div className="text-slate-600">Tel: {model.supplier.phone}</div>}
               {model.supplier.fax && <div className="text-slate-600">Faks: {model.supplier.fax}</div>}
               {model.supplier.website && <div className="text-slate-600">Web: {model.supplier.website}</div>}
               {model.supplier.email && <div className="text-slate-600">E-poçt: {model.supplier.email}</div>}
               <div className="mt-1"><b>Vergi dairesi:</b> {model.supplier.taxOffice || "-"}</div>
               <div><b>VKN/TCKN:</b> {model.supplier.taxNumber || "-"}</div>
-            </div>
-            <div className="flex flex-col items-center pt-1 text-center">
-              <AriXLogo className="h-14 w-14" />
-              <div className="mt-1 text-lg font-black text-slate-900">AriX</div>
-              <div className="text-[8px] font-semibold uppercase text-slate-400">Sənəd sistemi</div>
-            </div>
-            <div className="pt-1 text-center">
-              <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="mx-auto h-16 w-16 object-contain" />
-              <div className="mt-2 text-base font-black text-teal-900">{titles[model.documentType]}</div>
-              <div className="mt-1 text-[9px] font-semibold text-slate-500">UBL-TR {model.customizationId}</div>
-            </div>
-            <div className="flex justify-end pt-1">
-              {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-28 w-28" /> : <div className="flex h-28 w-28 items-center justify-center border text-[9px] text-slate-400">Karekod hazırlanır</div>}
             </div>
           </div>
 
@@ -247,12 +256,6 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </section>
           ) : null}
 
-          <div className="mt-12 border-t border-slate-300 pt-4 text-[9px] leading-4 text-slate-500">
-            <div>Bu belge UBL-TR {model.customizationId} veri modeli esas alınarak oluşturulmuştur.</div>
-            <div>Karekod içeriği GİB Karekod Standardı v1.2 alanları ilə hazırlanmışdır.</div>
-            <div>XML daxilində XSLT görünüşü mövcuddur; rəsmi göndərişdə provayder XAdES-BES mali möhür/e-imza əlavə etməlidir.</div>
-            <div className="mt-1 break-all">ETTN: {model.uuid || "Taslak"}</div>
-          </div>
         </article>
       </div>
     </div>,

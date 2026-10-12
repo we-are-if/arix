@@ -76,7 +76,7 @@ const labels: Record<EDocumentType, { title: string; description: string }> = {
   eInvoice: { title: "e-Fatura", description: "e-Fatura istifadəçisi olan Türkiyə alıcısı" },
   eArchive: { title: "e-Arşiv", description: "e-Fatura istifadəçisi olmayan alıcı" },
   eDespatch: { title: "e-İrsaliye", description: "Sevkiyyat və mal çıxışı sənədi" },
-  exportInvoice: { title: "İhracat faturası", description: "Gömrük ssenarili ixrac faturası" },
+  exportInvoice: { title: "e-Fatura (İhracat)", description: "GİB IHRACAT ssenarili e-Fatura" },
 };
 
 const statusLabels: Record<string, string> = {
