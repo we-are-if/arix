@@ -193,28 +193,28 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </div>
           )}
 
-          <table className="mt-6 w-full border-collapse">
+          <table className="mt-6 w-full border-collapse leading-tight">
             <thead>
               <tr className="bg-slate-900 text-white">
-                <th className="border border-slate-700 px-2 py-2 text-left">#</th>
-                <th className="border border-slate-700 px-2 py-2 text-left">Mal / Hizmet</th>
-                <th className="border border-slate-700 px-2 py-2 text-left">Kod</th>
-                {isExport && <th className="border border-slate-700 px-2 py-2 text-left">GTİP</th>}
-                <th className="border border-slate-700 px-2 py-2 text-right">Miktar</th>
-                {isDespatch && <><th className="border border-slate-700 px-2 py-2 text-left">Etiket numarası</th><th className="border border-slate-700 px-2 py-2 text-right">Sonra gönderilecek</th></>}
-                {!isDespatch && <><th className="border border-slate-700 px-2 py-2 text-right">Birim fiyat</th><th className="border border-slate-700 px-2 py-2 text-right">KDV oranı</th><th className="border border-slate-700 px-2 py-2 text-right">KDV tutarı</th><th className="border border-slate-700 px-2 py-2 text-right">Tutar</th>{relatedDespatch && <th className="border border-slate-700 px-2 py-2 text-left">İrsaliye no</th>}</>}
+                <th className="border border-slate-700 px-1.5 py-1 text-left">#</th>
+                <th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-left">Mal / Hizmet</th>
+                <th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-left">Kod</th>
+                {isExport && <th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-left">GTİP</th>}
+                <th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">Miktar</th>
+                {isDespatch && <><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-left">Etiket numarası</th><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">Sonra gönderilecek</th></>}
+                {!isDespatch && <><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">Birim fiyat</th><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">KDV oranı</th><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">KDV tutarı</th><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">Tutar</th></>}
               </tr>
             </thead>
             <tbody>
               {model.lines.map((line) => (
                 <tr key={line.id}>
-                  <td className="border border-slate-300 px-2 py-2">{line.id}</td>
-                  <td className="border border-slate-300 px-2 py-2 font-medium">{line.name}</td>
-                  <td className="border border-slate-300 px-2 py-2">{line.code || "-"}</td>
-                  {isExport && <td className="border border-slate-300 px-2 py-2">{line.gtip || "-"}</td>}
-                  <td className="border border-slate-300 px-2 py-2 text-right">{formatQuantity(line.quantity)} {line.unit}</td>
-                  {isDespatch && <><td className="border border-slate-300 px-2 py-2">{line.labelNumber || "-"}</td><td className="border border-slate-300 px-2 py-2 text-right">{line.outstandingQuantity ? `${formatQuantity(line.outstandingQuantity)} ${line.unit}` : "-"}</td></>}
-                  {!isDespatch && <><td className="border border-slate-300 px-2 py-2 text-right">{formatMoney(line.unitPrice, model.currency)}</td><td className="border border-slate-300 px-2 py-2 text-right">%{line.taxRate}</td><td className="border border-slate-300 px-2 py-2 text-right">{formatMoney(line.taxAmount, model.currency)}</td><td className="border border-slate-300 px-2 py-2 text-right font-semibold">{formatMoney(line.extensionAmount, model.currency)}</td>{relatedDespatch && <td className="border border-slate-300 px-2 py-2">{relatedDespatch.number || "-"}</td>}</>}
+                  <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1">{line.id}</td>
+                  <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 font-medium">{line.name}</td>
+                  <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1">{line.code || "-"}</td>
+                  {isExport && <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1">{line.gtip || "-"}</td>}
+                  <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">{formatQuantity(line.quantity)} {line.unit}</td>
+                  {isDespatch && <><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1">{line.labelNumber || "-"}</td><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">{line.outstandingQuantity ? `${formatQuantity(line.outstandingQuantity)} ${line.unit}` : "-"}</td></>}
+                  {!isDespatch && <><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">{formatMoney(line.unitPrice, model.currency)}</td><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">%{line.taxRate}</td><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">{formatMoney(line.taxAmount, model.currency)}</td><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right font-semibold">{formatMoney(line.extensionAmount, model.currency)}</td></>}
                 </tr>
               ))}
             </tbody>
