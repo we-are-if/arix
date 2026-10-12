@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import QRCode from "qrcode";
+import AriXLogo from "./AriXLogo";
 
 export type GibDocumentModel = {
   standard: string;
@@ -33,6 +34,7 @@ export type EDocumentArtifact = {
   qrText: string;
   xml: string;
   draft: boolean;
+  companyLogo?: string;
   compliance?: {
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
     passed: number;
@@ -100,8 +102,9 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               <div className="mt-2 grid gap-1 sm:grid-cols-2">{artifact.compliance.checks.map((check) => <div key={check.id} className="flex items-start gap-2 text-[9px]"><span className={check.ok ? "text-emerald-600" : "text-amber-700"}>{check.ok ? "✓" : "!"}</span><span><b>{check.label}:</b> {check.detail}</span></div>)}</div>
             </div>
           )}
-          <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-5 border-b-2 border-slate-900 pb-4">
-            <div>
+          <div className="grid grid-cols-[minmax(0,1.6fr)_0.65fr_0.9fr_auto] items-start gap-5 border-b-2 border-slate-900 pb-4">
+            <div className="min-w-0">
+              {artifact.companyLogo && <img src={artifact.companyLogo} alt="Şirkət loqosu" className="mb-3 h-14 max-w-44 object-contain object-left" />}
               <div className="text-lg font-bold tracking-normal">{model.supplier.title || "Firma adı"}</div>
               <div className="mt-2 leading-5 text-slate-600">{model.supplier.address}<br />{[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}</div>
               {model.supplier.phone && <div className="text-slate-600">Tel: {model.supplier.phone}</div>}
@@ -111,12 +114,17 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               <div className="mt-1"><b>Vergi dairesi:</b> {model.supplier.taxOffice || "-"}</div>
               <div><b>VKN/TCKN:</b> {model.supplier.taxNumber || "-"}</div>
             </div>
-            <div className="text-center">
+            <div className="flex flex-col items-center pt-1 text-center">
+              <AriXLogo className="h-14 w-14" />
+              <div className="mt-1 text-lg font-black text-slate-900">AriX</div>
+              <div className="text-[8px] font-semibold uppercase text-slate-400">Sənəd sistemi</div>
+            </div>
+            <div className="pt-1 text-center">
               <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="mx-auto h-16 w-16 object-contain" />
-              <div className="mt-2 text-xl font-black text-teal-900">{titles[model.documentType]}</div>
+              <div className="mt-2 text-base font-black text-teal-900">{titles[model.documentType]}</div>
               <div className="mt-1 text-[9px] font-semibold text-slate-500">UBL-TR {model.customizationId}</div>
             </div>
-            <div className="flex justify-end">
+            <div className="flex justify-end pt-1">
               {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-28 w-28" /> : <div className="flex h-28 w-28 items-center justify-center border text-[9px] text-slate-400">Karekod hazırlanır</div>}
             </div>
           </div>

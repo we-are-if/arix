@@ -858,7 +858,7 @@ async function handleEDocuments(req, res, url, parts) {
       const qrPayload = buildGibQrPayload(artifactDocument, db.companySettings.eDocumentSettings);
       const xml = buildUblTrXml(artifactDocument, db.companySettings.eDocumentSettings);
       const compliance = buildGibComplianceReport(artifactDocument, db.companySettings.eDocumentSettings);
-      return send(res, 200, { data: { model, qrPayload, qrText: JSON.stringify(qrPayload), xml, compliance, draft: document.status !== "completed" } });
+      return send(res, 200, { data: { model, qrPayload, qrText: JSON.stringify(qrPayload), xml, compliance, draft: document.status !== "completed", companyLogo: db.companySettings?.printSettings?.companyLogo ?? "" } });
     } catch (error) {
       return send(res, 409, { error: error instanceof Error ? error.message : "GİB sənədi hazırlana bilmədi." });
     }
