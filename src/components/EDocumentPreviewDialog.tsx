@@ -36,6 +36,7 @@ export type EDocumentArtifact = {
   xml: string;
   draft: boolean;
   companyLogo?: string;
+  companyStamp?: string;
   compliance?: {
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
     passed: number;
@@ -113,12 +114,12 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
         </div>
 
         <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[12mm] text-[11px] text-slate-900 shadow-2xl">
-          <div className="grid grid-cols-4 items-center gap-6 border-b-2 border-slate-900 pb-4">
-            <div className="flex h-24 items-center justify-center">
-              {artifact.companyLogo
-                ? <img src={artifact.companyLogo} alt="Şirkət loqosu" className="max-h-20 max-w-40 object-contain" />
-                : <div className="max-w-40 text-center text-base font-black uppercase leading-tight text-slate-800">{model.supplier.title || "Şirkət"}</div>}
-            </div>
+          <div className={`grid ${artifact.companyLogo ? "grid-cols-4" : "grid-cols-3"} items-center gap-6 border-b-2 border-slate-900 pb-4`}>
+            {artifact.companyLogo && (
+              <div className="flex h-24 items-center justify-center">
+                <img src={artifact.companyLogo} alt="Şirkət loqosu" className="max-h-20 max-w-40 object-contain" />
+              </div>
+            )}
             <div className="flex h-24 flex-col items-center justify-center text-center">
               <AriXLogo className="h-14 w-14" />
               <div className="mt-1 text-sm font-medium text-slate-700">AriX</div>
@@ -275,6 +276,17 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               <div className="whitespace-pre-line px-2 py-2">{model.note || "-"}</div>
             </div>
           </section>
+
+          {model.documentType === "eArchive" && artifact.companyStamp && (
+            <section className="mt-6 flex justify-end">
+              <div className="w-48 text-center">
+                <div className="mb-1 text-[9px] font-semibold uppercase text-slate-500">Kaşe / İmza</div>
+                <div className="flex h-24 items-center justify-center">
+                  <img src={artifact.companyStamp} alt="Şirkət kaşesi və imzası" className="max-h-24 max-w-48 object-contain" />
+                </div>
+              </div>
+            </section>
+          )}
 
         </article>
       </div>

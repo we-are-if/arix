@@ -84,17 +84,17 @@ const mergeCompanySettings = (data?: Partial<CompanySettings>): CompanySettings 
   printSettings: mergePrintSettings(data?.printSettings),
 });
 
-const prepareCompanyLogo = (file: File) =>
+const preparePrintImage = (file: File) =>
   new Promise<string>((resolve, reject) => {
     if (!file.type.startsWith("image/")) {
       reject(new Error("Şəkil faylı seçin."));
       return;
     }
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Loqo oxunmadı."));
+    reader.onerror = () => reject(new Error("Şəkil oxunmadı."));
     reader.onload = () => {
       const image = new Image();
-      image.onerror = () => reject(new Error("Loqo açıla bilmədi."));
+      image.onerror = () => reject(new Error("Şəkil açıla bilmədi."));
       image.onload = () => {
         const scale = Math.min(1, 900 / image.width, 320 / image.height);
         const canvas = document.createElement("canvas");
@@ -102,7 +102,7 @@ const prepareCompanyLogo = (file: File) =>
         canvas.height = Math.max(1, Math.round(image.height * scale));
         const context = canvas.getContext("2d");
         if (!context) {
-          reject(new Error("Loqo hazırlana bilmədi."));
+          reject(new Error("Şəkil hazırlana bilmədi."));
           return;
         }
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -1069,7 +1069,7 @@ function PrintFormsView({
     if (!file) return;
     setMessage("");
     try {
-      const companyLogo = await prepareCompanyLogo(file);
+      const companyLogo = await preparePrintImage(file);
       if (companyLogo.length > 850_000) {
         setMessage("Loqo faylı çox böyükdür. Daha yığcam şəkil seçin.");
         return;
@@ -1077,6 +1077,23 @@ function PrintFormsView({
       setSettings((current) => ({ ...current, companyLogo }));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Loqo yüklənmədi.");
+    }
+  };
+
+  const uploadStamp = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setMessage("");
+    try {
+      const companyStamp = await preparePrintImage(file);
+      if (companyStamp.length > 850_000) {
+        setMessage("Kaşe faylı çox böyükdür. Daha yığcam şəkil seçin.");
+        return;
+      }
+      setSettings((current) => ({ ...current, companyStamp }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kaşe yüklənmədi.");
     }
   };
 
@@ -1155,6 +1172,30 @@ function PrintFormsView({
                     </label>
                     {settings.companyLogo && (
                       <button type="button" onClick={() => setSettings((current) => ({ ...current, companyLogo: "" }))} className="h-10 rounded-xl border border-rose-300 px-3 text-sm font-semibold text-rose-600">
+                        Sil
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className={cx("mb-3 flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center", border, soft)}>
+                  <div className="flex h-20 w-36 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white p-2">
+                    {settings.companyStamp ? (
+                      <img src={settings.companyStamp} alt="Şirkət kaşesi və imzası" className="max-h-full max-w-full object-contain" />
+                    ) : (
+                      <span className="text-center text-xs font-semibold text-slate-400">Kaşe / İmza</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold">E-Arşiv kaşe və imzası</div>
+                    <p className={cx("mt-1 text-xs", subtle)}>PNG, JPG və ya WebP. Yükləndikdə e-Arşiv sənədinin sonunda sağ tərəfdə görünəcək.</p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <label className="surface-primary inline-flex h-10 cursor-pointer items-center rounded-xl px-4 text-sm font-semibold">
+                      {settings.companyStamp ? "Dəyiş" : "Kaşe yüklə"}
+                      <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => void uploadStamp(event)} />
+                    </label>
+                    {settings.companyStamp && (
+                      <button type="button" onClick={() => setSettings((current) => ({ ...current, companyStamp: "" }))} className="h-10 rounded-xl border border-rose-300 px-3 text-sm font-semibold text-rose-600">
                         Sil
                       </button>
                     )}

@@ -41,6 +41,7 @@ export type PrintSettings = {
   companyName: string;
   brandSubtitle: string;
   companyLogo: string;
+  companyStamp: string;
   companyDetails: PrintCompanyDetails;
   forms: Record<PrintFormKey, PrintFormConfig>;
 };
@@ -74,6 +75,7 @@ export const defaultPrintSettings: PrintSettings = {
   companyName: "AriX",
   brandSubtitle: "Sənəd sistemi",
   companyLogo: "",
+  companyStamp: "",
   companyDetails: defaultPrintCompanyDetails,
   forms: {
     sale: form("Satış sənədi", "Məhsul və ödəniş məlumatları"),
