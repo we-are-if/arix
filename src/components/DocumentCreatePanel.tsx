@@ -1189,8 +1189,29 @@ export default function DocumentCreatePanel({
     }
   };
   const updateProduct = (id: number, patch: Partial<ProductLine>) => {
+    const previousProduct = selectedProducts.find((item) => item.id === id);
     const nextProducts = selectedProducts.map((item) => item.id === id ? { ...item, ...patch } : item);
     setSelectedProducts(nextProducts);
+    if (isBondedPurchase && patch.qty !== undefined) {
+      setContainers((current) => {
+        const matchingRolls = current.flatMap((container) =>
+          container.pallets.flatMap((pallet) => pallet.rolls.filter((roll) => roll.productId === id))
+        );
+        if (matchingRolls.length !== 1) return current;
+        const previousQty = Number(previousProduct?.qty ?? 0);
+        const rollQty = toDraftNumber(matchingRolls[0].qty);
+        if (rollQty > 0 && Math.abs(rollQty - previousQty) > 0.000001) return current;
+        return current.map((container) => ({
+          ...container,
+          pallets: container.pallets.map((pallet) => ({
+            ...pallet,
+            rolls: pallet.rolls.map((roll) => roll.id === matchingRolls[0].id
+              ? { ...roll, qty: String(patch.qty ?? "") }
+              : roll),
+          })),
+        }));
+      });
+    }
     if (usesMovementSelection) {
       setMovementSuggestions([]);
       setSelectedMovementSuggestion((current) => current
@@ -1458,6 +1479,19 @@ export default function DocumentCreatePanel({
     });
     return { containerCount: containers.length, palletCount, rollCount, qty, netKg, grossKg };
   }, [containers]);
+  useEffect(() => {
+    if (!isBondedPurchase) return;
+    setSelectedProducts((current) => {
+      let changed = false;
+      const next = current.map((product) => {
+        const rollQty = rollTotals.get(product.id);
+        if (rollQty === undefined || rollQty <= 0 || Math.abs(rollQty - Number(product.qty ?? 0)) <= 0.000001) return product;
+        changed = true;
+        return { ...product, qty: rollQty };
+      });
+      return changed ? next : current;
+    });
+  }, [isBondedPurchase, rollTotals]);
   const selectedCostContainers = useMemo(
     () => costContainerOptions.filter((container) => costContainerKeys.includes(container.key)),
     [costContainerKeys, costContainerOptions]
@@ -1517,17 +1551,43 @@ export default function DocumentCreatePanel({
   }, []);
 
   useEffect(() => {
-    if (!isBondedPurchase || !firstProductId) return;
-    setContainers((current) =>
-      current.map((container) => ({
+    if (!isBondedPurchase || selectedProducts.length === 0) return;
+    setContainers((current) => {
+      const selectedIds = new Set(selectedProducts.map((product) => product.id));
+      const assignedIds = new Set(
+        current.flatMap((container) => container.pallets.flatMap((pallet) => pallet.rolls))
+          .map((roll) => roll.productId)
+          .filter((productId) => selectedIds.has(productId))
+      );
+      const missingProducts = selectedProducts.filter((product) => !assignedIds.has(product.id));
+      if (missingProducts.length === 0) return current;
+
+      let pendingIndex = 0;
+      let changed = false;
+      const next = current.map((container) => ({
         ...container,
         pallets: container.pallets.map((pallet) => ({
           ...pallet,
-          rolls: pallet.rolls.map((roll) => roll.productId ? roll : { ...roll, productId: firstProductId }),
+          rolls: pallet.rolls.map((roll) => {
+            if (roll.productId || pendingIndex >= missingProducts.length) return roll;
+            const product = missingProducts[pendingIndex++];
+            changed = true;
+            return { ...roll, productId: product.id, qty: roll.qty || String(product.qty ?? "") };
+          }),
         })),
-      }))
-    );
-  }, [firstProductId, isBondedPurchase]);
+      }));
+
+      const stillMissing = missingProducts.slice(pendingIndex);
+      if (stillMissing.length > 0 && next[0]?.pallets[0]) {
+        changed = true;
+        next[0].pallets[0].rolls.push(...stillMissing.map((product) => ({
+          ...createRollDraft(product.id),
+          qty: String(product.qty ?? ""),
+        })));
+      }
+      return changed ? next : current;
+    });
+  }, [isBondedPurchase, selectedProducts]);
 
   useEffect(() => {
     if (isMoney) return;
@@ -1754,6 +1814,13 @@ export default function DocumentCreatePanel({
     if (!isMoney && selectedProducts.length === 0) {
       setMessage("Ən az bir məhsul seç.");
       return false;
+    }
+    if (isBondedPurchase) {
+      const productWithoutRollQty = selectedProducts.find((product) => (rollTotals.get(product.id) ?? 0) <= 0);
+      if (productWithoutRollQty) {
+        setMessage(`${productWithoutRollQty.name} üçün ən az bir rulon miqdarı daxil et.`);
+        return false;
+      }
     }
     if (kind === "movement" && movementFromAccount === movementToAccount) {
       setMessage("Mənbə və təyinat mağazası fərqli olmalıdır.");

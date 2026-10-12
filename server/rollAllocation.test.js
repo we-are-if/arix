@@ -195,3 +195,61 @@ test("roll inventory and automatic allocation stay inside the selected store", (
   assert.equal(selection.incomplete, false);
   assert.equal(selection.allocations[0].rollId, "B-70");
 });
+
+test("barcode-free aggregate store stock remains available for meter sales", () => {
+  const db = {
+    stores: [{ id: 1, key: "depo", name: "ERSA DEPO", isBonded: false }],
+    products: [{ id: 1, name: "A", type: "product", warehouses: { depo: 80 } }],
+    documents: [],
+  };
+
+  const selection = createAutomaticSaleRollSelection(db, {
+    account: "ERSA DEPO",
+    lines: [{ productId: 1, name: "A", qty: 30, deliveryMode: "singlePiece" }],
+  });
+
+  assert.equal(selection.incomplete, false);
+  assert.equal(selection.allocations.length, 1);
+  assert.equal(selection.allocations[0].rollNo, "Barkodsuz stok");
+  assert.equal(selection.allocations[0].qty, 30);
+  assert.equal(selection.allocations[0].remainingQty, 50);
+});
+
+test("barcode-free aggregate stock is not presented as a verified full roll", () => {
+  const db = {
+    stores: [{ id: 1, key: "depo", name: "ERSA DEPO", isBonded: false }],
+    products: [{ id: 1, name: "A", type: "product", warehouses: { depo: 80 } }],
+    documents: [],
+  };
+
+  const selection = createAutomaticSaleRollSelection(db, {
+    account: "ERSA DEPO",
+    lines: [{ productId: 1, name: "A", qty: 80, deliveryMode: "fullRoll" }],
+  });
+
+  assert.equal(selection.incomplete, true);
+  assert.equal(selection.selectedQty, 0);
+});
+
+test("editing a sale restores its previous quantity before roll planning", () => {
+  const db = {
+    stores: [{ id: 1, key: "depo", name: "ERSA DEPO", isBonded: false }],
+    products: [{ id: 1, name: "A", type: "product", warehouses: { depo: 50 } }],
+    documents: [{
+      id: "sale-1",
+      type: "sale",
+      posted: true,
+      account: "ERSA DEPO",
+      lines: [{ productId: 1, qty: 30 }],
+    }],
+  };
+
+  const selection = createAutomaticSaleRollSelection(db, {
+    currentDocumentId: "sale-1",
+    account: "ERSA DEPO",
+    lines: [{ productId: 1, name: "A", qty: 70, deliveryMode: "singlePiece" }],
+  });
+
+  assert.equal(selection.incomplete, false);
+  assert.equal(selection.allocations[0].beforeQty, 80);
+});

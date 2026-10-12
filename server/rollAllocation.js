@@ -290,6 +290,59 @@ function applySavedSale(inventory, document) {
   allocateLines(inventory, document.lines ?? [], { defaultMode: "flexible" });
 }
 
+function stockBeforeExcludedSale(db, product, accountKey, excludeDocumentId) {
+  let available = numberValue(product.warehouses?.[accountKey]);
+  if (!excludeDocumentId) return available;
+  const excluded = (db.documents ?? []).find((document) =>
+    String(document.id ?? "") === excludeDocumentId
+    && document.type === "sale"
+    && document.saleMode !== "export"
+    && !document.exportMode
+    && storeKey(db, document.account) === accountKey
+  );
+  if (!excluded || excluded.posted === false) return available;
+  available += (excluded.lines ?? [])
+    .filter((line) => Number(line.productId) === Number(product.id))
+    .reduce((sum, line) => sum + numberValue(line.qty), 0);
+  available -= (excluded.rollMeasurements ?? [])
+    .filter((measurement) => Number(measurement.productId) === Number(product.id))
+    .reduce((sum, measurement) => sum + numberValue(measurement.variance), 0);
+  return available;
+}
+
+function addUntrackedStoreStock(db, inventory, account, excludeDocumentId) {
+  if (!account) return;
+  const accountKey = storeKey(db, account);
+  const trackedByProduct = new Map();
+  for (const roll of inventory.values()) {
+    trackedByProduct.set(roll.productId, round((trackedByProduct.get(roll.productId) ?? 0) + roll.remainingQty));
+  }
+  for (const product of db.products ?? []) {
+    if (product.type === "service") continue;
+    const available = stockBeforeExcludedSale(db, product, accountKey, excludeDocumentId);
+    const tracked = trackedByProduct.get(Number(product.id)) ?? 0;
+    const untracked = round(Math.max(0, available - tracked));
+    if (untracked <= EPSILON) continue;
+    const rollId = `untracked:${accountKey}:${product.id}`;
+    inventory.set(rollId, {
+      rollId,
+      rollNo: "Barkodsuz stok",
+      productId: Number(product.id),
+      qty: untracked,
+      initialQty: untracked,
+      remainingQty: untracked,
+      opened: true,
+      synthetic: true,
+      sourceDocumentId: "",
+      purchaseDocumentId: "",
+      containerNumber: "",
+      palletId: "",
+      palletNumber: "",
+      receivedAt: "0000-01-01T00:00:00.000Z",
+    });
+  }
+}
+
 export function buildDepotRollInventory(db, options = {}) {
   const excludeDocumentId = String(options.excludeDocumentId ?? "");
   const account = String(options.account ?? "").trim();
@@ -314,6 +367,7 @@ export function buildDepotRollInventory(db, options = {}) {
       applySavedSale(inventory, document);
     }
   }
+  addUntrackedStoreStock(db, inventory, account, excludeDocumentId);
   return Array.from(inventory.values()).sort(compareOldest);
 }
 
