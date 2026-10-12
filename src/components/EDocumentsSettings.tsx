@@ -71,7 +71,7 @@ const moduleLabels: Array<{ key: keyof EDocumentSettings["modules"]; title: stri
   { key: "eInvoice", title: "e-Fatura", subtitle: "Qeydiyyatlı mükəlləflərə rəsmi fatura" },
   { key: "eArchive", title: "e-Arşiv", subtitle: "e-Fatura istifadəçisi olmayan alıcılar" },
   { key: "eDespatch", title: "e-İrsaliye", subtitle: "Sevkiyyatdan əvvəl elektron irsaliye" },
-  { key: "exportInvoice", title: "İhracat faturası", subtitle: "Gömrük ssenarisi və xarici satışlar" },
+  { key: "exportInvoice", title: "e-Fatura (İhracat)", subtitle: "Gömrük ssenarisi və xarici satışlar" },
   { key: "storage", title: "e-Saklama", subtitle: "XML, görüntü və sistem cavabları" },
 ];
 
@@ -320,6 +320,14 @@ export default function EDocumentsSettings({
             ))}
             {!settings.company.bankAccounts.length && <div className={cx("text-sm", subtle)}>Bank hesabı əlavə edilməyib.</div>}
           </div>
+        </div>
+        <div className={cx("mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between", border)}>
+          <div className={cx("text-sm", message ? (messageTone === "error" ? "text-rose-600" : "text-emerald-600") : subtle)}>
+            {message || "Firma rekvizitləri və bank hesabları saxlanmağa hazırdır."}
+          </div>
+          <button type="button" onClick={() => void save()} disabled={saving || loading} className="surface-primary h-11 shrink-0 rounded-xl px-6 text-sm font-semibold disabled:opacity-60">
+            {saving ? "Saxlanılır..." : "Firma məlumatlarını saxla"}
+          </button>
         </div>
       </section>
 

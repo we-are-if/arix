@@ -1194,7 +1194,14 @@ function PrintFormsView({
                   AriX loqosu solda sabit qalır. Yüklənmiş şirkət loqosu sənəd başlığının ortasında göstərilir.
                 </p>
               </section>
-              {message && <div className={cx("rounded-xl border px-3 py-2 text-sm", border, message.includes("xəta") ? "text-rose-600" : "text-emerald-600")}>{message}</div>}
+              <div className={cx("flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between", border)}>
+                <div className={cx("text-sm", message ? (message.includes("xəta") ? "text-rose-600" : "text-emerald-600") : subtle)}>
+                  {message || "Loqo və çap forması dəyişiklikləri saxlanmağa hazırdır."}
+                </div>
+                <button type="button" onClick={() => void save()} disabled={saving} className={cx("surface-primary h-11 shrink-0 rounded-xl px-6 text-sm font-semibold", saving && "opacity-60")}>
+                  {saving ? "Saxlanılır..." : "Loqonu və dizaynı saxla"}
+                </button>
+              </div>
             </div>
 
             <PrintFormPreview settings={settings} form={activeForm} subtle={subtle} />
