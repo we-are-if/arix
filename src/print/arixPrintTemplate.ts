@@ -27,6 +27,35 @@ const companyBrand = (companyLogo: string) => `
   </div>
 `;
 
+const companyDetails = (settings?: PrintSettings) => {
+  const company = settings?.companyDetails;
+  if (!company) return "";
+  const address = [company.address, company.district, company.city, company.postalCode].filter(Boolean).join(" · ");
+  const contact = [
+    company.phone ? `Tel: ${company.phone}` : "",
+    company.fax ? `Faks: ${company.fax}` : "",
+    company.email,
+    company.website,
+  ].filter(Boolean).join(" · ");
+  const tax = [
+    company.taxOffice ? `Vergi dairəsi: ${company.taxOffice}` : "",
+    company.taxNumber ? `VKN/TCKN: ${company.taxNumber}` : "",
+  ].filter(Boolean).join(" · ");
+  if (![company.title, address, contact, tax].some(Boolean)) return "";
+  return `
+    <div class="arix-company-details">
+      <div>
+        ${company.title ? `<strong>${escapePrintHtml(company.title)}</strong>` : ""}
+        ${address ? `<span>${escapePrintHtml(address)}</span>` : ""}
+      </div>
+      <div class="arix-company-contact">
+        ${contact ? `<span>${escapePrintHtml(contact)}</span>` : ""}
+        ${tax ? `<span>${escapePrintHtml(tax)}</span>` : ""}
+      </div>
+    </div>
+  `;
+};
+
 export const arixPrintBaseCss = `
   :root { --arix-primary: #4f46e5; --arix-ink: #1e293b; --arix-muted: #64748b; --arix-line: #dfe5ee; --arix-soft: #f7f8fb; --arix-soft-indigo: #f3f3ff; }
   * { box-sizing: border-box; }
@@ -43,6 +72,10 @@ export const arixPrintBaseCss = `
   .arix-doc-identity .eyebrow { color: var(--arix-primary); font-size: 8px; font-weight: 600; }
   .arix-doc-identity h1 { margin: 3px 0 0; color: var(--arix-ink); font-size: 18px; font-weight: 600; line-height: 1.15; }
   .arix-doc-identity p { margin: 4px 0 0; color: var(--arix-muted); font-size: 9px; }
+  .arix-company-details { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; margin-top: -2px; padding: 9px 0; border-top: 1px solid var(--arix-line); color: var(--arix-muted); font-size: 8px; line-height: 1.5; }
+  .arix-company-details strong, .arix-company-details span { display: block; }
+  .arix-company-details strong { color: var(--arix-ink); font-size: 9px; }
+  .arix-company-contact { text-align: right; }
   .arix-meta-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--arix-line); border-radius: 8px; background: var(--arix-soft); }
   .arix-meta-item { min-width: 0; padding: 7px 9px; border-right: 1px solid var(--arix-line); }
   .arix-meta-item:last-child { border-right: 0; }
@@ -94,6 +127,7 @@ export const renderArixPrintHeader = ({
         <p>${escapePrintHtml(subtitle)}</p>
       </div>
     </div>
+    ${companyDetails(settings)}
     ${form?.showMeta === false ? "" : `<div class="arix-meta-strip">
       <div class="arix-meta-item"><span>Sənəd</span><strong>${escapePrintHtml(documentNo)}</strong></div>
       <div class="arix-meta-item"><span>Tarix</span><strong>${escapePrintHtml(date)}</strong></div>

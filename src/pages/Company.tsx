@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type SVGProps } from "react";
 import { requestJson } from "../api";
 import AriXLogo from "../components/AriXLogo";
-import { defaultPrintSettings, mergePrintSettings, type PrintFormKey, type PrintSettings } from "../print/printSettings";
+import { defaultPrintSettings, mergePrintSettings, type PrintCompanyDetails, type PrintFormKey, type PrintSettings } from "../print/printSettings";
 import EDocumentsSettings from "../components/EDocumentsSettings";
 
 export type CompanySection = "settings" | "employees" | "stores" | "accounts" | "loyalty" | "printForms" | "eDocuments";
@@ -24,6 +24,7 @@ type CompanySettings = {
   rollTracking: boolean;
   exchangeSettings: ExchangeSettings;
   printSettings: PrintSettings;
+  eDocumentSettings?: { company?: Partial<PrintCompanyDetails> };
 };
 type CompanyStore = {
   id: number;
@@ -1009,7 +1010,7 @@ function PrintFormsView({
     let alive = true;
     requestJson<{ data: CompanySettings }>("/api/company-settings")
       .then((payload) => {
-        if (alive) setSettings(mergePrintSettings(payload.data?.printSettings));
+        if (alive) setSettings(mergePrintSettings(payload.data?.printSettings, payload.data?.eDocumentSettings?.company));
       })
       .catch(() => {
         if (alive) setMessage("Parametrlər yüklənmədi. Standart şablon göstərilir.");
@@ -1030,15 +1031,27 @@ function PrintFormsView({
     setMessage("");
   };
 
+  const updateCompanyDetails = (patch: Partial<PrintCompanyDetails>) => {
+    setSettings((current) => ({
+      ...current,
+      companyDetails: { ...current.companyDetails, ...patch },
+    }));
+    setMessage("");
+  };
+
   const save = async () => {
     setSaving(true);
     setMessage("");
     try {
+      const { companyDetails, ...printSettings } = settings;
       const payload = await requestJson<{ data: CompanySettings }>("/api/company-settings", {
         method: "PATCH",
-        body: JSON.stringify({ printSettings: settings }),
+        body: JSON.stringify({
+          printSettings,
+          eDocumentSettings: { company: companyDetails },
+        }),
       });
-      const next = mergePrintSettings(payload.data?.printSettings);
+      const next = mergePrintSettings(payload.data?.printSettings, payload.data?.eDocumentSettings?.company);
       setSettings(next);
       window.dispatchEvent(new CustomEvent("arix:company-settings-updated", { detail: payload.data }));
       window.dispatchEvent(new CustomEvent("arix:print-settings-updated", { detail: next }));
@@ -1159,6 +1172,57 @@ function PrintFormsView({
 
               <section className={cx("border-t pt-5", border)}>
                 <div className="mb-3">
+                  <h3 className="text-base font-semibold">Şirkət rekvizitləri</h3>
+                  <p className={cx("mt-1 text-sm", subtle)}>Bu məlumatlar e-Belgələr ilə ortaqdır və çapda loqoların altında göstərilir.</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Rəsmi şirkət adı">
+                    <input value={settings.companyDetails.title} onChange={(event) => updateCompanyDetails({ title: event.target.value })} className={input} />
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="VKN / TCKN">
+                      <input value={settings.companyDetails.taxNumber} onChange={(event) => updateCompanyDetails({ taxNumber: event.target.value.replace(/\D/g, "").slice(0, 11) })} className={input} inputMode="numeric" />
+                    </Field>
+                    <Field label="Vergi dairəsi">
+                      <input value={settings.companyDetails.taxOffice} onChange={(event) => updateCompanyDetails({ taxOffice: event.target.value })} className={input} />
+                    </Field>
+                  </div>
+                  <Field label="Telefon">
+                    <input value={settings.companyDetails.phone} onChange={(event) => updateCompanyDetails({ phone: event.target.value })} className={input} />
+                  </Field>
+                  <Field label="Faks">
+                    <input value={settings.companyDetails.fax} onChange={(event) => updateCompanyDetails({ fax: event.target.value })} className={input} />
+                  </Field>
+                  <Field label="E-poçt">
+                    <input value={settings.companyDetails.email} onChange={(event) => updateCompanyDetails({ email: event.target.value })} className={input} type="email" />
+                  </Field>
+                  <Field label="Veb-sayt">
+                    <input value={settings.companyDetails.website} onChange={(event) => updateCompanyDetails({ website: event.target.value })} className={input} placeholder="https://..." />
+                  </Field>
+                  <Field label="Ölkə kodu">
+                    <input value={settings.companyDetails.country} onChange={(event) => updateCompanyDetails({ country: event.target.value.toUpperCase().slice(0, 2) })} className={input} placeholder="TR" />
+                  </Field>
+                  <div className="sm:col-span-2">
+                    <Field label="Rəsmi ünvan">
+                      <input value={settings.companyDetails.address} onChange={(event) => updateCompanyDetails({ address: event.target.value })} className={input} />
+                    </Field>
+                  </div>
+                  <Field label="Şəhər">
+                    <input value={settings.companyDetails.city} onChange={(event) => updateCompanyDetails({ city: event.target.value })} className={input} />
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Rayon">
+                      <input value={settings.companyDetails.district} onChange={(event) => updateCompanyDetails({ district: event.target.value })} className={input} />
+                    </Field>
+                    <Field label="Poçt indeksi">
+                      <input value={settings.companyDetails.postalCode} onChange={(event) => updateCompanyDetails({ postalCode: event.target.value })} className={input} />
+                    </Field>
+                  </div>
+                </div>
+              </section>
+
+              <section className={cx("border-t pt-5", border)}>
+                <div className="mb-3">
                   <h3 className="text-base font-semibold">{printGroups.flatMap((group) => group.forms).find((form) => form.key === selected)?.label}</h3>
                   <p className={cx("mt-1 text-sm", subtle)}>Bu sahələr yalnız seçilmiş sənəd növünə tətbiq olunur.</p>
                 </div>
@@ -1245,6 +1309,24 @@ function PrintFormPreview({ settings, form, subtle }: { settings: PrintSettings;
             <div className="mt-1 text-[8px] text-slate-500">{form.subtitle}</div>
           </div>
         </div>
+        {[settings.companyDetails.title, settings.companyDetails.address, settings.companyDetails.phone, settings.companyDetails.fax, settings.companyDetails.email, settings.companyDetails.website, settings.companyDetails.taxNumber].some(Boolean) && (
+          <div className="grid grid-cols-[1.2fr_1fr] gap-3 border-b border-slate-200 py-2 text-[7px] leading-3 text-slate-500">
+            <div>
+              {settings.companyDetails.title && <strong className="block text-[8px] text-slate-800">{settings.companyDetails.title}</strong>}
+              {[settings.companyDetails.address, settings.companyDetails.district, settings.companyDetails.city, settings.companyDetails.postalCode].filter(Boolean).length > 0 && (
+                <span className="block">{[settings.companyDetails.address, settings.companyDetails.district, settings.companyDetails.city, settings.companyDetails.postalCode].filter(Boolean).join(" · ")}</span>
+              )}
+            </div>
+            <div className="text-right">
+              {[settings.companyDetails.phone && `Tel: ${settings.companyDetails.phone}`, settings.companyDetails.fax && `Faks: ${settings.companyDetails.fax}`, settings.companyDetails.email, settings.companyDetails.website].filter(Boolean).length > 0 && (
+                <span className="block">{[settings.companyDetails.phone && `Tel: ${settings.companyDetails.phone}`, settings.companyDetails.fax && `Faks: ${settings.companyDetails.fax}`, settings.companyDetails.email, settings.companyDetails.website].filter(Boolean).join(" · ")}</span>
+              )}
+              {[settings.companyDetails.taxOffice && `Vergi dairəsi: ${settings.companyDetails.taxOffice}`, settings.companyDetails.taxNumber && `VKN/TCKN: ${settings.companyDetails.taxNumber}`].filter(Boolean).length > 0 && (
+                <span className="block">{[settings.companyDetails.taxOffice && `Vergi dairəsi: ${settings.companyDetails.taxOffice}`, settings.companyDetails.taxNumber && `VKN/TCKN: ${settings.companyDetails.taxNumber}`].filter(Boolean).join(" · ")}</span>
+              )}
+            </div>
+          </div>
+        )}
         {form.showMeta && (
           <div className="mt-3 grid grid-cols-4 overflow-hidden rounded-md border border-slate-200 bg-slate-50 text-[7px]">
             {["Sənəd", "Tarix", "Status", "Mənbə"].map((label) => <div key={label} className="border-r border-slate-200 px-2 py-2 last:border-r-0"><span className="text-slate-400">{label}</span><strong className="mt-1 block font-semibold">Məlumat</strong></div>)}

@@ -22,11 +22,42 @@ export type PrintFormConfig = {
   showFooter: boolean;
 };
 
+export type PrintCompanyDetails = {
+  title: string;
+  taxNumber: string;
+  taxOffice: string;
+  country: string;
+  address: string;
+  city: string;
+  district: string;
+  postalCode: string;
+  phone: string;
+  fax: string;
+  email: string;
+  website: string;
+};
+
 export type PrintSettings = {
   companyName: string;
   brandSubtitle: string;
   companyLogo: string;
+  companyDetails: PrintCompanyDetails;
   forms: Record<PrintFormKey, PrintFormConfig>;
+};
+
+export const defaultPrintCompanyDetails: PrintCompanyDetails = {
+  title: "",
+  taxNumber: "",
+  taxOffice: "",
+  country: "TR",
+  address: "",
+  city: "",
+  district: "",
+  postalCode: "",
+  phone: "",
+  fax: "",
+  email: "",
+  website: "",
 };
 
 const form = (title: string, subtitle: string): PrintFormConfig => ({
@@ -43,6 +74,7 @@ export const defaultPrintSettings: PrintSettings = {
   companyName: "AriX",
   brandSubtitle: "Sənəd sistemi",
   companyLogo: "",
+  companyDetails: defaultPrintCompanyDetails,
   forms: {
     sale: form("Satış sənədi", "Məhsul və ödəniş məlumatları"),
     orderConfirmation: form("Sipariş onay formu", "Adi satışlar üçün müştəri təsdiq forması"),
@@ -59,9 +91,17 @@ export const defaultPrintSettings: PrintSettings = {
   },
 };
 
-export const mergePrintSettings = (value?: Partial<PrintSettings> | null): PrintSettings => ({
+export const mergePrintSettings = (
+  value?: Partial<PrintSettings> | null,
+  officialCompany?: Partial<PrintCompanyDetails> | null
+): PrintSettings => ({
   ...defaultPrintSettings,
   ...(value ?? {}),
+  companyDetails: {
+    ...defaultPrintCompanyDetails,
+    ...(value?.companyDetails ?? {}),
+    ...(officialCompany ?? {}),
+  },
   forms: Object.fromEntries(
     (Object.keys(defaultPrintSettings.forms) as PrintFormKey[]).map((key) => [
       key,

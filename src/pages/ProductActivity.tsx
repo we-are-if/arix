@@ -632,7 +632,7 @@ const xmlMergeDownCell = (value: string | number, mergeDown: number, style = "Te
   `<Cell ss:StyleID="${style}"${mergeDown > 0 ? ` ss:MergeDown="${mergeDown}"` : ""}><Data ss:Type="String">${escapeHtml(value)}</Data></Cell>`;
 
 const safeWorksheetName = (value: string, index: number) =>
-  (value.replace(/[\\/:?*\[\]]/g, " ").trim() || `Bəyannamə ${index + 1}`).slice(0, 31);
+  (value.replace(/[\\/:?*\u005B\u005D]/g, " ").trim() || `Bəyannamə ${index + 1}`).slice(0, 31);
 
 const buildCustomsExcelXml = (
   row: ActivityRow,
@@ -1317,8 +1317,8 @@ export default function ProductActivity({ isDark = false }: { isDark?: boolean }
   useEffect(() => {
     let cancelled = false;
     const loadPrintSettings = async () => {
-      const payload = await requestJson<{ data?: { printSettings?: Partial<PrintSettings> } }>("/api/company-settings");
-      if (!cancelled) setPrintSettings(mergePrintSettings(payload.data?.printSettings));
+      const payload = await requestJson<{ data?: { printSettings?: Partial<PrintSettings>; eDocumentSettings?: { company?: Partial<PrintSettings["companyDetails"]> } } }>("/api/company-settings");
+      if (!cancelled) setPrintSettings(mergePrintSettings(payload.data?.printSettings, payload.data?.eDocumentSettings?.company));
     };
     const handlePrintSettingsUpdate = (event: Event) => {
       const detail = (event as CustomEvent<PrintSettings>).detail;
