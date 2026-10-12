@@ -14,6 +14,7 @@ export type GibDocumentModel = {
   uuid: string;
   issueDate: string;
   issueTime: string;
+  note?: string;
   currency: string;
   supplier: { title: string; taxNumber: string; taxOffice: string; country: string; address: string; city: string; district: string; postalCode: string; email: string; phone: string; fax?: string; website?: string; bankAccounts?: Array<{ bank: string; currency: string; iban: string }> };
   buyer: { name: string; taxNumber: string; originalTaxNumber: string; taxOffice: string; address: string; city?: string; countryCode?: string; countryName?: string; registrationName?: string; companyId?: string; email: string; phone?: string; fax?: string };
@@ -148,7 +149,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-8">
+          <div className="mt-4 grid grid-cols-2 gap-6">
             <section>
               <div className="text-[9px] font-bold uppercase text-slate-500">Alıcı</div>
               <div className="mt-1 text-base font-bold">{model.buyer.name || "-"}</div>
@@ -159,7 +160,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               <div className="mt-2"><b>VKN/TCKN:</b> {model.buyer.originalTaxNumber || model.buyer.taxNumber || "-"}</div>
               {model.buyer.taxOffice && <div><b>Vergi dairesi:</b> {model.buyer.taxOffice}</div>}
             </section>
-            <section className="ml-auto min-w-64">
+            <section className="ml-auto w-full min-w-64 border-l border-t border-slate-300">
               <Meta label="Belge no" value={model.number || "Taslak"} />
               <Meta label="ETTN" value={model.uuid || "-"} breakAll />
               <Meta label="Düzenleme tarihi" value={`${model.issueDate} ${model.issueTime}`} />
@@ -172,7 +173,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           </div>
 
           {isDespatch && (
-            <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-2 border-y border-slate-300 bg-slate-50 px-3 py-3">
+            <div className="mt-4 grid grid-cols-2 border-l border-t border-slate-300 bg-slate-50">
               <Meta label="Fiili sevk tarihi" value={model.shipment.actualDespatchDate || "-"} />
               <Meta label="Fiili sevk zamanı" value={model.shipment.actualDespatchTime || "-"} />
               <Meta label="Taşıyıcı" value={model.shipment.carrierName || "-"} />
@@ -183,7 +184,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           )}
 
           {isExport && (
-            <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-2 border-y border-slate-300 bg-slate-50 px-3 py-3">
+            <div className="mt-4 grid grid-cols-2 border-l border-t border-slate-300 bg-slate-50">
               <Meta label="Gömrük alıcısı" value={model.accountingCustomer ? `${model.accountingCustomer.title} · ${model.accountingCustomer.taxNumber}` : "-"} />
               <Meta label="Xarici alıcı" value={model.buyer.registrationName || model.buyer.name || "-"} />
               <Meta label="Incoterms" value={model.exportDetails?.incoterm || "-"} />
@@ -266,6 +267,15 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </section>
           ) : null}
 
+          <section className="mt-6 border border-slate-300">
+            <div className="grid grid-cols-[140px_1fr] leading-tight">
+              <div className="border-r border-slate-300 bg-slate-100 px-2 py-2 font-bold">
+                {isDespatch ? "İrsaliye Açıklaması" : "Fatura Açıklaması"}
+              </div>
+              <div className="whitespace-pre-line px-2 py-2">{model.note || "-"}</div>
+            </div>
+          </section>
+
         </article>
       </div>
     </div>,
@@ -274,7 +284,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
 }
 
 function Meta({ label, value, breakAll = false }: { label: string; value: string; breakAll?: boolean }) {
-  return <div className="grid grid-cols-[112px_1fr] gap-2 border-b border-slate-200 py-1.5"><span className="font-semibold text-slate-500">{label}</span><span className={breakAll ? "break-all" : ""}>{value}</span></div>;
+  return <div className="grid min-w-0 grid-cols-[112px_1fr] gap-2 border-b border-r border-slate-300 px-2 py-1 leading-tight"><span className="whitespace-nowrap font-semibold text-slate-500">{label}</span><span className={breakAll ? "break-all text-[9px]" : "min-w-0 break-words"}>{value}</span></div>;
 }
 
 function Total({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {

@@ -136,6 +136,7 @@ test("builds GIB QR fields and UBL-TR invoice from the same snapshot", () => {
       counterpartyTaxNumber: "1111111111",
       currency: "TRY",
       documentDate: "2026-10-09T09:30:00.000Z",
+      comment: "Teslimat kontrolünden sonra ödeme.",
       lines: [{ name: "Folyo", code: "ERSA 010", qty: 10, unit: "mt", price: 12, taxRate: 20 }],
       eDocumentSupplier: {
         title: "AriX Ltd.",
@@ -158,12 +159,14 @@ test("builds GIB QR fields and UBL-TR invoice from the same snapshot", () => {
   const qr = buildGibQrPayload(draft);
   const xml = buildUblTrXml(draft);
   assert.equal(model.profileId, "TEMELFATURA");
+  assert.equal(model.note, "Teslimat kontrolünden sonra ödeme.");
   assert.equal(qr.no, draft.number);
   assert.equal(qr.ettn, draft.uuid);
   assert.equal(qr["kdvmatrah(20)"], "120.00");
   assert.match(xml, /<cbc:CustomizationID>TR1\.2<\/cbc:CustomizationID>/);
   assert.match(xml, /<cbc:ID>EAR2026000000001<\/cbc:ID>/);
   assert.match(xml, /<cbc:InvoicedQuantity unitCode="MTR">10<\/cbc:InvoicedQuantity>/);
+  assert.match(xml, /<cbc:Note>Teslimat kontrolünden sonra ödeme\.<\/cbc:Note>/);
   assert.match(xml, /<cbc:WebsiteURI>https:\/\/arix\.example<\/cbc:WebsiteURI>/);
   assert.match(xml, /<cbc:Telefax>\+90 212 000 00 00<\/cbc:Telefax>/);
   assert.match(xml, /<cac:DespatchDocumentReference><cbc:ID>IRS2026000000001<\/cbc:ID>/);

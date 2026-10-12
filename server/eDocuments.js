@@ -296,6 +296,7 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, createdA
       total: Number(sourceDocument.total ?? sourceDocument.paymentSummary?.total ?? 0),
       taxTotal: Number(sourceDocument.taxTotal ?? 0),
       discountTotal: Number(sourceDocument.discountTotal ?? 0),
+      comment: String(sourceDocument.comment ?? ""),
       supplier: sourceDocument.eDocumentSupplier ? { ...sourceDocument.eDocumentSupplier } : null,
       counterparty: {
         id: sourceDocument.counterpartyId ?? null,
@@ -524,6 +525,7 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
     uuid: document.uuid ?? "",
     issueDate: issue.date,
     issueTime: issue.time,
+    note: cleanText(snapshot.comment),
     currency,
     supplier: {
       title: supplier.title ?? "",
@@ -732,7 +734,8 @@ export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
 
   if (document.documentType === "eDespatch") {
     const lines = model.lines.map((line) => `<cac:DespatchLine><cbc:ID>${line.id}</cbc:ID><cbc:DeliveredQuantity unitCode="${line.unitCode}">${line.quantity}</cbc:DeliveredQuantity><cac:OrderLineReference><cbc:LineID>${line.id}</cbc:LineID></cac:OrderLineReference><cac:Item><cbc:Name>${xmlEscape(line.name)}</cbc:Name><cac:SellersItemIdentification><cbc:ID>${xmlEscape(line.code)}</cbc:ID></cac:SellersItemIdentification></cac:Item><cac:Shipment><cbc:ID></cbc:ID></cac:Shipment></cac:DespatchLine>`).join("");
-    return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:DespatchAdviceTypeCode>${model.typeCode}</cbc:DespatchAdviceTypeCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("DespatchSupplierParty", model.supplier)}${partyXml("DeliveryCustomerParty", { ...model.buyer, title: model.buyer.name })}${despatchShipmentXml(model)}${lines}</DespatchAdvice>`;
+    const note = model.note ? `<cbc:Note>${xmlEscape(model.note)}</cbc:Note>` : "";
+    return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:DespatchAdviceTypeCode>${model.typeCode}</cbc:DespatchAdviceTypeCode>${note}<cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("DespatchSupplierParty", model.supplier)}${partyXml("DeliveryCustomerParty", { ...model.buyer, title: model.buyer.name })}${despatchShipmentXml(model)}${lines}</DespatchAdvice>`;
   }
 
   const taxSubtotals = model.taxBreakdown.map((tax) => taxSubtotalXml(model, tax.taxableAmount, tax.taxAmount, tax.rate)).join("");
@@ -743,7 +746,8 @@ export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
     ? `${partyXml("AccountingCustomerParty", model.accountingCustomer)}${partyXml("BuyerCustomerParty", model.buyer, { exportBuyer: true })}`
     : partyXml("AccountingCustomerParty", { ...model.buyer, title: model.buyer.name });
   const lines = model.lines.map((line) => invoiceLineXml(model, line)).join("");
-  return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:InvoiceTypeCode>${model.typeCode}</cbc:InvoiceTypeCode><cbc:DocumentCurrencyCode>${model.currency}</cbc:DocumentCurrencyCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("AccountingSupplierParty", model.supplier)}${customerXml}${paymentMeansXml(model)}${exchangeRate}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(model.totals.taxTotal)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal><cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.taxInclusive)}</cbc:TaxInclusiveAmount><cbc:AllowanceTotalAmount currencyID="${model.currency}">${decimalText(model.totals.discountTotal)}</cbc:AllowanceTotalAmount><cbc:PayableAmount currencyID="${model.currency}">${decimalText(model.totals.payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</Invoice>`;
+  const note = model.note ? `<cbc:Note>${xmlEscape(model.note)}</cbc:Note>` : "";
+  return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:InvoiceTypeCode>${model.typeCode}</cbc:InvoiceTypeCode>${note}<cbc:DocumentCurrencyCode>${model.currency}</cbc:DocumentCurrencyCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("AccountingSupplierParty", model.supplier)}${customerXml}${paymentMeansXml(model)}${exchangeRate}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(model.totals.taxTotal)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal><cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.taxInclusive)}</cbc:TaxInclusiveAmount><cbc:AllowanceTotalAmount currencyID="${model.currency}">${decimalText(model.totals.discountTotal)}</cbc:AllowanceTotalAmount><cbc:PayableAmount currencyID="${model.currency}">${decimalText(model.totals.payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</Invoice>`;
 }
 
 export function buildGibComplianceReport(document, settings = defaultEDocumentSettings) {
