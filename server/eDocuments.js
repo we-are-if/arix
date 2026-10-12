@@ -212,15 +212,15 @@ export function resolveEDocumentPlan(sourceDocument, counterparty = {}, settings
     : registered === true
       ? "eInvoice"
       : "eArchive";
-  const availableTypes = ["eInvoice", "eArchive"].filter((type) => normalized.modules[moduleForDocumentType[type]]);
+  const availableTypes = ["eInvoice", "eArchive", "eDespatch"].filter((type) => normalized.modules[moduleForDocumentType[type]]);
   return {
     recommendedType: availableTypes.includes(recommendedType) ? recommendedType : availableTypes[0] ?? recommendedType,
     availableTypes,
     reason: preference !== "auto"
-      ? "Müştəri kartındakı e-Belge seçimi tətbiq edildi."
+      ? "Müştəri kartındakı e-Belge seçimi tətbiq edildi; sevkiyyat üçün e-İrsaliye ayrıca hazırlana bilər."
       : registered === true
-        ? "Müştəri e-Fatura istifadəçisi kimi işarələnib."
-        : "Provayder reyestri qoşulana qədər e-Arşiv təhlükəsiz başlanğıc seçimi kimi istifadə olunur.",
+        ? "Müştəri e-Fatura istifadəçisi kimi işarələnib; sevkiyyat üçün e-İrsaliye ayrıca hazırlana bilər."
+        : "Provayder reyestri qoşulana qədər e-Arşiv başlanğıc seçimi kimi istifadə olunur; sevkiyyat üçün e-İrsaliye ayrıca hazırlana bilər.",
     recipientStatus: registered === true ? "registered" : registered === false ? "not-registered" : "unknown",
   };
 }

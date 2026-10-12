@@ -88,6 +88,14 @@ test("chooses export documents from sale mode and regular documents from custome
     { eInvoiceRegistered: true },
   );
   assert.equal(invoicePlan.recommendedType, "eInvoice");
+  assert.deepEqual(invoicePlan.availableTypes, ["eInvoice", "eArchive", "eDespatch"]);
+
+  const archivePlan = resolveEDocumentPlan(
+    { id: "sale-local-archive", type: "sale", saleMode: "regular" },
+    { eInvoiceRegistered: false },
+  );
+  assert.equal(archivePlan.recommendedType, "eArchive");
+  assert.ok(archivePlan.availableTypes.includes("eDespatch"));
 });
 
 test("blocks sending until company and recipient requirements are complete", () => {
