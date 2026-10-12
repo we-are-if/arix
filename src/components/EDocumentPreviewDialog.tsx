@@ -139,11 +139,14 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           <div className="grid grid-cols-[1.35fr_1fr] gap-5 border-b border-slate-300 py-2.5">
             <div className="min-w-0">
               <div className="text-[12px] font-bold tracking-normal">{model.supplier.title || "Firma adı"}</div>
-              <div className="mt-1 leading-4"><b>Vergi dairesi:</b> {model.supplier.taxOffice || "-"}</div>
-              <div className="leading-4"><b>VKN/TCKN:</b> {model.supplier.taxNumber || "-"}</div>
+              <div className="mt-1 leading-4 text-slate-600">
+                {model.supplier.address || "Adres eklenmemiş"}<br />
+                {[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}
+              </div>
             </div>
             <div className="leading-4">
-              <div className="mb-0.5 text-slate-600">{model.supplier.address}<br />{[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}</div>
+              <div><b>Vergi dairesi:</b> {model.supplier.taxOffice || "-"}</div>
+              <div className="mb-0.5"><b>VKN/TCKN:</b> {model.supplier.taxNumber || "-"}</div>
               {model.supplier.phone && <div className="text-slate-600">Tel: {model.supplier.phone}</div>}
               {model.supplier.fax && <div className="text-slate-600">Faks: {model.supplier.fax}</div>}
               {model.supplier.website && <div className="text-slate-600">Web: {model.supplier.website}</div>}
@@ -282,10 +285,10 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
 
           {model.documentType === "eArchive" && artifact.companyStamp && (
             <section className="mt-4 flex justify-end">
-              <div className="w-48 text-center">
+              <div className="w-[48mm] text-center">
                 <div className="mb-0.5 text-[8px] font-semibold uppercase text-slate-500">Kaşe / İmza</div>
-                <div className="flex h-20 items-center justify-center">
-                  <img src={artifact.companyStamp} alt="Şirkət kaşesi və imzası" className="max-h-20 max-w-44 object-contain" />
+                <div className="flex h-[25mm] w-[48mm] items-center justify-center">
+                  <img src={artifact.companyStamp} alt="Şirkət kaşesi və imzası" className="max-h-[25mm] max-w-[48mm] object-contain" />
                 </div>
               </div>
             </section>
