@@ -52,6 +52,13 @@ type ActivityRow = {
   author: string;
   payment: PaymentStatus;
 };
+type ActivityEDocument = {
+  id: string;
+  sourceDocumentId?: string | number;
+  documentType?: "eInvoice" | "eArchive" | "eDespatch" | "exportInvoice";
+  status?: "draft" | "processing" | "completed" | "failed";
+  number?: string | null;
+};
 type ProductLine = {
   productId: number;
   name: string;
@@ -1278,6 +1285,7 @@ export default function ProductActivity({ isDark = false }: { isDark?: boolean }
   const [activityRows, setActivityRows] = useState<ActivityRow[]>([]);
   const [activityLines, setActivityLines] = useState<Record<number, ProductLine[]>>({});
   const [documentsById, setDocumentsById] = useState<Record<string, ApiDocument>>({});
+  const [eDocumentsBySource, setEDocumentsBySource] = useState<Record<string, ActivityEDocument[]>>({});
   const [printSettings, setPrintSettings] = useState<PrintSettings>(defaultPrintSettings);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
@@ -1311,6 +1319,29 @@ export default function ProductActivity({ isDark = false }: { isDark?: boolean }
     return () => {
       cancelled = true;
       window.removeEventListener("arix:documents-updated", loadActivity);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadEDocuments = async () => {
+      const payload = await requestJson<{ data: ActivityEDocument[] }>("/api/e-documents");
+      if (cancelled || !Array.isArray(payload.data)) return;
+      const groupedDocuments = payload.data.reduce<Record<string, ActivityEDocument[]>>((groups, document) => {
+        if (document.sourceDocumentId === undefined || document.sourceDocumentId === null) return groups;
+        const key = String(document.sourceDocumentId);
+        groups[key] = [...(groups[key] ?? []), document];
+        return groups;
+      }, {});
+      setEDocumentsBySource(groupedDocuments);
+    };
+    void loadEDocuments().catch(() => {
+      if (!cancelled) setEDocumentsBySource({});
+    });
+    window.addEventListener("arix:e-documents-updated", loadEDocuments);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("arix:e-documents-updated", loadEDocuments);
     };
   }, []);
 
@@ -1459,6 +1490,7 @@ export default function ProductActivity({ isDark = false }: { isDark?: boolean }
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <span className={cx("rounded-full px-2.5 py-1 text-xs", isDark ? "bg-white/7 text-slate-300" : "bg-slate-100 text-slate-600")}>{row.status}</span>
                       <span className={cx("rounded-full px-2.5 py-1 text-xs", isDark ? "bg-white/7 text-slate-300" : "bg-slate-100 text-slate-600")}>{row.payment}</span>
+                      {row.kind === "sale" && <EDocumentBadges documents={eDocumentsBySource[row.documentId ?? ""] ?? []} isDark={isDark} />}
                       <span className={cx("ml-auto text-xs tabular-nums", ui.subtle)}>{row.time}</span>
                     </div>
                   </button>
@@ -1484,7 +1516,7 @@ export default function ProductActivity({ isDark = false }: { isDark?: boolean }
             </thead>
             <tbody>
               {grouped.map(([date, dateRows]) => (
-                <FragmentGroup key={date} date={date} rows={dateRows} isDark={isDark} border={ui.borderSoft} rowHover={ui.rowHover} onOpen={setSelectedActivity} />
+                <FragmentGroup key={date} date={date} rows={dateRows} eDocumentsBySource={eDocumentsBySource} isDark={isDark} border={ui.borderSoft} rowHover={ui.rowHover} onOpen={setSelectedActivity} />
               ))}
             </tbody>
           </table>
@@ -2886,6 +2918,7 @@ function SectionTitle({ title, isDark }: { title: string; isDark: boolean }) {
 function FragmentGroup({
   date,
   rows,
+  eDocumentsBySource,
   isDark,
   border,
   rowHover,
@@ -2893,6 +2926,7 @@ function FragmentGroup({
 }: {
   date: string;
   rows: ActivityRow[];
+  eDocumentsBySource: Record<string, ActivityEDocument[]>;
   isDark: boolean;
   border: string;
   rowHover: string;
@@ -2918,6 +2952,11 @@ function FragmentGroup({
           <td className={cx("border-b px-4 py-3", border)}>
             <div className="font-medium text-indigo-600">{row.order}</div>
             <div className={cx("text-xs", isDark ? "text-slate-400" : "text-slate-500")}>{kindLabel(row.kind)} · {row.payment}</div>
+            {row.kind === "sale" && (
+              <div className="mt-1.5">
+                <EDocumentBadges documents={eDocumentsBySource[row.documentId ?? ""] ?? []} isDark={isDark} />
+              </div>
+            )}
           </td>
           <td className={cx("border-b px-4 py-3 tabular-nums", border)}>{row.time}</td>
           <td className={cx("border-b px-4 py-3 text-right tabular-nums", border)}>{row.items}</td>
@@ -2929,5 +2968,46 @@ function FragmentGroup({
         </tr>
       ))}
     </>
+  );
+}
+
+const eDocumentTypeLabels: Record<NonNullable<ActivityEDocument["documentType"]>, string> = {
+  eInvoice: "e-Fatura",
+  eArchive: "e-Arşiv",
+  eDespatch: "e-İrsaliye",
+  exportInvoice: "e-Fatura İhracat",
+};
+
+const eDocumentStatusLabels: Record<NonNullable<ActivityEDocument["status"]>, string> = {
+  draft: "Qaralama",
+  processing: "Göndərilir",
+  completed: "Qəbul edildi",
+  failed: "Xəta",
+};
+
+function EDocumentBadges({ documents, isDark }: { documents: ActivityEDocument[]; isDark: boolean }) {
+  if (!documents.length) {
+    return <span className={cx("inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", isDark ? "border-white/10 text-slate-500" : "border-slate-200 text-slate-400")}>e-Belgə yoxdur</span>;
+  }
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      {documents.map((document) => {
+        const status = document.status ?? "draft";
+        const label = document.documentType ? eDocumentTypeLabels[document.documentType] : "e-Belgə";
+        const color = status === "completed"
+          ? isDark ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : status === "processing"
+            ? isDark ? "border-amber-400/30 bg-amber-400/10 text-amber-300" : "border-amber-200 bg-amber-50 text-amber-700"
+            : status === "failed"
+              ? isDark ? "border-rose-400/30 bg-rose-400/10 text-rose-300" : "border-rose-200 bg-rose-50 text-rose-700"
+              : isDark ? "border-indigo-400/30 bg-indigo-400/10 text-indigo-300" : "border-indigo-200 bg-indigo-50 text-indigo-700";
+        return (
+          <span key={document.id} title={`${label} · ${eDocumentStatusLabels[status]}${document.number ? ` · ${document.number}` : ""}`} className={cx("inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", color)}>
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {label}
+          </span>
+        );
+      })}
+    </span>
   );
 }
