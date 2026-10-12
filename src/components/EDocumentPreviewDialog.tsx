@@ -61,6 +61,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
   const model = artifact.model;
   const isDespatch = model.documentType === "eDespatch";
   const isExport = model.documentType === "exportInvoice";
+  const documentLabel = isDespatch ? "İrsaliye" : "Fatura";
   const relatedDespatch = model.relatedDocuments?.find((item) => item.documentType === "eDespatch");
 
   useEffect(() => {
@@ -113,36 +114,36 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           )}
         </div>
 
-        <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[12mm] text-[11px] text-slate-900 shadow-2xl">
-          <div className={`grid ${artifact.companyLogo ? "grid-cols-4" : "grid-cols-3"} items-center gap-6 border-b-2 border-slate-900 pb-4`}>
+        <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[8mm] text-[9px] leading-tight text-slate-900 shadow-2xl">
+          <div className={`grid ${artifact.companyLogo ? "grid-cols-4" : "grid-cols-3"} items-center gap-4 border-b-2 border-slate-900 pb-2`}>
             {artifact.companyLogo && (
-              <div className="flex h-24 items-center justify-center">
-                <img src={artifact.companyLogo} alt="Şirkət loqosu" className="max-h-20 max-w-40 object-contain" />
+              <div className="flex h-20 items-center justify-center">
+                <img src={artifact.companyLogo} alt="Şirkət loqosu" className="max-h-16 max-w-36 object-contain" />
               </div>
             )}
-            <div className="flex h-24 flex-col items-center justify-center text-center">
-              <AriXLogo className="h-14 w-14" />
-              <div className="mt-1 text-sm font-medium text-slate-700">AriX</div>
+            <div className="flex h-20 flex-col items-center justify-center text-center">
+              <AriXLogo className="h-11 w-11" />
+              <div className="mt-0.5 text-[10px] font-medium text-slate-700">AriX</div>
             </div>
-            <div className="flex h-24 flex-col items-center justify-center text-center">
-              <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-16 w-20 object-contain" />
-              <div className="mt-1 text-[11px] font-bold text-slate-800">
+            <div className="flex h-20 flex-col items-center justify-center text-center">
+              <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-13 w-16 object-contain" />
+              <div className="mt-0.5 text-[9px] font-bold text-slate-800">
                 {titles[model.documentType]}
               </div>
             </div>
-            <div className="flex h-24 items-center justify-center">
-              {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-24 w-24" /> : <div className="flex h-24 w-24 items-center justify-center border text-[9px] text-slate-400">Karekod hazırlanır</div>}
+            <div className="flex h-20 items-center justify-center">
+              {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-20 w-20" /> : <div className="flex h-20 w-20 items-center justify-center border text-[8px] text-slate-400">Karekod hazırlanır</div>}
             </div>
           </div>
 
-          <div className="grid grid-cols-[1.35fr_1fr] gap-8 border-b border-slate-300 py-4">
+          <div className="grid grid-cols-[1.35fr_1fr] gap-5 border-b border-slate-300 py-2.5">
             <div className="min-w-0">
-              <div className="text-lg font-bold tracking-normal">{model.supplier.title || "Firma adı"}</div>
-              <div className="mt-2 leading-5"><b>Vergi dairesi:</b> {model.supplier.taxOffice || "-"}</div>
-              <div className="leading-5"><b>VKN/TCKN:</b> {model.supplier.taxNumber || "-"}</div>
+              <div className="text-[12px] font-bold tracking-normal">{model.supplier.title || "Firma adı"}</div>
+              <div className="mt-1 leading-4"><b>Vergi dairesi:</b> {model.supplier.taxOffice || "-"}</div>
+              <div className="leading-4"><b>VKN/TCKN:</b> {model.supplier.taxNumber || "-"}</div>
             </div>
-            <div className="leading-5">
-              <div className="mb-1 text-slate-600">{model.supplier.address}<br />{[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}</div>
+            <div className="leading-4">
+              <div className="mb-0.5 text-slate-600">{model.supplier.address}<br />{[model.supplier.district, model.supplier.city].filter(Boolean).join(" / ")} {model.supplier.postalCode}</div>
               {model.supplier.phone && <div className="text-slate-600">Tel: {model.supplier.phone}</div>}
               {model.supplier.fax && <div className="text-slate-600">Faks: {model.supplier.fax}</div>}
               {model.supplier.website && <div className="text-slate-600">Web: {model.supplier.website}</div>}
@@ -150,23 +151,25 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-6">
+          <div className="mt-2.5 grid grid-cols-2 gap-4">
             <section>
-              <div className="text-[9px] font-bold uppercase text-slate-500">Alıcı</div>
-              <div className="mt-1 text-base font-bold">{model.buyer.name || "-"}</div>
-              <div className="mt-2 leading-5 text-slate-600">{model.buyer.address || "Adres eklenmemiş"}</div>
+              <div className="text-[8px] font-bold uppercase text-slate-500">Alıcı</div>
+              <div className="mt-0.5 text-[11px] font-bold">{model.buyer.name || "-"}</div>
+              <div className="mt-1 leading-4 text-slate-600">{model.buyer.address || "Adres eklenmemiş"}</div>
               {model.buyer.email && <div className="text-slate-600">{model.buyer.email}</div>}
               {model.buyer.phone && <div className="text-slate-600">Tel: {model.buyer.phone}</div>}
               {model.buyer.fax && <div className="text-slate-600">Faks: {model.buyer.fax}</div>}
-              <div className="mt-2"><b>VKN/TCKN:</b> {model.buyer.originalTaxNumber || model.buyer.taxNumber || "-"}</div>
+              <div className="mt-1"><b>VKN/TCKN:</b> {model.buyer.originalTaxNumber || model.buyer.taxNumber || "-"}</div>
               {model.buyer.taxOffice && <div><b>Vergi dairesi:</b> {model.buyer.taxOffice}</div>}
             </section>
             <section className="ml-auto w-full min-w-64 border-l border-t border-slate-300">
-              <Meta label="Belge no" value={model.number || "Taslak"} />
               <Meta label="ETTN" value={model.uuid || "-"} breakAll />
-              <Meta label="Düzenleme tarihi" value={`${model.issueDate} ${model.issueTime}`} />
+              <Meta label="Özelleştirme no" value={model.customizationId || "-"} />
               <Meta label="Senaryo" value={model.profileId} />
-              <Meta label="Belge tipi" value={model.typeCode} />
+              <Meta label={`${documentLabel} tipi`} value={model.typeCode} />
+              <Meta label={`${documentLabel} no`} value={model.number || "Taslak"} />
+              <Meta label={`${documentLabel} tarihi`} value={model.issueDate || "-"} />
+              <Meta label="Oluşturma zamanı" value={model.issueTime || "-"} />
               {relatedDespatch && <Meta label="İrsaliye no" value={relatedDespatch.number || "-"} />}
               {relatedDespatch && <Meta label="İrsaliye tarihi" value={relatedDespatch.issueDate?.slice(0, 10) || "-"} />}
               {!isDespatch && <Meta label="Para birimi" value={model.currency} />}
@@ -174,7 +177,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           </div>
 
           {isDespatch && (
-            <div className="mt-4 grid grid-cols-2 border-l border-t border-slate-300 bg-slate-50">
+            <div className="mt-2.5 grid grid-cols-2 border-l border-t border-slate-300 bg-slate-50">
               <Meta label="Fiili sevk tarihi" value={model.shipment.actualDespatchDate || "-"} />
               <Meta label="Fiili sevk zamanı" value={model.shipment.actualDespatchTime || "-"} />
               <Meta label="Taşıyıcı" value={model.shipment.carrierName || "-"} />
@@ -185,7 +188,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           )}
 
           {isExport && (
-            <div className="mt-4 grid grid-cols-2 border-l border-t border-slate-300 bg-slate-50">
+            <div className="mt-2.5 grid grid-cols-2 border-l border-t border-slate-300 bg-slate-50">
               <Meta label="Gömrük alıcısı" value={model.accountingCustomer ? `${model.accountingCustomer.title} · ${model.accountingCustomer.taxNumber}` : "-"} />
               <Meta label="Xarici alıcı" value={model.buyer.registrationName || model.buyer.name || "-"} />
               <Meta label="Incoterms" value={model.exportDetails?.incoterm || "-"} />
@@ -195,35 +198,35 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </div>
           )}
 
-          <table className="mt-6 w-full border-collapse leading-tight">
+          <table className="mt-3.5 w-full border-collapse text-[8px] leading-tight">
             <thead>
               <tr className="bg-slate-900 text-white">
-                <th className="border border-slate-700 px-1.5 py-1 text-left">#</th>
-                <th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-left">Mal / Hizmet</th>
-                <th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-left">Kod</th>
-                {isExport && <th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-left">GTİP</th>}
-                <th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">Miktar</th>
-                {isDespatch && <><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-left">Etiket numarası</th><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">Sonra gönderilecek</th></>}
-                {!isDespatch && <><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">Birim fiyat</th><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">KDV oranı</th><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">KDV tutarı</th><th className="whitespace-nowrap border border-slate-700 px-1.5 py-1 text-right">Tutar</th></>}
+                <th className="border border-slate-700 px-1 py-0.5 text-left">#</th>
+                <th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-left">Mal / Hizmet</th>
+                <th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-left">Kod</th>
+                {isExport && <th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-left">GTİP</th>}
+                <th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-right">Miktar</th>
+                {isDespatch && <><th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-left">Etiket numarası</th><th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-right">Sonra gönderilecek</th></>}
+                {!isDespatch && <><th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-right">Birim fiyat</th><th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-right">KDV oranı</th><th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-right">KDV tutarı</th><th className="whitespace-nowrap border border-slate-700 px-1 py-0.5 text-right">Tutar</th></>}
               </tr>
             </thead>
             <tbody>
               {model.lines.map((line) => (
                 <tr key={line.id}>
-                  <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1">{line.id}</td>
-                  <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 font-medium">{line.name}</td>
-                  <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1">{line.code || "-"}</td>
-                  {isExport && <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1">{line.gtip || "-"}</td>}
-                  <td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">{formatQuantity(line.quantity)} {line.unit}</td>
-                  {isDespatch && <><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1">{line.labelNumber || "-"}</td><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">{line.outstandingQuantity ? `${formatQuantity(line.outstandingQuantity)} ${line.unit}` : "-"}</td></>}
-                  {!isDespatch && <><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">{formatMoney(line.unitPrice, model.currency)}</td><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">%{line.taxRate}</td><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right">{formatMoney(line.taxAmount, model.currency)}</td><td className="whitespace-nowrap border border-slate-300 px-1.5 py-1 text-right font-semibold">{formatMoney(line.extensionAmount, model.currency)}</td></>}
+                  <td className="whitespace-nowrap border border-slate-300 px-1 py-0.5">{line.id}</td>
+                  <td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 font-medium">{line.name}</td>
+                  <td className="whitespace-nowrap border border-slate-300 px-1 py-0.5">{line.code || "-"}</td>
+                  {isExport && <td className="whitespace-nowrap border border-slate-300 px-1 py-0.5">{line.gtip || "-"}</td>}
+                  <td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 text-right">{formatQuantity(line.quantity)} {line.unit}</td>
+                  {isDespatch && <><td className="whitespace-nowrap border border-slate-300 px-1 py-0.5">{line.labelNumber || "-"}</td><td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 text-right">{line.outstandingQuantity ? `${formatQuantity(line.outstandingQuantity)} ${line.unit}` : "-"}</td></>}
+                  {!isDespatch && <><td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 text-right">{formatMoney(line.unitPrice, model.currency)}</td><td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 text-right">%{line.taxRate}</td><td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 text-right">{formatMoney(line.taxAmount, model.currency)}</td><td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 text-right font-semibold">{formatMoney(line.extensionAmount, model.currency)}</td></>}
                 </tr>
               ))}
             </tbody>
           </table>
 
           {!isDespatch && (
-            <div className="mt-5 ml-auto w-full max-w-80 space-y-2 border-t-2 border-slate-900 pt-3">
+            <div className="mt-3 ml-auto w-full max-w-80 space-y-1 border-t-2 border-slate-900 pt-2">
               <Total label="Mal / hizmet toplamı" value={formatMoney(model.totals.goodsTotal, model.currency)} />
               <Total label="Toplam iskonto" value={formatMoney(model.totals.discountTotal, model.currency)} />
               {model.taxBreakdown.map((tax) => <Total key={tax.rate} label={`Hesaplanan KDV (%${tax.rate})`} value={formatMoney(tax.taxAmount, model.currency)} />)}
@@ -233,25 +236,25 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           )}
 
           {isDespatch && model.relatedDocuments?.length ? (
-            <section className="mt-8">
-              <div className="mb-2 text-sm font-bold">İlgili Dokümanlar</div>
+            <section className="mt-4">
+              <div className="mb-1 text-[10px] font-bold">İlgili Dokümanlar</div>
               <table className="w-full border-collapse">
-                <thead><tr className="bg-slate-100"><th className="border border-slate-300 px-2 py-1 text-left">Doküman no</th><th className="border border-slate-300 px-2 py-1 text-left">Tarih</th><th className="border border-slate-300 px-2 py-1 text-left">Doküman tipi</th></tr></thead>
-                <tbody>{model.relatedDocuments.map((item) => <tr key={`${item.documentType}-${item.number}`}><td className="border border-slate-300 px-2 py-1">{item.number || "-"}</td><td className="border border-slate-300 px-2 py-1">{item.issueDate?.slice(0, 10) || "-"}</td><td className="border border-slate-300 px-2 py-1">{titles[item.documentType as keyof typeof titles] || item.documentType}</td></tr>)}</tbody>
+                <thead><tr className="bg-slate-100"><th className="border border-slate-300 px-1.5 py-0.5 text-left">Doküman no</th><th className="border border-slate-300 px-1.5 py-0.5 text-left">Tarih</th><th className="border border-slate-300 px-1.5 py-0.5 text-left">Doküman tipi</th></tr></thead>
+                <tbody>{model.relatedDocuments.map((item) => <tr key={`${item.documentType}-${item.number}`}><td className="border border-slate-300 px-1.5 py-0.5">{item.number || "-"}</td><td className="border border-slate-300 px-1.5 py-0.5">{item.issueDate?.slice(0, 10) || "-"}</td><td className="border border-slate-300 px-1.5 py-0.5">{titles[item.documentType as keyof typeof titles] || item.documentType}</td></tr>)}</tbody>
               </table>
             </section>
           ) : null}
 
           {isDespatch && (
-            <div className="mt-6 grid grid-cols-2 border border-slate-300">
-              <section className="border-r border-slate-300 p-3">
+            <div className="mt-4 grid grid-cols-2 border border-slate-300">
+              <section className="border-r border-slate-300 p-2">
                 <div className="font-bold">Açıklamalar</div>
-                <div className="mt-2"><b>Asıl alıcı:</b> {model.buyer.name || "-"}</div>
+                <div className="mt-1"><b>Asıl alıcı:</b> {model.buyer.name || "-"}</div>
                 <div>{model.shipment.deliveryAddress || model.buyer.address || "-"}</div>
               </section>
-              <section className="p-3">
+              <section className="p-2">
                 <div className="font-bold">Taşıyıcı Bilgileri</div>
-                <div className="mt-2"><b>Taşıyıcı:</b> {model.shipment.carrierName || "-"}</div>
+                <div className="mt-1"><b>Taşıyıcı:</b> {model.shipment.carrierName || "-"}</div>
                 <div><b>Araç plakası:</b> {model.shipment.plate || "-"}</div>
                 <div><b>Şoför:</b> {[model.shipment.driverFirstName, model.shipment.driverLastName].filter(Boolean).join(" ") || "-"}{model.shipment.driverNationalId ? ` · TCKN: ${model.shipment.driverNationalId}` : ""}</div>
               </section>
@@ -259,30 +262,30 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
           )}
 
           {!isDespatch && model.supplier.bankAccounts?.length ? (
-            <section className="mt-8">
-              <div className="mb-2 text-sm font-bold">Banka Hesapları</div>
+            <section className="mt-4">
+              <div className="mb-1 text-[10px] font-bold">Banka Hesapları</div>
               <table className="w-full border-collapse">
-                <thead><tr className="bg-slate-100"><th className="border border-slate-300 px-2 py-1 text-left">Banka</th><th className="border border-slate-300 px-2 py-1 text-left">Para birimi</th><th className="border border-slate-300 px-2 py-1 text-left">IBAN</th></tr></thead>
-                <tbody>{model.supplier.bankAccounts.map((account) => <tr key={`${account.bank}-${account.currency}-${account.iban}`}><td className="border border-slate-300 px-2 py-1">{account.bank}</td><td className="border border-slate-300 px-2 py-1">{account.currency}</td><td className="border border-slate-300 px-2 py-1">{account.iban}</td></tr>)}</tbody>
+                <thead><tr className="bg-slate-100"><th className="border border-slate-300 px-1.5 py-0.5 text-left">Banka</th><th className="border border-slate-300 px-1.5 py-0.5 text-left">Para birimi</th><th className="border border-slate-300 px-1.5 py-0.5 text-left">IBAN</th></tr></thead>
+                <tbody>{model.supplier.bankAccounts.map((account) => <tr key={`${account.bank}-${account.currency}-${account.iban}`}><td className="border border-slate-300 px-1.5 py-0.5">{account.bank}</td><td className="border border-slate-300 px-1.5 py-0.5">{account.currency}</td><td className="border border-slate-300 px-1.5 py-0.5">{account.iban}</td></tr>)}</tbody>
               </table>
             </section>
           ) : null}
 
-          <section className="mt-6 border border-slate-300">
-            <div className="grid grid-cols-[140px_1fr] leading-tight">
-              <div className="border-r border-slate-300 bg-slate-100 px-2 py-2 font-bold">
+          <section className="mt-4 border border-slate-300">
+            <div className="grid grid-cols-[110px_1fr] leading-tight">
+              <div className="border-r border-slate-300 bg-slate-100 px-1.5 py-1 font-bold">
                 {isDespatch ? "İrsaliye Açıklaması" : "Fatura Açıklaması"}
               </div>
-              <div className="whitespace-pre-line px-2 py-2">{model.note || "-"}</div>
+              <div className="whitespace-pre-line px-1.5 py-1">{model.note || "-"}</div>
             </div>
           </section>
 
           {model.documentType === "eArchive" && artifact.companyStamp && (
-            <section className="mt-6 flex justify-end">
+            <section className="mt-4 flex justify-end">
               <div className="w-48 text-center">
-                <div className="mb-1 text-[9px] font-semibold uppercase text-slate-500">Kaşe / İmza</div>
-                <div className="flex h-24 items-center justify-center">
-                  <img src={artifact.companyStamp} alt="Şirkət kaşesi və imzası" className="max-h-24 max-w-48 object-contain" />
+                <div className="mb-0.5 text-[8px] font-semibold uppercase text-slate-500">Kaşe / İmza</div>
+                <div className="flex h-20 items-center justify-center">
+                  <img src={artifact.companyStamp} alt="Şirkət kaşesi və imzası" className="max-h-20 max-w-44 object-contain" />
                 </div>
               </div>
             </section>
@@ -296,9 +299,9 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
 }
 
 function Meta({ label, value, breakAll = false }: { label: string; value: string; breakAll?: boolean }) {
-  return <div className="grid min-w-0 grid-cols-[112px_1fr] gap-2 border-b border-r border-slate-300 px-2 py-1 leading-tight"><span className="whitespace-nowrap font-semibold text-slate-500">{label}</span><span className={breakAll ? "break-all text-[9px]" : "min-w-0 break-words"}>{value}</span></div>;
+  return <div className="grid min-w-0 grid-cols-[96px_1fr] gap-1.5 border-b border-r border-slate-300 px-1.5 py-0.5 leading-tight"><span className="whitespace-nowrap font-semibold text-slate-500">{label}</span><span className={breakAll ? "break-all text-[8px]" : "min-w-0 break-words"}>{value}</span></div>;
 }
 
 function Total({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
-  return <div className={`flex items-center justify-between gap-4 ${strong ? "border-t border-slate-400 pt-2 text-sm font-bold" : ""}`}><span>{label}</span><span>{value}</span></div>;
+  return <div className={`flex items-center justify-between gap-4 ${strong ? "border-t border-slate-400 pt-1 text-[10px] font-bold" : ""}`}><span>{label}</span><span>{value}</span></div>;
 }
