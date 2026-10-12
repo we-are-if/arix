@@ -113,16 +113,15 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
         </div>
 
         <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[12mm] text-[11px] text-slate-900 shadow-2xl">
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-6 border-b-2 border-slate-900 pb-4">
-            <div className="flex h-24 min-w-0 items-center justify-start gap-4">
+          <div className="grid grid-cols-4 items-center gap-6 border-b-2 border-slate-900 pb-4">
+            <div className="flex h-24 items-center justify-center">
               {artifact.companyLogo
-                ? <img src={artifact.companyLogo} alt="Şirkət loqosu" className="max-h-16 max-w-32 object-contain" />
-                : <div className="max-w-32 text-center text-sm font-black uppercase leading-tight text-slate-800">{model.supplier.title || "Şirkət"}</div>}
-              <div className="h-14 w-px shrink-0 bg-slate-200" />
-              <div className="flex shrink-0 flex-col items-center justify-center text-center">
-                <AriXLogo className="h-12 w-12" />
-                <div className="mt-0.5 text-xs font-medium text-slate-700">AriX</div>
-              </div>
+                ? <img src={artifact.companyLogo} alt="Şirkət loqosu" className="max-h-20 max-w-40 object-contain" />
+                : <div className="max-w-40 text-center text-base font-black uppercase leading-tight text-slate-800">{model.supplier.title || "Şirkət"}</div>}
+            </div>
+            <div className="flex h-24 flex-col items-center justify-center text-center">
+              <AriXLogo className="h-14 w-14" />
+              <div className="mt-1 text-sm font-medium text-slate-700">AriX</div>
             </div>
             <div className="flex h-24 flex-col items-center justify-center text-center">
               <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-16 w-20 object-contain" />
@@ -130,7 +129,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
                 {titles[model.documentType]}
               </div>
             </div>
-            <div className="flex h-24 items-center justify-end">
+            <div className="flex h-24 items-center justify-center">
               {qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-24 w-24" /> : <div className="flex h-24 w-24 items-center justify-center border text-[9px] text-slate-400">Karekod hazırlanır</div>}
             </div>
           </div>
