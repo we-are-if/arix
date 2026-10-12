@@ -9,6 +9,7 @@ import {
   credentialStatus,
   defaultEDocumentSettings,
   normalizeEDocumentSettings,
+  resolveEDocumentSupplier,
   resolveEDocumentPlan,
   testEDocumentConnection,
   validateEDocumentForSending,
@@ -161,6 +162,51 @@ test("builds GIB QR fields and UBL-TR invoice from the same snapshot", () => {
   assert.match(xml, /<cac:PaymentMeans><cbc:PaymentMeansCode>42<\/cbc:PaymentMeansCode>/);
   const invoiceXslt = Buffer.from(xml.match(/<cbc:EmbeddedDocumentBinaryObject[^>]*>([^<]+)<\/cbc:EmbeddedDocumentBinaryObject>/)?.[1] ?? "", "base64").toString("utf8");
   assert.match(invoiceXslt, /<title>e-Belge<\/title>/);
+});
+
+test("fills legacy draft supplier details from current company settings before sending", () => {
+  const settings = normalizeEDocumentSettings({
+    company: {
+      title: "Current Company Ltd.",
+      taxNumber: "1234567890",
+      taxOffice: "Halkalı",
+      address: "Current address",
+      city: "İstanbul",
+      phone: "+90 212 000 00 00",
+      email: "info@example.com",
+      website: "https://example.com",
+    },
+  });
+  const draft = buildEDocumentDraft({
+    id: "legacy-draft",
+    documentType: "eInvoice",
+    sourceDocument: {
+      id: "sale-legacy",
+      counterpartyName: "Buyer Ltd.",
+      counterpartyTaxNumber: "1111111111",
+      lines: [{ name: "Folyo", qty: 1, unit: "mt", price: 10 }],
+      eDocumentSupplier: { title: "", phone: "" },
+    },
+  });
+
+  const supplier = resolveEDocumentSupplier(draft, settings);
+  const model = buildGibDocumentModel(draft, settings);
+  assert.equal(supplier.title, "Current Company Ltd.");
+  assert.equal(model.supplier.phone, "+90 212 000 00 00");
+  assert.equal(model.supplier.website, "https://example.com");
+});
+
+test("keeps completed document supplier snapshot immutable", () => {
+  const completed = {
+    status: "completed",
+    snapshot: { supplier: { title: "Original Company", phone: "111" } },
+  };
+  const supplier = resolveEDocumentSupplier(completed, {
+    ...defaultEDocumentSettings,
+    company: { ...defaultEDocumentSettings.company, title: "Changed Company", phone: "222" },
+  });
+  assert.equal(supplier.title, "Original Company");
+  assert.equal(supplier.phone, "111");
 });
 
 test("builds e-İrsaliye QR shipment fields", () => {

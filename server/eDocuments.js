@@ -356,6 +356,22 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, createdA
   };
 }
 
+export function resolveEDocumentSupplier(document, settings = defaultEDocumentSettings) {
+  const normalized = normalizeEDocumentSettings(settings);
+  const snapshotSupplier = document?.snapshot?.supplier;
+  if (document?.status === "completed") return snapshotSupplier ?? normalized.company;
+
+  const enteredSnapshotValues = Object.fromEntries(Object.entries(snapshotSupplier ?? {}).filter(([, value]) => {
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "string") return value.trim().length > 0;
+    return value !== null && value !== undefined;
+  }));
+  return {
+    ...normalized.company,
+    ...enteredSnapshotValues,
+  };
+}
+
 const gibProfiles = {
   eInvoice: "TEMELFATURA",
   eArchive: "EARSIVFATURA",
@@ -450,7 +466,7 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
   const normalized = normalizeEDocumentSettings(settings);
   const snapshot = document.snapshot;
   const issue = dateParts(snapshot.documentDate ?? document.createdAt);
-  const supplier = snapshot.supplier ?? normalized.company;
+  const supplier = resolveEDocumentSupplier(document, normalized);
   const buyer = snapshot.counterparty ?? {};
   const isExport = document.documentType === "exportInvoice";
   const isExportDespatch = document.documentType === "eDespatch" && (snapshot.saleMode === "export" || snapshot.exportMode === true);

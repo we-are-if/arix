@@ -16,6 +16,7 @@ import {
   normalizeEDocumentSettings,
   normalizeEDocumentStore,
   publicEDocumentSettings,
+  resolveEDocumentSupplier,
   resolveEDocumentPlan,
   testEDocumentConnection,
   validateEDocumentForSending,
@@ -991,6 +992,7 @@ async function handleEDocuments(req, res, url, parts) {
       return send(res, 501, { error: "Seçilmiş provayderin canlı göndəriş adapteri hələ aktiv deyil. Test göndərişi üçün AriX Test seçin." });
     }
     const sentAt = new Date().toISOString();
+    document.snapshot.supplier = resolveEDocumentSupplier(document, db.companySettings.eDocumentSettings);
     document.status = "completed";
     document.number ||= nextEDocumentNumber(db, document.documentType, db.companySettings.eDocumentSettings, new Date(sentAt));
     document.uuid ||= randomUUID();
