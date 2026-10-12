@@ -846,17 +846,18 @@ async function handleEDocuments(req, res, url, parts) {
     const document = db.eDocuments.documents.find((item) => String(item.id) === String(action));
     if (!document) return send(res, 404, { error: "e-Belge tapılmadı." });
     try {
-      const model = buildGibDocumentModel(document, db.companySettings.eDocumentSettings);
-      model.relatedDocuments = db.eDocuments.documents
+      const relatedDocuments = db.eDocuments.documents
         .filter((item) => item.id !== document.id && String(item.sourceDocumentId) === String(document.sourceDocumentId))
         .map((item) => ({
           documentType: item.documentType,
           number: item.number ?? "",
           issueDate: item.snapshot?.documentDate ?? item.createdAt ?? "",
         }));
-      const qrPayload = buildGibQrPayload(document, db.companySettings.eDocumentSettings);
-      const xml = buildUblTrXml(document, db.companySettings.eDocumentSettings);
-      const compliance = buildGibComplianceReport(document, db.companySettings.eDocumentSettings);
+      const artifactDocument = { ...document, relatedDocuments };
+      const model = buildGibDocumentModel(artifactDocument, db.companySettings.eDocumentSettings);
+      const qrPayload = buildGibQrPayload(artifactDocument, db.companySettings.eDocumentSettings);
+      const xml = buildUblTrXml(artifactDocument, db.companySettings.eDocumentSettings);
+      const compliance = buildGibComplianceReport(artifactDocument, db.companySettings.eDocumentSettings);
       return send(res, 200, { data: { model, qrPayload, qrText: JSON.stringify(qrPayload), xml, compliance, draft: document.status !== "completed" } });
     } catch (error) {
       return send(res, 409, { error: error instanceof Error ? error.message : "GİB sənədi hazırlana bilmədi." });

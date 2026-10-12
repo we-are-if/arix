@@ -8,7 +8,7 @@ type EDocumentSettings = {
   enabled: boolean;
   provider: ProviderId;
   environment: Environment;
-  company: { title: string; taxNumber: string; taxOffice: string; country: string; address: string; city: string; district: string; postalCode: string; email: string; phone: string };
+  company: { title: string; taxNumber: string; taxOffice: string; country: string; address: string; city: string; district: string; postalCode: string; email: string; phone: string; fax: string; website: string; bankAccounts: Array<{ bank: string; currency: string; iban: string }> };
   aliases: { sender: string; receiver: string; despatch: string };
   modules: { eInvoice: boolean; eArchive: boolean; eDespatch: boolean; exportInvoice: boolean; storage: boolean };
   series: { eInvoice: string; eArchive: string; eDespatch: string; exportInvoice: string };
@@ -42,7 +42,7 @@ const defaults: EDocumentSettings = {
   enabled: false,
   provider: "mock",
   environment: "test",
-  company: { title: "", taxNumber: "", taxOffice: "", country: "TR", address: "", city: "", district: "", postalCode: "", email: "", phone: "" },
+  company: { title: "", taxNumber: "", taxOffice: "", country: "TR", address: "", city: "", district: "", postalCode: "", email: "", phone: "", fax: "", website: "", bankAccounts: [] },
   aliases: { sender: "", receiver: "", despatch: "" },
   modules: { eInvoice: true, eArchive: true, eDespatch: true, exportInvoice: true, storage: true },
   series: { eInvoice: "EAR", eArchive: "ARS", eDespatch: "IRS", exportInvoice: "IHR" },
@@ -167,6 +167,8 @@ export default function EDocumentsSettings({
 
   const patchCompany = (patch: Partial<EDocumentSettings["company"]>) =>
     setSettings((current) => ({ ...current, company: { ...current.company, ...patch } }));
+  const patchBankAccount = (index: number, patch: Partial<EDocumentSettings["company"]["bankAccounts"][number]>) =>
+    patchCompany({ bankAccounts: settings.company.bankAccounts.map((account, accountIndex) => accountIndex === index ? { ...account, ...patch } : account) });
   const patchAliases = (patch: Partial<EDocumentSettings["aliases"]>) =>
     setSettings((current) => ({ ...current, aliases: { ...current.aliases, ...patch } }));
   const patchSeries = (patch: Partial<EDocumentSettings["series"]>) =>
@@ -293,9 +295,31 @@ export default function EDocumentsSettings({
           </div>
           <Field label="Telefon"><input className={input} value={settings.company.phone} onChange={(event) => patchCompany({ phone: event.target.value })} /></Field>
           <Field label="E-poçt"><input className={input} value={settings.company.email} onChange={(event) => patchCompany({ email: event.target.value })} type="email" /></Field>
+          <Field label="Faks"><input className={input} value={settings.company.fax} onChange={(event) => patchCompany({ fax: event.target.value })} /></Field>
+          <Field label="Vebsayt"><input className={input} value={settings.company.website} onChange={(event) => patchCompany({ website: event.target.value })} placeholder="https://..." /></Field>
           <Field label="Göndərən birim etiketi"><input className={input} value={settings.aliases.sender} onChange={(event) => patchAliases({ sender: event.target.value })} placeholder="urn:mail:defaultgb@firma.com.tr" /></Field>
           <Field label="Posta qutusu etiketi"><input className={input} value={settings.aliases.receiver} onChange={(event) => patchAliases({ receiver: event.target.value })} placeholder="urn:mail:defaultpk@firma.com.tr" /></Field>
           <Field label="e-İrsaliye etiketi"><input className={input} value={settings.aliases.despatch} onChange={(event) => patchAliases({ despatch: event.target.value })} placeholder="urn:mail:defaultpk@firma.com.tr" /></Field>
+        </div>
+        <div className={cx("mt-5 rounded-xl border p-4", border)}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Faturada göstəriləcək bank hesabları</div>
+              <div className={cx("mt-1 text-xs", subtle)}>Yalnız məlumatı doldurulan hesablar e-Fatura önizləməsində görünür.</div>
+            </div>
+            <button type="button" onClick={() => patchCompany({ bankAccounts: [...settings.company.bankAccounts, { bank: "", currency: "TRY", iban: "" }] })} className={cx("h-9 rounded-lg border px-3 text-sm font-semibold", border)}>Hesab əlavə et</button>
+          </div>
+          <div className="mt-3 space-y-3">
+            {settings.company.bankAccounts.map((account, index) => (
+              <div key={index} className="grid gap-2 md:grid-cols-[1fr_110px_1.6fr_auto]">
+                <input aria-label={`Bank ${index + 1}`} className={input} value={account.bank} onChange={(event) => patchBankAccount(index, { bank: event.target.value })} placeholder="Bank adı" />
+                <input aria-label={`Valyuta ${index + 1}`} className={input} value={account.currency} onChange={(event) => patchBankAccount(index, { currency: event.target.value.toUpperCase().slice(0, 3) })} placeholder="TRY" />
+                <input aria-label={`IBAN ${index + 1}`} className={input} value={account.iban} onChange={(event) => patchBankAccount(index, { iban: event.target.value.toUpperCase() })} placeholder="TR..." />
+                <button type="button" aria-label={`Bank hesabını sil ${index + 1}`} onClick={() => patchCompany({ bankAccounts: settings.company.bankAccounts.filter((_, accountIndex) => accountIndex !== index) })} className="h-11 rounded-lg border border-rose-200 px-3 text-sm font-semibold text-rose-600">Sil</button>
+              </div>
+            ))}
+            {!settings.company.bankAccounts.length && <div className={cx("text-sm", subtle)}>Bank hesabı əlavə edilməyib.</div>}
+          </div>
         </div>
       </section>
 

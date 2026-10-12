@@ -18,6 +18,9 @@ export const defaultEDocumentSettings = {
     postalCode: "",
     email: "",
     phone: "",
+    fax: "",
+    website: "",
+    bankAccounts: [],
   },
   aliases: {
     sender: "",
@@ -75,6 +78,16 @@ export function normalizeEDocumentSettings(value = {}) {
       postalCode: cleanText(company.postalCode),
       email: cleanText(company.email),
       phone: cleanText(company.phone),
+      fax: cleanText(company.fax),
+      website: cleanText(company.website),
+      bankAccounts: (Array.isArray(company.bankAccounts) ? company.bankAccounts : [])
+        .slice(0, 12)
+        .map((account) => ({
+          bank: cleanText(account?.bank).slice(0, 120),
+          currency: cleanText(account?.currency, "TRY").toUpperCase().slice(0, 3),
+          iban: cleanText(account?.iban).replace(/\s/g, "").toUpperCase().slice(0, 34),
+        }))
+        .filter((account) => account.bank || account.iban),
     },
     aliases: {
       sender: cleanText(aliases.sender),
@@ -299,6 +312,7 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, createdA
         companyId: sourceDocument.counterpartyCompanyId ?? sourceDocument.counterpartyTaxNumber ?? "",
         email: sourceDocument.counterpartyEmail ?? "",
         phone: sourceDocument.counterpartyPhone ?? "",
+        fax: sourceDocument.counterpartyFax ?? "",
       },
       shipment: {
         actualDespatchDate: sourceDocument.shipment?.actualDespatchDate ?? "",
@@ -335,6 +349,8 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, createdA
         taxRate: Number(line.taxRate ?? line.vatRate ?? 0),
         total: Number(line.total ?? 0),
         gtip: String(line.gtip ?? line.customsCode ?? ""),
+        labelNumber: String(line.labelNumber ?? line.label ?? line.barcode ?? ""),
+        outstandingQuantity: Number(line.outstandingQuantity ?? line.remainingToSend ?? 0),
       })),
     },
   };
@@ -467,6 +483,8 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       extensionAmount,
       taxAmount: decimal(extensionAmount * taxRate / 100),
       gtip: normalizeGtip(snapshot.exportDetails?.gtips?.[String(index + 1)] ?? line.gtip),
+      labelNumber: cleanText(line.labelNumber),
+      outstandingQuantity: Math.max(0, decimal(line.outstandingQuantity)),
     };
   });
   const goodsTotal = decimal(lines.reduce((sum, line) => sum + line.extensionAmount, 0));
@@ -502,6 +520,9 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       postalCode: supplier.postalCode ?? "",
       email: supplier.email ?? "",
       phone: supplier.phone ?? "",
+      fax: supplier.fax ?? "",
+      website: supplier.website ?? "",
+      bankAccounts: Array.isArray(supplier.bankAccounts) ? supplier.bankAccounts : [],
     },
     buyer: {
       name: buyer.name ?? "",
@@ -518,6 +539,7 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       companyId: buyer.companyId ?? buyer.taxNumber ?? "",
       email: buyer.email ?? "",
       phone: buyer.phone ?? "",
+      fax: buyer.fax ?? "",
     },
     accountingCustomer: isExport ? customsAuthority : null,
     shipment: {
@@ -543,6 +565,7 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       qr: "GİB Karekod Standardı v1.2",
       signature: "XAdES-BES",
     },
+    relatedDocuments: Array.isArray(document.relatedDocuments) ? document.relatedDocuments : [],
   };
 }
 
@@ -598,6 +621,7 @@ function deliveryAddressXml(party, overrideAddress = "") {
 
 function partyXml(tag, party, options = {}) {
   const title = party.title ?? party.name ?? party.registrationName ?? "";
+  const website = party.website ? `<cbc:WebsiteURI>${xmlEscape(party.website)}</cbc:WebsiteURI>` : "";
   const identification = options.exportBuyer
     ? `<cac:PartyIdentification><cbc:ID schemeID="PARTYTYPE">EXPORT</cbc:ID></cac:PartyIdentification>`
     : `<cac:PartyIdentification><cbc:ID schemeID="${partyIdScheme(party.taxNumber)}">${xmlEscape(party.taxNumber)}</cbc:ID></cac:PartyIdentification>`;
@@ -605,7 +629,21 @@ function partyXml(tag, party, options = {}) {
   const legal = options.exportBuyer
     ? `<cac:PartyLegalEntity><cbc:RegistrationName>${xmlEscape(party.registrationName || title)}</cbc:RegistrationName><cbc:CompanyID>${xmlEscape(party.companyId)}</cbc:CompanyID></cac:PartyLegalEntity>`
     : "";
-  return `<cac:${tag}><cac:Party>${identification}<cac:PartyName><cbc:Name>${xmlEscape(title)}</cbc:Name></cac:PartyName>${postalAddressXml(party)}${tax}${legal}<cac:Contact><cbc:Telephone>${xmlEscape(party.phone)}</cbc:Telephone><cbc:ElectronicMail>${xmlEscape(party.email)}</cbc:ElectronicMail></cac:Contact></cac:Party></cac:${tag}>`;
+  return `<cac:${tag}><cac:Party>${website}${identification}<cac:PartyName><cbc:Name>${xmlEscape(title)}</cbc:Name></cac:PartyName>${postalAddressXml(party)}${tax}${legal}<cac:Contact><cbc:Telephone>${xmlEscape(party.phone)}</cbc:Telephone><cbc:Telefax>${xmlEscape(party.fax)}</cbc:Telefax><cbc:ElectronicMail>${xmlEscape(party.email)}</cbc:ElectronicMail></cac:Contact></cac:Party></cac:${tag}>`;
+}
+
+function relatedDocumentsXml(model) {
+  return (model.relatedDocuments ?? []).filter((item) => cleanText(item.number)).map((item) => {
+    const date = dateParts(item.issueDate).date;
+    if (model.documentType !== "eDespatch" && item.documentType === "eDespatch") {
+      return `<cac:DespatchDocumentReference><cbc:ID>${xmlEscape(item.number)}</cbc:ID><cbc:IssueDate>${date}</cbc:IssueDate></cac:DespatchDocumentReference>`;
+    }
+    return `<cac:AdditionalDocumentReference><cbc:ID>${xmlEscape(item.number)}</cbc:ID><cbc:IssueDate>${date}</cbc:IssueDate><cbc:DocumentType>${xmlEscape(item.documentType)}</cbc:DocumentType></cac:AdditionalDocumentReference>`;
+  }).join("");
+}
+
+function paymentMeansXml(model) {
+  return (model.supplier.bankAccounts ?? []).filter((account) => cleanText(account.iban)).map((account) => `<cac:PaymentMeans><cbc:PaymentMeansCode>42</cbc:PaymentMeansCode><cac:PayeeFinancialAccount><cbc:ID schemeID="IBAN">${xmlEscape(account.iban)}</cbc:ID><cbc:CurrencyCode>${xmlEscape(account.currency)}</cbc:CurrencyCode><cac:FinancialInstitutionBranch><cbc:Name>${xmlEscape(account.bank)}</cbc:Name></cac:FinancialInstitutionBranch></cac:PayeeFinancialAccount></cac:PaymentMeans>`).join("");
 }
 
 function signatureReferenceXml(model) {
@@ -678,7 +716,7 @@ export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
 
   if (document.documentType === "eDespatch") {
     const lines = model.lines.map((line) => `<cac:DespatchLine><cbc:ID>${line.id}</cbc:ID><cbc:DeliveredQuantity unitCode="${line.unitCode}">${line.quantity}</cbc:DeliveredQuantity><cac:OrderLineReference><cbc:LineID>${line.id}</cbc:LineID></cac:OrderLineReference><cac:Item><cbc:Name>${xmlEscape(line.name)}</cbc:Name><cac:SellersItemIdentification><cbc:ID>${xmlEscape(line.code)}</cbc:ID></cac:SellersItemIdentification></cac:Item><cac:Shipment><cbc:ID></cbc:ID></cac:Shipment></cac:DespatchLine>`).join("");
-    return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:DespatchAdviceTypeCode>${model.typeCode}</cbc:DespatchAdviceTypeCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("DespatchSupplierParty", model.supplier)}${partyXml("DeliveryCustomerParty", { ...model.buyer, title: model.buyer.name })}${despatchShipmentXml(model)}${lines}</DespatchAdvice>`;
+    return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:DespatchAdviceTypeCode>${model.typeCode}</cbc:DespatchAdviceTypeCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("DespatchSupplierParty", model.supplier)}${partyXml("DeliveryCustomerParty", { ...model.buyer, title: model.buyer.name })}${despatchShipmentXml(model)}${lines}</DespatchAdvice>`;
   }
 
   const taxSubtotals = model.taxBreakdown.map((tax) => taxSubtotalXml(model, tax.taxableAmount, tax.taxAmount, tax.rate)).join("");
@@ -689,7 +727,7 @@ export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
     ? `${partyXml("AccountingCustomerParty", model.accountingCustomer)}${partyXml("BuyerCustomerParty", model.buyer, { exportBuyer: true })}`
     : partyXml("AccountingCustomerParty", { ...model.buyer, title: model.buyer.name });
   const lines = model.lines.map((line) => invoiceLineXml(model, line)).join("");
-  return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:InvoiceTypeCode>${model.typeCode}</cbc:InvoiceTypeCode><cbc:DocumentCurrencyCode>${model.currency}</cbc:DocumentCurrencyCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("AccountingSupplierParty", model.supplier)}${customerXml}${exchangeRate}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(model.totals.taxTotal)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal><cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.taxInclusive)}</cbc:TaxInclusiveAmount><cbc:AllowanceTotalAmount currencyID="${model.currency}">${decimalText(model.totals.discountTotal)}</cbc:AllowanceTotalAmount><cbc:PayableAmount currencyID="${model.currency}">${decimalText(model.totals.payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</Invoice>`;
+  return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:InvoiceTypeCode>${model.typeCode}</cbc:InvoiceTypeCode><cbc:DocumentCurrencyCode>${model.currency}</cbc:DocumentCurrencyCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("AccountingSupplierParty", model.supplier)}${customerXml}${paymentMeansXml(model)}${exchangeRate}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(model.totals.taxTotal)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal><cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.taxInclusive)}</cbc:TaxInclusiveAmount><cbc:AllowanceTotalAmount currencyID="${model.currency}">${decimalText(model.totals.discountTotal)}</cbc:AllowanceTotalAmount><cbc:PayableAmount currencyID="${model.currency}">${decimalText(model.totals.payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</Invoice>`;
 }
 
 export function buildGibComplianceReport(document, settings = defaultEDocumentSettings) {

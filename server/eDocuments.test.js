@@ -18,7 +18,13 @@ test("normalizes provider settings and document series", () => {
   const settings = normalizeEDocumentSettings({
     provider: "unknown",
     environment: "other",
-    company: { taxNumber: "TR 123 456 7890", country: "fi" },
+    company: {
+      taxNumber: "TR 123 456 7890",
+      country: "fi",
+      fax: "+90 212 000 00 00",
+      website: "https://example.com",
+      bankAccounts: [{ bank: "Test Bank", currency: "usd", iban: "TR 12 345" }],
+    },
     series: { eInvoice: " ihr " },
     automation: { syncIntervalMinutes: 2 },
   });
@@ -27,6 +33,9 @@ test("normalizes provider settings and document series", () => {
   assert.equal(settings.environment, "test");
   assert.equal(settings.company.taxNumber, "1234567890");
   assert.equal(settings.company.country, "FI");
+  assert.equal(settings.company.fax, "+90 212 000 00 00");
+  assert.equal(settings.company.website, "https://example.com");
+  assert.deepEqual(settings.company.bankAccounts, [{ bank: "Test Bank", currency: "USD", iban: "TR12345" }]);
   assert.equal(settings.series.eInvoice, "IHR");
   assert.equal(settings.automation.syncIntervalMinutes, 5);
 });
@@ -119,11 +128,22 @@ test("builds GIB QR fields and UBL-TR invoice from the same snapshot", () => {
       currency: "TRY",
       documentDate: "2026-10-09T09:30:00.000Z",
       lines: [{ name: "Folyo", code: "ERSA 010", qty: 10, unit: "mt", price: 12, taxRate: 20 }],
-      eDocumentSupplier: { title: "AriX Ltd.", taxNumber: "1234567890", taxOffice: "İstanbul", country: "TR", address: "Adres", city: "İstanbul" },
+      eDocumentSupplier: {
+        title: "AriX Ltd.",
+        taxNumber: "1234567890",
+        taxOffice: "İstanbul",
+        country: "TR",
+        address: "Adres",
+        city: "İstanbul",
+        fax: "+90 212 000 00 00",
+        website: "https://arix.example",
+        bankAccounts: [{ bank: "Test Bank", currency: "TRY", iban: "TR001234" }],
+      },
     },
   });
   draft.number = "EAR2026000000001";
   draft.uuid = "04e26a62-7c00-46d0-878c-6f7c60834525";
+  draft.relatedDocuments = [{ documentType: "eDespatch", number: "IRS2026000000001", issueDate: "2026-10-09" }];
 
   const model = buildGibDocumentModel(draft);
   const qr = buildGibQrPayload(draft);
@@ -135,6 +155,10 @@ test("builds GIB QR fields and UBL-TR invoice from the same snapshot", () => {
   assert.match(xml, /<cbc:CustomizationID>TR1\.2<\/cbc:CustomizationID>/);
   assert.match(xml, /<cbc:ID>EAR2026000000001<\/cbc:ID>/);
   assert.match(xml, /<cbc:InvoicedQuantity unitCode="MTR">10<\/cbc:InvoicedQuantity>/);
+  assert.match(xml, /<cbc:WebsiteURI>https:\/\/arix\.example<\/cbc:WebsiteURI>/);
+  assert.match(xml, /<cbc:Telefax>\+90 212 000 00 00<\/cbc:Telefax>/);
+  assert.match(xml, /<cac:DespatchDocumentReference><cbc:ID>IRS2026000000001<\/cbc:ID>/);
+  assert.match(xml, /<cac:PaymentMeans><cbc:PaymentMeansCode>42<\/cbc:PaymentMeansCode>/);
   const invoiceXslt = Buffer.from(xml.match(/<cbc:EmbeddedDocumentBinaryObject[^>]*>([^<]+)<\/cbc:EmbeddedDocumentBinaryObject>/)?.[1] ?? "", "base64").toString("utf8");
   assert.match(invoiceXslt, /<title>e-Belge<\/title>/);
 });
