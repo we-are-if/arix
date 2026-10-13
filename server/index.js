@@ -14,6 +14,7 @@ import {
   normalizeAccountingStore,
   upsertDocumentJournal,
 } from "./accounting.js";
+import { normalizeCounterparty, validateCounterparty } from "./counterparties.js";
 import {
   buildEDocumentDraft,
   buildGibComplianceReport,
@@ -540,7 +541,10 @@ async function handleCounterparties(req, res, url, parts) {
 
   if (req.method === "POST" && parts.length === 1) {
     const body = await parseBody(req);
-    const item = ensureCounterpartyAccounting(db, { id: nextNumericId(db.counterparties), createdAt: new Date().toISOString(), ...body });
+    const normalized = normalizeCounterparty(body);
+    const validationError = validateCounterparty(normalized);
+    if (validationError) return send(res, 400, { error: validationError });
+    const item = ensureCounterpartyAccounting(db, { id: nextNumericId(db.counterparties), createdAt: new Date().toISOString(), ...normalized });
     db.counterparties.push(item);
     await writeDb(db);
     return send(res, 201, { data: item });
@@ -550,7 +554,10 @@ async function handleCounterparties(req, res, url, parts) {
     const index = db.counterparties.findIndex((item) => item.id === id);
     if (index < 0) return notFound(res);
     const body = await parseBody(req);
-    db.counterparties[index] = ensureCounterpartyAccounting(db, { ...db.counterparties[index], ...body, updatedAt: new Date().toISOString() });
+    const normalized = normalizeCounterparty(body, db.counterparties[index]);
+    const validationError = validateCounterparty(normalized);
+    if (validationError) return send(res, 400, { error: validationError });
+    db.counterparties[index] = ensureCounterpartyAccounting(db, { ...normalized, updatedAt: new Date().toISOString() });
     await writeDb(db);
     return send(res, 200, { data: db.counterparties[index] });
   }
@@ -837,12 +844,13 @@ function eDocumentSourceWithCounterparty(db, sourceDocument) {
     counterpartyCity: sourceDocument?.counterpartyCity ?? counterparty?.city ?? "",
     counterpartyDistrict: sourceDocument?.counterpartyDistrict ?? counterparty?.district ?? "",
     counterpartyPostalCode: sourceDocument?.counterpartyPostalCode ?? counterparty?.postalCode ?? "",
-    counterpartyCountryCode: sourceDocument?.counterpartyCountryCode ?? counterparty?.countryCode ?? counterparty?.country ?? "",
-    counterpartyCountryName: sourceDocument?.counterpartyCountryName ?? counterparty?.countryName ?? "",
+    counterpartyCountryCode: sourceDocument?.counterpartyCountryCode ?? counterparty?.countryCode ?? "",
+    counterpartyCountryName: sourceDocument?.counterpartyCountryName ?? counterparty?.countryName ?? counterparty?.country ?? "",
     counterpartyRegistrationName: sourceDocument?.counterpartyRegistrationName ?? counterparty?.registrationName ?? counterparty?.name ?? "",
     counterpartyCompanyId: sourceDocument?.counterpartyCompanyId ?? counterparty?.companyId ?? counterparty?.taxId ?? "",
     counterpartyEmail: sourceDocument?.counterpartyEmail ?? counterparty?.email ?? "",
     counterpartyPhone: sourceDocument?.counterpartyPhone ?? counterparty?.phone ?? "",
+    counterpartyFax: sourceDocument?.counterpartyFax ?? counterparty?.fax ?? "",
     counterpartyEDocumentPreference: sourceDocument?.counterpartyEDocumentPreference ?? counterparty?.eDocumentPreference ?? "auto",
     counterpartyEInvoiceRegistered: sourceDocument?.counterpartyEInvoiceRegistered ?? counterparty?.eInvoiceRegistered,
     eDocumentSupplier: { ...db.companySettings.eDocumentSettings.company },

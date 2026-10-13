@@ -50,6 +50,10 @@ Vite proxies frontend `/api/*` requests to this server.
 
 Data is persisted to `server/data/db.json`. The app starts with empty business data: no demo products, customers, suppliers, documents, or collections. POS commission settings remain as configuration data.
 
+## Current Account Cards
+
+Customer and supplier cards keep structured Turkish identity, contact, address, classification, currency, and payment-term fields. The API generates immutable current-account references and Tekduzen subaccounts under `120` for customers and `320` for suppliers. e-Fatura/e-Arsiv is not a manual card choice: the saved VKN/TCKN and the provider registry result determine the document type.
+
 ## Stock Rules
 
 `POST /api/documents` updates stock when `posted` is not `false`.

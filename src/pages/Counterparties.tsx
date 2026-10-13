@@ -14,9 +14,28 @@ type ApiCounterparty = {
   accountingCode?: string;
   type?: ContactType;
   phone?: string;
+  phone2?: string;
+  mobile?: string;
+  fax?: string;
   email?: string;
+  website?: string;
   taxId?: string;
   taxOffice?: string;
+  mersisNumber?: string;
+  tradeRegistryNumber?: string;
+  authorizedName?: string;
+  authorizedRole?: string;
+  district?: string;
+  city?: string;
+  postalCode?: string;
+  countryCode?: string;
+  country?: string;
+  currency?: "TRY" | "USD" | "EUR" | "AZN";
+  paymentTermDays?: number;
+  groupCode?: string;
+  specialCode1?: string;
+  specialCode2?: string;
+  department?: string;
   eDocumentPreference?: "auto" | "eInvoice" | "eArchive";
   eInvoiceRegistered?: boolean;
   description?: string;
@@ -42,9 +61,28 @@ type CounterpartyRow = {
   accountingCode?: string;
   type: ContactType;
   phone: string;
+  phone2?: string;
+  mobile?: string;
+  fax?: string;
   email: string;
+  website?: string;
   taxId?: string;
   taxOffice?: string;
+  mersisNumber?: string;
+  tradeRegistryNumber?: string;
+  authorizedName?: string;
+  authorizedRole?: string;
+  district?: string;
+  city?: string;
+  postalCode?: string;
+  countryCode?: string;
+  country?: string;
+  currency?: "TRY" | "USD" | "EUR" | "AZN";
+  paymentTermDays?: number;
+  groupCode?: string;
+  specialCode1?: string;
+  specialCode2?: string;
+  department?: string;
   eDocumentPreference?: "auto" | "eInvoice" | "eArchive";
   eInvoiceRegistered?: boolean;
   description: string;
@@ -90,9 +128,27 @@ type CounterpartyForm = {
   name: string;
   email: string;
   phone: string;
+  phone2: string;
+  mobile: string;
+  fax: string;
   taxId: string;
   taxOffice: string;
-  eDocumentPreference: "auto" | "eInvoice" | "eArchive";
+  website: string;
+  mersisNumber: string;
+  tradeRegistryNumber: string;
+  authorizedName: string;
+  authorizedRole: string;
+  district: string;
+  city: string;
+  postalCode: string;
+  countryCode: string;
+  country: string;
+  currency: "TRY" | "USD" | "EUR" | "AZN";
+  paymentTermDays: string;
+  groupCode: string;
+  specialCode1: string;
+  specialCode2: string;
+  department: string;
   address: string;
   description: string;
   discount: string;
@@ -107,9 +163,27 @@ const emptyForm = (): CounterpartyForm => ({
   name: "",
   email: "",
   phone: "",
+  phone2: "",
+  mobile: "",
+  fax: "",
   taxId: "",
   taxOffice: "",
-  eDocumentPreference: "auto",
+  website: "",
+  mersisNumber: "",
+  tradeRegistryNumber: "",
+  authorizedName: "",
+  authorizedRole: "",
+  district: "",
+  city: "",
+  postalCode: "",
+  countryCode: "TR",
+  country: "TÜRKİYE",
+  currency: "TRY",
+  paymentTermDays: "0",
+  groupCode: "",
+  specialCode1: "",
+  specialCode2: "",
+  department: "",
   address: "",
   description: "",
   discount: "",
@@ -132,9 +206,28 @@ const mapApiCounterparty = (item: ApiCounterparty, kind: CounterpartyKind): Coun
   name: item.name,
   type: item.type ?? "company",
   phone: item.phone ?? "",
+  phone2: item.phone2 ?? "",
+  mobile: item.mobile ?? "",
+  fax: item.fax ?? "",
   email: item.email ?? "",
+  website: item.website ?? "",
   taxId: item.taxId ?? "",
   taxOffice: item.taxOffice ?? "",
+  mersisNumber: item.mersisNumber ?? "",
+  tradeRegistryNumber: item.tradeRegistryNumber ?? "",
+  authorizedName: item.authorizedName ?? "",
+  authorizedRole: item.authorizedRole ?? "",
+  district: item.district ?? "",
+  city: item.city ?? "",
+  postalCode: item.postalCode ?? "",
+  countryCode: item.countryCode ?? "TR",
+  country: item.country ?? "TÜRKİYE",
+  currency: item.currency ?? "TRY",
+  paymentTermDays: Number(item.paymentTermDays ?? 0),
+  groupCode: item.groupCode ?? "",
+  specialCode1: item.specialCode1 ?? "",
+  specialCode2: item.specialCode2 ?? "",
+  department: item.department ?? "",
   eDocumentPreference: item.eDocumentPreference ?? "auto",
   eInvoiceRegistered: item.eInvoiceRegistered,
   description: item.description ?? "",
@@ -687,6 +780,7 @@ function CreatePanel({
   const [form, setForm] = useState<CounterpartyForm>(() => emptyForm());
   const [view, setView] = useState<"card" | "prices">("card");
   const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
   const priceSaveRef = useRef<((customerIdOverride?: number) => Promise<void>) | null>(null);
   const priceResetRef = useRef<(() => void) | null>(null);
   const input = isDark
@@ -703,8 +797,11 @@ function CreatePanel({
   const submit = async () => {
     if (!form.name.trim() || saving) return;
     setSaving(true);
+    setSaveMessage("");
     try {
       await onSave(form, kind === "customers" ? priceSaveRef.current ?? undefined : undefined);
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : "Cari kart saxlanmadı.");
     } finally {
       setSaving(false);
     }
@@ -749,6 +846,7 @@ function CreatePanel({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          {saveMessage && <div className="mx-auto mb-4 w-full max-w-4xl rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{saveMessage}</div>}
           {kind === "customers" && (
             <div className={view === "prices" ? "block" : "hidden"}>
               <CustomerPricesPanel customerId={0} isDark={isDark} editing saveRef={priceSaveRef} resetRef={priceResetRef} />
@@ -764,16 +862,47 @@ function CreatePanel({
               </div>
             </section>
             <section className={cx("rounded-2xl border p-5", tile)}>
-              <div className="mb-5"><h3 className="font-semibold">Əlaqə məlumatları</h3><p className={cx("mt-1 text-xs", subtle)}>Telefon, e-poçt, VÖEN və ünvan məlumatları.</p></div>
+              <div className="mb-5"><h3 className="font-semibold">Rəsmi və mühasibat məlumatları</h3><p className={cx("mt-1 text-xs", subtle)}>VKN/TCKN əsasında e-Fatura mükəlləf statusu avtomatik yoxlanacaq.</p></div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>VKN / TCKN</span><input inputMode="numeric" className={field} value={form.taxId} onChange={(e) => setField("taxId", form.countryCode === "TR" ? e.target.value.replace(/\D/g, "").slice(0, 11) : e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vergi dairəsi</span><input className={field} value={form.taxOffice} onChange={(e) => setField("taxOffice", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>MERSİS nömrəsi</span><input inputMode="numeric" className={field} value={form.mersisNumber} onChange={(e) => setField("mersisNumber", e.target.value.replace(/\D/g, "").slice(0, 16))} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ticarət reyestri nömrəsi</span><input className={field} value={form.tradeRegistryNumber} onChange={(e) => setField("tradeRegistryNumber", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Səlahiyyətli şəxs</span><input className={field} value={form.authorizedName} onChange={(e) => setField("authorizedName", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vəzifəsi</span><input className={field} value={form.authorizedRole} onChange={(e) => setField("authorizedRole", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>İzləmə valyutası</span><select className={field} value={form.currency} onChange={(e) => setField("currency", e.target.value as CounterpartyForm["currency"])}>{["TRY", "USD", "EUR", "AZN"].map((currency) => <option key={currency}>{currency}</option>)}</select></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ödəniş müddəti, gün</span><input type="number" min="0" className={field} value={form.paymentTermDays} onChange={(e) => setField("paymentTermDays", e.target.value)} /></label>
+              </div>
+            </section>
+            <section className={cx("rounded-2xl border p-5", tile)}>
+              <div className="mb-5"><h3 className="font-semibold">Əlaqə məlumatları</h3><p className={cx("mt-1 text-xs", subtle)}>Telefon kanalları, e-poçt və internet ünvanı.</p></div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Telefon</span><input className={field} value={form.phone} onChange={(e) => setField("phone", e.target.value)} /></label>
-                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>E-poçt</span><input className={field} value={form.email} onChange={(e) => setField("email", e.target.value)} /></label>
-                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>VÖEN / kod</span><input className={field} value={form.taxId} onChange={(e) => setField("taxId", e.target.value)} /></label>
-                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vergi dairəsi</span><input className={field} value={form.taxOffice} onChange={(e) => setField("taxOffice", e.target.value)} /></label>
-                {kind === "customers" && (
-                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>e-Belge seçimi</span><select className={field} value={form.eDocumentPreference} onChange={(e) => setField("eDocumentPreference", e.target.value as CounterpartyForm["eDocumentPreference"])}><option value="auto">Avtomatik yoxla</option><option value="eInvoice">e-Fatura</option><option value="eArchive">e-Arşiv</option></select></label>
-                )}
-                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ünvan</span><input className={field} value={form.address} onChange={(e) => setField("address", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Mobil</span><input className={field} value={form.mobile} onChange={(e) => setField("mobile", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Telefon 2</span><input className={field} value={form.phone2} onChange={(e) => setField("phone2", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Faks</span><input className={field} value={form.fax} onChange={(e) => setField("fax", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>E-poçt</span><input type="email" className={field} value={form.email} onChange={(e) => setField("email", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Veb saytı</span><input className={field} value={form.website} onChange={(e) => setField("website", e.target.value)} /></label>
+              </div>
+            </section>
+            <section className={cx("rounded-2xl border p-5", tile)}>
+              <div className="mb-5"><h3 className="font-semibold">Ünvan</h3><p className={cx("mt-1 text-xs", subtle)}>UBL-TR alıcı və göndərən ünvanı üçün strukturlaşdırılmış məlumatlar.</p></div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="sm:col-span-2"><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Açıq ünvan</span><input className={field} value={form.address} onChange={(e) => setField("address", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>İlçə</span><input className={field} value={form.district} onChange={(e) => setField("district", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Şəhər</span><input className={field} value={form.city} onChange={(e) => setField("city", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Poçt kodu</span><input className={field} value={form.postalCode} onChange={(e) => setField("postalCode", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ölkə kodu</span><input maxLength={2} className={field} value={form.countryCode} onChange={(e) => setField("countryCode", e.target.value.toUpperCase())} /></label>
+                <label className="sm:col-span-2"><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ölkə</span><input className={field} value={form.country} onChange={(e) => setField("country", e.target.value)} /></label>
+              </div>
+            </section>
+            <section className={cx("rounded-2xl border p-5", tile)}>
+              <div className="mb-5"><h3 className="font-semibold">Təsnifat kodları</h3><p className={cx("mt-1 text-xs", subtle)}>Cari kartı hesabat, satış və satınalma axınlarında qruplaşdırmaq üçün.</p></div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Qrup kodu</span><input className={field} value={form.groupCode} onChange={(e) => setField("groupCode", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Departament</span><input className={field} value={form.department} onChange={(e) => setField("department", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Özəl kod 1</span><input className={field} value={form.specialCode1} onChange={(e) => setField("specialCode1", e.target.value)} /></label>
+                <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Özəl kod 2</span><input className={field} value={form.specialCode2} onChange={(e) => setField("specialCode2", e.target.value)} /></label>
               </div>
             </section>
             {kind === "customers" && (
@@ -864,6 +993,7 @@ function CustomerCardOverview({
   onOpenPrices: () => void;
 }) {
   const isSupplier = kind === "suppliers";
+  const showLegacySections = false;
   const [activityView, setActivityView] = useState<"products" | "money" | "bonus">("products");
   const subtle = isDark ? "text-slate-400" : "text-slate-500";
   const border = isDark ? "border-white/10" : "border-slate-200/80";
@@ -908,7 +1038,7 @@ function CustomerCardOverview({
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4">
       <section className={cx("rounded-2xl border p-5", card)}>
-        {false && (
+        {showLegacySections && (
         <div className="hidden">
           <div>
             <div className={cx("text-xs font-medium uppercase tracking-wide", subtle)}>Kart məlumatı</div>
@@ -934,14 +1064,12 @@ function CustomerCardOverview({
           </div>
           <span className={cx("rounded-full px-3 py-1 text-xs font-medium", soft)}>{row.type === "company" ? "Şirkət" : "Fiziki şəxs"}</span>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {[
             [<I.Phone className="h-4 w-4" />, "Telefon", row.phone || "Əlavə edilməyib"],
+            [<I.Phone className="h-4 w-4" />, "Mobil", row.mobile || "Əlavə edilməyib"],
             [<I.Mail className="h-4 w-4" />, "E-poçt", row.email || "Əlavə edilməyib"],
-            [<I.MapPin className="h-4 w-4" />, "Ünvan", row.address || "Əlavə edilməyib"],
-            [<I.Receipt className="h-4 w-4" />, "VKN / TCKN", row.taxId || "Əlavə edilməyib"],
-            [<I.Receipt className="h-4 w-4" />, "Mühasibat hesabı", row.accountingCode || (isSupplier ? "320" : "120")],
-            [<I.Receipt className="h-4 w-4" />, "e-Belge", isSupplier ? "Təchizatçı" : row.eDocumentPreference === "eInvoice" ? "e-Fatura" : row.eDocumentPreference === "eArchive" ? "e-Arşiv" : "Avtomatik"],
+            [<I.MapPin className="h-4 w-4" />, "Ünvan", [row.address, row.district, row.city].filter(Boolean).join(", ") || "Əlavə edilməyib"],
           ].map(([icon, label, value]) => (
             <div key={String(label)} className={cx("rounded-xl border p-3", border, isDark ? "bg-white/[0.03]" : "bg-white/70")}>
               <div className={cx("flex items-center gap-2 text-xs font-medium", subtle)}>{icon}{label}</div>
@@ -955,6 +1083,27 @@ function CustomerCardOverview({
             {row.description}
           </div>
         )}
+      </section>
+
+      <section className={cx("rounded-2xl border p-5", card)}>
+        <div className="mb-4"><h3 className="font-semibold">Rəsmi və mühasibat məlumatları</h3><p className={cx("mt-1 text-xs", subtle)}>Cari kod, Tekdüzen hesabı və e-Belge reyestr nəticəsi.</p></div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            ["Cari kodu", row.code],
+            ["Mühasibat hesabı", row.accountingCode || (isSupplier ? "320" : "120")],
+            ["VKN / TCKN", row.taxId || "Əlavə edilməyib"],
+            ["Vergi dairəsi", row.taxOffice || "Əlavə edilməyib"],
+            ["MERSİS", row.mersisNumber || "Əlavə edilməyib"],
+            ["Ticarət reyestri", row.tradeRegistryNumber || "Əlavə edilməyib"],
+            ["e-Belge statusu", isSupplier ? "Alış cari kartı" : row.eInvoiceRegistered === true ? "e-Fatura mükəlləfi" : row.eInvoiceRegistered === false ? "e-Arşiv" : "Reyestr yoxlanmayıb"],
+            ["Valyuta / müddət", `${row.currency} · ${row.paymentTermDays} gün`],
+          ].map(([label, value]) => (
+            <div key={label} className={cx("rounded-xl border p-3", border, isDark ? "bg-white/[0.03]" : "bg-white/70")}>
+              <div className={cx("text-xs font-medium", subtle)}>{label}</div>
+              <div className="mt-1 truncate text-sm font-semibold">{value}</div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -1037,6 +1186,7 @@ function DetailPanel({
   onUpdated: (updated: CounterpartyRow) => void;
 }) {
   const isSupplier = kind === "suppliers";
+  const showLegacySections = false;
   const [detailView, setDetailView] = useState<"overview" | "prices">("overview");
   const [activityView, setActivityView] = useState<"products" | "money" | "bonus">("products");
   const [editing, setEditing] = useState(false);
@@ -1084,10 +1234,29 @@ function DetailPanel({
           name: draft.name.trim(),
           type: draft.type,
           phone: draft.phone,
+          phone2: draft.phone2,
+          mobile: draft.mobile,
+          fax: draft.fax,
           email: draft.email,
+          website: draft.website,
           taxId: draft.taxId ?? "",
           taxOffice: draft.taxOffice ?? "",
-          eDocumentPreference: draft.eDocumentPreference ?? "auto",
+          mersisNumber: draft.mersisNumber,
+          tradeRegistryNumber: draft.tradeRegistryNumber,
+          authorizedName: draft.authorizedName,
+          authorizedRole: draft.authorizedRole,
+          district: draft.district,
+          city: draft.city,
+          postalCode: draft.postalCode,
+          countryCode: draft.countryCode,
+          country: draft.country,
+          currency: draft.currency,
+          paymentTermDays: draft.paymentTermDays,
+          groupCode: draft.groupCode,
+          specialCode1: draft.specialCode1,
+          specialCode2: draft.specialCode2,
+          department: draft.department,
+          eDocumentPreference: "auto",
           description: draft.description,
           address: draft.address,
           status: draft.status,
@@ -1273,40 +1442,60 @@ function DetailPanel({
 
               <section className={cx("rounded-2xl border p-5", tile)}>
                 <div className="mb-5">
-                  <h3 className="font-semibold">Əlaqə məlumatları</h3>
-                  <p className={cx("mt-1 text-xs", subtle)}>Telefon, e-poçt və ünvan məlumatları.</p>
+                  <h3 className="font-semibold">Rəsmi və mühasibat məlumatları</h3>
+                  <p className={cx("mt-1 text-xs", subtle)}>Cari hesab kodları sistem tərəfindən qorunur; e-Belge növü VKN/TCKN reyestrindən gəlir.</p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label>
-                    <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Telefon</span>
-                    <input value={draft.phone} onChange={(event) => setDraftField("phone", event.target.value)} className={editField} />
+                    <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Cari kodu</span>
+                    <input value={draft.code} readOnly className={cx(editField, "cursor-not-allowed opacity-70")} />
                   </label>
                   <label>
-                    <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>E-poçt</span>
-                    <input value={draft.email} onChange={(event) => setDraftField("email", event.target.value)} className={editField} />
+                    <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Mühasibat hesabı</span>
+                    <input value={draft.accountingCode || (isSupplier ? "320" : "120")} readOnly className={cx(editField, "cursor-not-allowed opacity-70")} />
                   </label>
                   <label>
                     <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>VKN / TCKN</span>
-                    <input value={draft.taxId ?? ""} onChange={(event) => setDraftField("taxId", event.target.value.replace(/\D/g, "").slice(0, 11))} className={editField} inputMode="numeric" />
+                    <input value={draft.taxId ?? ""} onChange={(event) => setDraftField("taxId", draft.countryCode === "TR" ? event.target.value.replace(/\D/g, "").slice(0, 11) : event.target.value)} className={editField} inputMode="numeric" />
                   </label>
                   <label>
                     <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vergi dairəsi</span>
                     <input value={draft.taxOffice ?? ""} onChange={(event) => setDraftField("taxOffice", event.target.value)} className={editField} />
                   </label>
-                  {!isSupplier && (
-                    <label className="sm:col-span-2">
-                      <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>e-Belge seçimi</span>
-                      <select value={draft.eDocumentPreference ?? "auto"} onChange={(event) => setDraftField("eDocumentPreference", event.target.value as CounterpartyRow["eDocumentPreference"])} className={editField}>
-                        <option value="auto">Avtomatik yoxla</option>
-                        <option value="eInvoice">e-Fatura</option>
-                        <option value="eArchive">e-Arşiv</option>
-                      </select>
-                    </label>
-                  )}
-                  <label className="sm:col-span-2">
-                    <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ünvan</span>
-                    <input value={draft.address} onChange={(event) => setDraftField("address", event.target.value)} className={editField} />
-                  </label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>MERSİS nömrəsi</span><input value={draft.mersisNumber} onChange={(event) => setDraftField("mersisNumber", event.target.value.replace(/\D/g, "").slice(0, 16))} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ticarət reyestri nömrəsi</span><input value={draft.tradeRegistryNumber} onChange={(event) => setDraftField("tradeRegistryNumber", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Səlahiyyətli şəxs</span><input value={draft.authorizedName} onChange={(event) => setDraftField("authorizedName", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vəzifəsi</span><input value={draft.authorizedRole} onChange={(event) => setDraftField("authorizedRole", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>İzləmə valyutası</span><select value={draft.currency} onChange={(event) => setDraftField("currency", event.target.value as CounterpartyRow["currency"])} className={editField}>{["TRY", "USD", "EUR", "AZN"].map((currency) => <option key={currency}>{currency}</option>)}</select></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ödəniş müddəti, gün</span><input type="number" min="0" value={draft.paymentTermDays} onChange={(event) => setDraftField("paymentTermDays", Number(event.target.value) || 0)} className={editField} /></label>
+                </div>
+              </section>
+
+              <section className={cx("rounded-2xl border p-5", tile)}>
+                <div className="mb-5"><h3 className="font-semibold">Əlaqə və ünvan</h3><p className={cx("mt-1 text-xs", subtle)}>UBL-TR və çap formalarında istifadə ediləcək məlumatlar.</p></div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Telefon</span><input value={draft.phone} onChange={(event) => setDraftField("phone", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Mobil</span><input value={draft.mobile} onChange={(event) => setDraftField("mobile", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Telefon 2</span><input value={draft.phone2} onChange={(event) => setDraftField("phone2", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Faks</span><input value={draft.fax} onChange={(event) => setDraftField("fax", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>E-poçt</span><input type="email" value={draft.email} onChange={(event) => setDraftField("email", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Veb saytı</span><input value={draft.website} onChange={(event) => setDraftField("website", event.target.value)} className={editField} /></label>
+                  <label className="sm:col-span-2"><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Açıq ünvan</span><input value={draft.address} onChange={(event) => setDraftField("address", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>İlçə</span><input value={draft.district} onChange={(event) => setDraftField("district", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Şəhər</span><input value={draft.city} onChange={(event) => setDraftField("city", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Poçt kodu</span><input value={draft.postalCode} onChange={(event) => setDraftField("postalCode", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ölkə kodu</span><input maxLength={2} value={draft.countryCode} onChange={(event) => setDraftField("countryCode", event.target.value.toUpperCase())} className={editField} /></label>
+                  <label className="sm:col-span-2"><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ölkə</span><input value={draft.country} onChange={(event) => setDraftField("country", event.target.value)} className={editField} /></label>
+                </div>
+              </section>
+
+              <section className={cx("rounded-2xl border p-5", tile)}>
+                <div className="mb-5"><h3 className="font-semibold">Təsnifat kodları</h3><p className={cx("mt-1 text-xs", subtle)}>Hesabat və əməliyyat qrupları.</p></div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Qrup kodu</span><input value={draft.groupCode} onChange={(event) => setDraftField("groupCode", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Departament</span><input value={draft.department} onChange={(event) => setDraftField("department", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Özəl kod 1</span><input value={draft.specialCode1} onChange={(event) => setDraftField("specialCode1", event.target.value)} className={editField} /></label>
+                  <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Özəl kod 2</span><input value={draft.specialCode2} onChange={(event) => setDraftField("specialCode2", event.target.value)} className={editField} /></label>
                 </div>
               </section>
 
@@ -1348,7 +1537,7 @@ function DetailPanel({
           {!editing && (detailView === "overview" || isSupplier) && (
             <CustomerCardOverview row={row} kind={kind} isDark={isDark} onOpenPrices={() => setDetailView("prices")} />
           )}
-          {false && (<>
+          {showLegacySections && (<>
             <section className="hidden">
               {[
                 ["Limit", `${detailLimitRate}%`, `${money(detailLimit)} ₼`, detailLimitRate > 70 ? "text-rose-500" : detailLimitRate > 40 ? "text-amber-600" : "text-emerald-600"],
@@ -1496,10 +1685,29 @@ export default function Counterparties({ isDark, kind }: Props) {
       code: `${kind === "suppliers" ? "SUP" : "CUS"}-${String(rowsByKind[kind].length + 1).padStart(3, "0")}`,
       type: form.type,
       phone: form.phone,
+      phone2: form.phone2,
+      mobile: form.mobile,
+      fax: form.fax,
       email: form.email,
+      website: form.website,
       taxId: form.taxId,
       taxOffice: form.taxOffice,
-      eDocumentPreference: form.eDocumentPreference,
+      mersisNumber: form.mersisNumber,
+      tradeRegistryNumber: form.tradeRegistryNumber,
+      authorizedName: form.authorizedName,
+      authorizedRole: form.authorizedRole,
+      district: form.district,
+      city: form.city,
+      postalCode: form.postalCode,
+      countryCode: form.countryCode,
+      country: form.country,
+      currency: form.currency,
+      paymentTermDays: Number(form.paymentTermDays) || 0,
+      groupCode: form.groupCode,
+      specialCode1: form.specialCode1,
+      specialCode2: form.specialCode2,
+      department: form.department,
+      eDocumentPreference: "auto",
       description: form.description,
       address: form.address,
       balance: 0,
@@ -1510,20 +1718,37 @@ export default function Counterparties({ isDark, kind }: Props) {
       birthday: form.birthday,
       gender: form.gender,
     };
-    let created: CounterpartyRow | null = null;
-    try {
-      const payload = await requestJson<{ data: ApiCounterparty }>("/api/counterparties", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+    const payload = await requestJson<{ data: ApiCounterparty }>("/api/counterparties", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
           kind: apiKindFor(kind),
           name: form.name.trim(),
           type: form.type,
           phone: form.phone,
+          phone2: form.phone2,
+          mobile: form.mobile,
+          fax: form.fax,
           email: form.email,
+          website: form.website,
           taxId: form.taxId,
           taxOffice: form.taxOffice,
-          eDocumentPreference: form.eDocumentPreference,
+          mersisNumber: form.mersisNumber,
+          tradeRegistryNumber: form.tradeRegistryNumber,
+          authorizedName: form.authorizedName,
+          authorizedRole: form.authorizedRole,
+          district: form.district,
+          city: form.city,
+          postalCode: form.postalCode,
+          countryCode: form.countryCode,
+          country: form.country,
+          currency: form.currency,
+          paymentTermDays: Number(form.paymentTermDays) || 0,
+          groupCode: form.groupCode,
+          specialCode1: form.specialCode1,
+          specialCode2: form.specialCode2,
+          department: form.department,
+          eDocumentPreference: "auto",
           description: form.description,
           address: form.address,
           balance: 0,
@@ -1532,15 +1757,9 @@ export default function Counterparties({ isDark, kind }: Props) {
           loyalty: form.loyaltyCard,
           birthday: form.birthday,
           gender: form.gender,
-        }),
-      });
-      if (payload.data) {
-        created = mapApiCounterparty(payload.data, kind);
-      }
-    } catch {
-      /* fallback to local insert */
-    }
-    const savedRow = created ?? nextRow;
+      }),
+    });
+    const savedRow = payload.data ? mapApiCounterparty(payload.data, kind) : nextRow;
     if (savePrices) await savePrices(savedRow.id);
     setRowsByKind((prev) => ({ ...prev, [kind]: [savedRow, ...prev[kind]] }));
     setCreateOpen(false);
