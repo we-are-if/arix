@@ -77,6 +77,13 @@ const providers: Array<{ id: ProviderId; title: string; subtitle: string }> = [
   { id: "qnb", title: "QNB eSolutions", subtitle: "Korporativ e-Dönüşüm və API xidmətləri" },
 ];
 
+const statusLabels: Record<string, string> = {
+  draft: "Qaralama",
+  processing: "Göndərildi",
+  completed: "Qəbul edildi",
+  failed: "Xəta",
+};
+
 const moduleLabels: Array<{ key: keyof EDocumentSettings["modules"]; title: string; subtitle: string }> = [
   { key: "eInvoice", title: "e-Fatura", subtitle: "Qeydiyyatlı mükəlləflərə rəsmi fatura" },
   { key: "eArchive", title: "e-Arşiv", subtitle: "e-Fatura istifadəçisi olmayan alıcılar" },
@@ -107,6 +114,7 @@ export default function EDocumentsSettings({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [importingRegistry, setImportingRegistry] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -203,6 +211,24 @@ export default function EDocumentsSettings({
     }
   };
 
+  const syncStatuses = async () => {
+    setSyncing(true);
+    setMessage("");
+    try {
+      const payload = await requestJson<{ data: EDocument[]; overview: Overview; updated: number; testMode?: boolean }>("/api/e-documents/sync", { method: "POST" });
+      setDocuments(payload.data ?? []);
+      setOverview(payload.overview ?? emptyOverview);
+      setMessageTone("success");
+      setMessage(payload.updated ? `${payload.updated} sənədin statusu yeniləndi.` : "Bütün sənəd statusları aktualdır.");
+      window.dispatchEvent(new CustomEvent("arix:e-documents-updated"));
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Sənəd statusları yenilənmədi.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const patchCompany = (patch: Partial<EDocumentSettings["company"]>) =>
     setSettings((current) => ({ ...current, company: { ...current.company, ...patch } }));
   const patchBankAccount = (index: number, patch: Partial<EDocumentSettings["company"]["bankAccounts"][number]>) =>
@@ -250,10 +276,11 @@ export default function EDocumentsSettings({
         ) : null}
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {[
           ["Bütün sənədlər", overview.total],
           ["Qaralama", overview.drafts],
+          ["Göndərildi", overview.processing],
           ["Uğurlu", overview.completed],
           ["Xəta", overview.failed],
         ].map(([label, value]) => (
@@ -453,7 +480,12 @@ export default function EDocumentsSettings({
             <h3 className="text-lg font-semibold">Sənəd qutusu</h3>
             <p className={cx("mt-1 text-sm", subtle)}>Gələn və gedən rəsmi sənədlər burada görünəcək.</p>
           </div>
-          <div className={cx("text-xs", subtle)}>Gələn {overview.incoming} · Gedən {overview.outgoing}</div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className={cx("text-xs", subtle)}>Gələn {overview.incoming} · Gedən {overview.outgoing}{overview.lastSyncAt ? ` · Son yoxlama ${new Date(overview.lastSyncAt).toLocaleString("tr-TR")}` : ""}</div>
+            <button type="button" onClick={() => void syncStatuses()} disabled={syncing} className={cx("h-9 rounded-xl border px-3 text-sm font-semibold", border, syncing && "opacity-60")}>
+              {syncing ? "Yenilənir..." : "Statusları yenilə"}
+            </button>
+          </div>
         </div>
         {documents.length ? (
           <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200/70">
@@ -469,7 +501,7 @@ export default function EDocumentsSettings({
                     <td className="px-4 py-3">{document.number ?? "Taslak"}</td>
                     <td className="px-4 py-3">{document.counterpartyName ?? "-"}</td>
                     <td className="px-4 py-3">{document.direction === "incoming" ? "Gələn" : "Gedən"}</td>
-                    <td className="px-4 py-3">{document.status ?? "draft"}</td>
+                    <td className="px-4 py-3"><span className={cx("rounded-full px-2.5 py-1 text-xs font-semibold", document.status === "completed" ? "bg-emerald-100 text-emerald-700" : document.status === "failed" ? "bg-rose-100 text-rose-700" : document.status === "processing" ? "bg-sky-100 text-sky-700" : "bg-amber-100 text-amber-700")}>{statusLabels[document.status ?? "draft"] ?? document.status ?? "Qaralama"}</span></td>
                     <td className="px-4 py-3 text-right">{document.sourceDocumentId ? <button type="button" onClick={() => setSelectedSourceDocumentId(document.sourceDocumentId ?? null)} className="font-semibold text-indigo-600 hover:underline">Aç</button> : "-"}</td>
                   </tr>
                 ))}

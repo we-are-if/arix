@@ -31,10 +31,12 @@ import {
   normalizeEDocumentSettings,
   normalizeEDocumentStore,
   publicEDocumentSettings,
+  queueMockEDocument,
   resolveEDocumentSupplier,
   resolveEDocumentPlan,
   resolveSourceDocumentLock,
   testEDocumentConnection,
+  syncMockEDocumentStatuses,
   validateEDocumentForSending,
 } from "./eDocuments.js";
 
@@ -944,6 +946,17 @@ async function handleEDocuments(req, res, url, parts) {
     await writeDb(db);
     return send(res, 200, { data: { ...registryOverview(db.eDocuments.registry), registeredCards } });
   }
+  if (req.method === "POST" && action === "sync") {
+    if (db.companySettings.eDocumentSettings.provider !== "mock") {
+      return send(res, 501, { error: "Canlı status sinxronizasiyası seçilən provayder adapteri aktiv olduqdan sonra işləyəcək." });
+    }
+    const syncedAt = new Date().toISOString();
+    const updated = syncMockEDocumentStatuses(db, syncedAt);
+    db.eDocuments.events.unshift({ id: randomUUID(), type: "status-sync", provider: "mock", updated, createdAt: syncedAt });
+    db.eDocuments.events = db.eDocuments.events.slice(0, 200);
+    await writeDb(db);
+    return send(res, 200, { data: db.eDocuments.documents, overview: eDocumentOverview(db), lastSyncAt: syncedAt, updated, testMode: true });
+  }
   if (req.method === "GET" && action === "context") {
     const sourceDocumentId = url.searchParams.get("sourceDocumentId");
     const sourceDocument = db.documents.find((item) => String(item.id) === String(sourceDocumentId));
@@ -1188,13 +1201,9 @@ async function handleEDocuments(req, res, url, parts) {
     }
     const sentAt = new Date().toISOString();
     document.snapshot.supplier = resolveEDocumentSupplier(document, db.companySettings.eDocumentSettings);
-    document.status = "completed";
     document.number ||= nextEDocumentNumber(db, document.documentType, db.companySettings.eDocumentSettings, new Date(sentAt));
     document.uuid ||= randomUUID();
-    document.sentAt = sentAt;
-    document.updatedAt = sentAt;
-    document.provider = "mock";
-    document.providerResponse = { code: "MOCK_ACCEPTED", message: "Test sənədi qəbul edildi; GİB-ə məlumat göndərilmədi." };
+    queueMockEDocument(document, sentAt);
     db.eDocuments.events.unshift({
       id: randomUUID(),
       type: "document-sent",

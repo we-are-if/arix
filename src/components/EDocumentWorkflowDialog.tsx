@@ -296,7 +296,11 @@ export default function EDocumentWorkflowDialog({
       const configured = await saveConfiguration(draft);
       const payload = await requestJson<{ data: EDocumentRecord; testMode?: boolean }>(`/api/e-documents/${configured.id}/send`, { method: "POST" });
       setMessageTone("success");
-      setMessage(payload.testMode ? "Test sənədi qəbul edildi. GİB-ə məlumat göndərilmədi." : "e-Belge provayderə göndərildi.");
+      setMessage(payload.testMode
+        ? payload.data.status === "processing"
+          ? "Test sənədi növbəyə alındı. Statusu e-Belgələr bölməsindən yeniləyə bilərsiniz."
+          : "Test sənədi qəbul edildi. GİB-ə məlumat göndərilmədi."
+        : "e-Belge provayderə göndərildi.");
       window.dispatchEvent(new CustomEvent("arix:e-documents-updated"));
       await load();
     } catch (error) {

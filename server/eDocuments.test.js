@@ -9,12 +9,28 @@ import {
   credentialStatus,
   defaultEDocumentSettings,
   normalizeEDocumentSettings,
+  queueMockEDocument,
   resolveEDocumentSupplier,
   resolveEDocumentPlan,
   resolveSourceDocumentLock,
   testEDocumentConnection,
+  syncMockEDocumentStatuses,
   validateEDocumentForSending,
 } from "./eDocuments.js";
+
+test("moves mock documents from queued to accepted during status sync", () => {
+  const document = { id: "doc-1", status: "draft" };
+  queueMockEDocument(document, "2026-10-13T10:00:00.000Z");
+  assert.equal(document.status, "processing");
+  assert.equal(document.providerResponse.code, "MOCK_QUEUED");
+
+  const db = { eDocuments: { documents: [document], lastSyncAt: null } };
+  const updated = syncMockEDocumentStatuses(db, "2026-10-13T10:01:00.000Z");
+  assert.equal(updated, 1);
+  assert.equal(document.status, "completed");
+  assert.equal(document.providerResponse.code, "MOCK_ACCEPTED");
+  assert.equal(db.eDocuments.lastSyncAt, "2026-10-13T10:01:00.000Z");
+});
 
 test("normalizes provider settings and document series", () => {
   const settings = normalizeEDocumentSettings({

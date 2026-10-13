@@ -50,6 +50,7 @@ Vite proxies frontend `/api/*` requests to this server.
 - `GET /api/e-documents`
 - `GET /api/e-documents/registry?taxNumber=...`
 - `POST /api/e-documents/registry/import`
+- `POST /api/e-documents/sync`
 
 Data is persisted to `server/data/db.json`. The app starts with empty business data: no demo products, customers, suppliers, documents, or collections. POS commission settings remain as configuration data.
 

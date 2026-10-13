@@ -165,6 +165,29 @@ export function eDocumentOverview(db) {
   };
 }
 
+export function queueMockEDocument(document, sentAt = new Date().toISOString()) {
+  document.status = "processing";
+  document.sentAt = sentAt;
+  document.updatedAt = sentAt;
+  document.provider = "mock";
+  document.providerResponse = { code: "MOCK_QUEUED", message: "Test sənədi status yoxlaması üçün növbəyə alındı; GİB-ə məlumat göndərilmədi." };
+  return document;
+}
+
+export function syncMockEDocumentStatuses(db, syncedAt = new Date().toISOString()) {
+  let updated = 0;
+  for (const document of db.eDocuments.documents ?? []) {
+    if (document.status !== "processing" || document.provider !== "mock") continue;
+    document.status = "completed";
+    document.acceptedAt = syncedAt;
+    document.updatedAt = syncedAt;
+    document.providerResponse = { code: "MOCK_ACCEPTED", message: "Test sənədi provayder status yoxlamasında qəbul edildi; GİB-ə məlumat göndərilmədi." };
+    updated += 1;
+  }
+  db.eDocuments.lastSyncAt = syncedAt;
+  return updated;
+}
+
 export function testEDocumentConnection(settings, environment = process.env) {
   const normalized = normalizeEDocumentSettings(settings);
   const credentials = credentialStatus(normalized, environment);
