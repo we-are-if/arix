@@ -27,6 +27,14 @@ type Overview = {
   lastSyncAt: string | null;
 };
 
+type RegistryOverview = {
+  count: number;
+  importedAt: string | null;
+  sourceName: string;
+  format: string;
+  registeredCards?: number;
+};
+
 type EDocument = {
   id: string;
   sourceDocumentId?: string | number;
@@ -60,6 +68,8 @@ const emptyOverview: Overview = {
   lastSyncAt: null,
 };
 
+const emptyRegistry: RegistryOverview = { count: 0, importedAt: null, sourceName: "", format: "" };
+
 const providers: Array<{ id: ProviderId; title: string; subtitle: string }> = [
   { id: "mock", title: "AriX Test", subtitle: "Xaricə məlumat göndərməyən daxili sınaq adapteri" },
   { id: "izibiz", title: "İZİBİZ", subtitle: "e-Fatura, e-Arşiv və e-İrsaliye web servisləri" },
@@ -92,10 +102,12 @@ export default function EDocumentsSettings({
 }) {
   const [settings, setSettings] = useState<EDocumentSettings>(defaults);
   const [overview, setOverview] = useState<Overview>(emptyOverview);
+  const [registry, setRegistry] = useState<RegistryOverview>(emptyRegistry);
   const [documents, setDocuments] = useState<EDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [importingRegistry, setImportingRegistry] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [selectedSourceDocumentId, setSelectedSourceDocumentId] = useState<string | number | null>(null);
@@ -103,9 +115,10 @@ export default function EDocumentsSettings({
   const load = async () => {
     setLoading(true);
     try {
-      const payload = await requestJson<{ data: EDocument[]; overview: Overview; settings: EDocumentSettings }>("/api/e-documents");
+      const payload = await requestJson<{ data: EDocument[]; overview: Overview; registry: RegistryOverview; settings: EDocumentSettings }>("/api/e-documents");
       setDocuments(payload.data ?? []);
       setOverview(payload.overview ?? emptyOverview);
+      setRegistry(payload.registry ?? emptyRegistry);
       setSettings({ ...defaults, ...payload.settings });
     } catch (error) {
       setMessageTone("error");
@@ -162,6 +175,31 @@ export default function EDocumentsSettings({
       setMessage(error instanceof Error ? error.message : "Bağlantı yoxlanmadı.");
     } finally {
       setTesting(false);
+    }
+  };
+
+  const importRegistry = async (file?: File) => {
+    if (!file) return;
+    setImportingRegistry(true);
+    setMessage("");
+    try {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      if (extension !== "xml" && extension !== "csv") throw new Error("Yalnız GİB XML və ya CSV siyahısı qəbul edilir.");
+      const content = await file.text();
+      const payload = await requestJson<{ data: RegistryOverview }>("/api/e-documents/registry/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content, format: extension, sourceName: file.name }),
+      });
+      setRegistry(payload.data);
+      setMessageTone("success");
+      setMessage(`${payload.data.count.toLocaleString("tr-TR")} mükəlləf reyestrə alındı; cari kartlar yeniləndi.`);
+      window.dispatchEvent(new CustomEvent("arix:counterparties-updated"));
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Mükəlləf reyestri içəri alınmadı.");
+    } finally {
+      setImportingRegistry(false);
     }
   };
 
@@ -225,6 +263,36 @@ export default function EDocumentsSettings({
           </div>
         ))}
       </div>
+
+      <section className={sectionClass}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-semibold">e-Fatura mükəlləf reyestri</h3>
+              <span className={cx("rounded-full px-3 py-1 text-xs font-semibold", registry.count ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
+                {registry.count ? `${registry.count.toLocaleString("tr-TR")} qeyd` : "Siyahı yoxdur"}
+              </span>
+            </div>
+            <p className={cx("mt-1 text-sm", subtle)}>GİB portalından alınan XML/CSV siyahısı VKN/TCKN üzrə bütün müştəri kartlarını avtomatik təsnif edir.</p>
+            {registry.importedAt && (
+              <p className={cx("mt-2 text-xs", subtle)}>{registry.sourceName} · {new Date(registry.importedAt).toLocaleString("tr-TR")}</p>
+            )}
+          </div>
+          <label className={cx("inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border px-4 text-sm font-semibold", border, importingRegistry && "pointer-events-none opacity-60")}>
+            <input
+              type="file"
+              accept=".xml,.csv,text/xml,text/csv"
+              className="sr-only"
+              disabled={importingRegistry}
+              onChange={(event) => {
+                void importRegistry(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+            {importingRegistry ? "İçəri alınır..." : "Rəsmi siyahını seç"}
+          </label>
+        </div>
+      </section>
 
       <section className={sectionClass}>
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">

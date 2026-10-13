@@ -38,6 +38,9 @@ type ApiCounterparty = {
   department?: string;
   eDocumentPreference?: "auto" | "eInvoice" | "eArchive";
   eInvoiceRegistered?: boolean;
+  eInvoiceAliases?: string[];
+  eInvoiceTitle?: string;
+  eInvoiceRegistryCheckedAt?: string;
   description?: string;
   address?: string;
   balance?: number;
@@ -85,6 +88,9 @@ type CounterpartyRow = {
   department?: string;
   eDocumentPreference?: "auto" | "eInvoice" | "eArchive";
   eInvoiceRegistered?: boolean;
+  eInvoiceAliases?: string[];
+  eInvoiceTitle?: string;
+  eInvoiceRegistryCheckedAt?: string;
   description: string;
   address: string;
   balance: number;
@@ -230,6 +236,9 @@ const mapApiCounterparty = (item: ApiCounterparty, kind: CounterpartyKind): Coun
   department: item.department ?? "",
   eDocumentPreference: item.eDocumentPreference ?? "auto",
   eInvoiceRegistered: item.eInvoiceRegistered,
+  eInvoiceAliases: item.eInvoiceAliases ?? [],
+  eInvoiceTitle: item.eInvoiceTitle ?? "",
+  eInvoiceRegistryCheckedAt: item.eInvoiceRegistryCheckedAt,
   description: item.description ?? "",
   address: item.address ?? "",
   balance: Number(item.balance ?? 0),
@@ -1097,6 +1106,8 @@ function CustomerCardOverview({
             ["Ticarət reyestri", row.tradeRegistryNumber || "Əlavə edilməyib"],
             ["e-Belge statusu", isSupplier ? "Alış cari kartı" : row.eInvoiceRegistered === true ? "e-Fatura mükəlləfi" : row.eInvoiceRegistered === false ? "e-Arşiv" : "Reyestr yoxlanmayıb"],
             ["Valyuta / müddət", `${row.currency} · ${row.paymentTermDays} gün`],
+            ["Poçt qutusu etiketi", row.eInvoiceAliases?.[0] || "Əlavə edilməyib"],
+            ["Son reyestr yoxlaması", row.eInvoiceRegistryCheckedAt ? new Date(row.eInvoiceRegistryCheckedAt).toLocaleString("tr-TR") : "Yoxlanmayıb"],
           ].map(([label, value]) => (
             <div key={label} className={cx("rounded-xl border p-3", border, isDark ? "bg-white/[0.03]" : "bg-white/70")}>
               <div className={cx("text-xs font-medium", subtle)}>{label}</div>

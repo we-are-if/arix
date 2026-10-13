@@ -47,12 +47,17 @@ Vite proxies frontend `/api/*` requests to this server.
 - `GET /api/online-collections/bin-rules`
 - `GET /api/documents`
 - `POST /api/documents`
+- `GET /api/e-documents`
+- `GET /api/e-documents/registry?taxNumber=...`
+- `POST /api/e-documents/registry/import`
 
 Data is persisted to `server/data/db.json`. The app starts with empty business data: no demo products, customers, suppliers, documents, or collections. POS commission settings remain as configuration data.
 
 ## Current Account Cards
 
 Customer and supplier cards keep structured Turkish identity, contact, address, classification, currency, and payment-term fields. The API generates immutable current-account references and Tekduzen subaccounts under `120` for customers and `320` for suppliers. e-Fatura/e-Arsiv is not a manual card choice: the saved VKN/TCKN and the provider registry result determine the document type.
+
+The e-Fatura registry importer accepts the official XML or CSV user list, groups multiple mailbox aliases by VKN/TCKN, and refreshes every matching customer card. The selected receiver alias is copied into the immutable e-document snapshot for later provider delivery.
 
 ## Stock Rules
 

@@ -16,6 +16,12 @@ import {
 } from "./accounting.js";
 import { normalizeCounterparty, validateCounterparty } from "./counterparties.js";
 import {
+  applyRegistryToCounterparties,
+  lookupEDocumentRegistry,
+  parseEDocumentRegistry,
+  registryOverview,
+} from "./eInvoiceRegistry.js";
+import {
   buildEDocumentDraft,
   buildGibComplianceReport,
   buildGibDocumentModel,
@@ -263,12 +269,12 @@ function notFound(res) {
   send(res, 404, { error: "Not found" });
 }
 
-function parseBody(req) {
+function parseBody(req, limit = 1_000_000) {
   return new Promise((resolve, reject) => {
     let raw = "";
     req.on("data", (chunk) => {
       raw += chunk;
-      if (raw.length > 1_000_000) {
+      if (raw.length > limit) {
         reject(new Error("Payload too large"));
         req.destroy();
       }
@@ -541,9 +547,19 @@ async function handleCounterparties(req, res, url, parts) {
 
   if (req.method === "POST" && parts.length === 1) {
     const body = await parseBody(req);
-    const normalized = normalizeCounterparty(body);
+    let normalized = normalizeCounterparty(body);
     const validationError = validateCounterparty(normalized);
     if (validationError) return send(res, 400, { error: validationError });
+    const registryResult = lookupEDocumentRegistry(db.eDocuments.registry, normalized.taxId);
+    if (normalized.kind === "customer" && registryResult.checked) {
+      normalized = {
+        ...normalized,
+        eInvoiceRegistered: registryResult.registered,
+        eInvoiceAliases: registryResult.entry?.aliases ?? [],
+        eInvoiceTitle: registryResult.entry?.title ?? "",
+        eInvoiceRegistryCheckedAt: db.eDocuments.registry.importedAt,
+      };
+    }
     const item = ensureCounterpartyAccounting(db, { id: nextNumericId(db.counterparties), createdAt: new Date().toISOString(), ...normalized });
     db.counterparties.push(item);
     await writeDb(db);
@@ -554,9 +570,19 @@ async function handleCounterparties(req, res, url, parts) {
     const index = db.counterparties.findIndex((item) => item.id === id);
     if (index < 0) return notFound(res);
     const body = await parseBody(req);
-    const normalized = normalizeCounterparty(body, db.counterparties[index]);
+    let normalized = normalizeCounterparty(body, db.counterparties[index]);
     const validationError = validateCounterparty(normalized);
     if (validationError) return send(res, 400, { error: validationError });
+    const registryResult = lookupEDocumentRegistry(db.eDocuments.registry, normalized.taxId);
+    if (normalized.kind === "customer" && registryResult.checked) {
+      normalized = {
+        ...normalized,
+        eInvoiceRegistered: registryResult.registered,
+        eInvoiceAliases: registryResult.entry?.aliases ?? [],
+        eInvoiceTitle: registryResult.entry?.title ?? "",
+        eInvoiceRegistryCheckedAt: db.eDocuments.registry.importedAt,
+      };
+    }
     db.counterparties[index] = ensureCounterpartyAccounting(db, { ...normalized, updatedAt: new Date().toISOString() });
     await writeDb(db);
     return send(res, 200, { data: db.counterparties[index] });
@@ -836,6 +862,7 @@ async function handleCompanySettings(req, res) {
 
 function eDocumentSourceWithCounterparty(db, sourceDocument) {
   const counterparty = db.counterparties.find((item) => Number(item.id) === Number(sourceDocument?.counterpartyId));
+  const registryResult = lookupEDocumentRegistry(db.eDocuments.registry, sourceDocument?.counterpartyTaxNumber ?? counterparty?.taxId);
   return {
     ...sourceDocument,
     counterpartyTaxNumber: sourceDocument?.counterpartyTaxNumber ?? counterparty?.taxId ?? "",
@@ -851,8 +878,11 @@ function eDocumentSourceWithCounterparty(db, sourceDocument) {
     counterpartyEmail: sourceDocument?.counterpartyEmail ?? counterparty?.email ?? "",
     counterpartyPhone: sourceDocument?.counterpartyPhone ?? counterparty?.phone ?? "",
     counterpartyFax: sourceDocument?.counterpartyFax ?? counterparty?.fax ?? "",
+    counterpartyAlias: sourceDocument?.counterpartyAlias ?? registryResult.entry?.aliases?.[0] ?? counterparty?.eInvoiceAliases?.[0] ?? "",
     counterpartyEDocumentPreference: sourceDocument?.counterpartyEDocumentPreference ?? counterparty?.eDocumentPreference ?? "auto",
-    counterpartyEInvoiceRegistered: sourceDocument?.counterpartyEInvoiceRegistered ?? counterparty?.eInvoiceRegistered,
+    counterpartyEInvoiceRegistered: registryResult.checked
+      ? registryResult.registered
+      : sourceDocument?.counterpartyEInvoiceRegistered ?? counterparty?.eInvoiceRegistered,
     eDocumentSupplier: { ...db.companySettings.eDocumentSettings.company },
   };
 }
@@ -876,8 +906,43 @@ async function handleEDocuments(req, res, url, parts) {
     return send(res, 200, {
       data: documents,
       overview: eDocumentOverview(db),
+      registry: registryOverview(db.eDocuments.registry),
       settings: publicEDocumentSettings(db.companySettings.eDocumentSettings),
     });
+  }
+  if (req.method === "GET" && action === "registry") {
+    const taxNumber = url.searchParams.get("taxNumber") ?? "";
+    return send(res, 200, {
+      data: {
+        ...registryOverview(db.eDocuments.registry),
+        result: taxNumber ? lookupEDocumentRegistry(db.eDocuments.registry, taxNumber) : null,
+      },
+    });
+  }
+  if (req.method === "POST" && action === "registry" && parts[2] === "import") {
+    const body = await parseBody(req, 60_000_000);
+    const sourceName = String(body.sourceName ?? "gib-user-list").trim().slice(0, 200);
+    const format = String(body.format ?? sourceName.split(".").pop() ?? "xml").toLowerCase() === "csv" ? "csv" : "xml";
+    let entries;
+    try {
+      entries = parseEDocumentRegistry(body.content, format);
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? `Reyestr faylı oxunmadı: ${error.message}` : "Reyestr faylı oxunmadı." });
+    }
+    if (entries.length === 0) return send(res, 400, { error: "Faylda etibarlı 10 və ya 11 rəqəmli VKN/TCKN qeydi tapılmadı." });
+    db.eDocuments.registry = { entries, importedAt: new Date().toISOString(), sourceName, format };
+    db.counterparties = applyRegistryToCounterparties(db.counterparties, db.eDocuments.registry);
+    const registeredCards = db.counterparties.filter((item) => item.kind === "customer" && item.eInvoiceRegistered === true).length;
+    db.eDocuments.events.unshift({
+      id: randomUUID(),
+      type: "registry-import",
+      count: entries.length,
+      sourceName,
+      createdAt: db.eDocuments.registry.importedAt,
+    });
+    db.eDocuments.events = db.eDocuments.events.slice(0, 200);
+    await writeDb(db);
+    return send(res, 200, { data: { ...registryOverview(db.eDocuments.registry), registeredCards } });
   }
   if (req.method === "GET" && action === "context") {
     const sourceDocumentId = url.searchParams.get("sourceDocumentId");

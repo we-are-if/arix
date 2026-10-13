@@ -117,6 +117,12 @@ export function normalizeEDocumentStore(db) {
     documents: Array.isArray(db.eDocuments?.documents) ? db.eDocuments.documents : [],
     events: Array.isArray(db.eDocuments?.events) ? db.eDocuments.events : [],
     lastSyncAt: db.eDocuments?.lastSyncAt ?? null,
+    registry: {
+      entries: Array.isArray(db.eDocuments?.registry?.entries) ? db.eDocuments.registry.entries : [],
+      importedAt: db.eDocuments?.registry?.importedAt ?? null,
+      sourceName: db.eDocuments?.registry?.sourceName ?? "",
+      format: db.eDocuments?.registry?.format ?? "",
+    },
   };
   return db;
 }
@@ -323,6 +329,7 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, relatedE
         email: sourceDocument.counterpartyEmail ?? "",
         phone: sourceDocument.counterpartyPhone ?? "",
         fax: sourceDocument.counterpartyFax ?? "",
+        endpointAlias: sourceDocument.counterpartyAlias ?? "",
       },
       shipment: {
         actualDespatchDate: sourceDocument.shipment?.actualDespatchDate ?? "",
@@ -618,6 +625,7 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       email: buyer.email ?? "",
       phone: buyer.phone ?? "",
       fax: buyer.fax ?? "",
+      endpointAlias: buyer.endpointAlias ?? "",
     },
     accountingCustomer: isExport ? customsAuthority : null,
     shipment: {
