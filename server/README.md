@@ -34,6 +34,12 @@ Vite proxies frontend `/api/*` requests to this server.
 - `GET /api/counterparties?kind=supplier`
 - `POST /api/counterparties`
 - `PATCH /api/counterparties/:id`
+- `GET /api/accounting/overview`
+- `GET /api/accounting/accounts`
+- `POST /api/accounting/accounts`
+- `GET /api/accounting/journals`
+- `GET /api/accounting/trial-balance`
+- `GET /api/accounting/periods`
 - `GET /api/online-collections`
 - `GET /api/online-collections/pos`
 - `GET /api/online-collections/collections`

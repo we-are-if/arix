@@ -10,6 +10,8 @@ type ApiCounterparty = {
   id: number;
   kind: "customer" | "supplier";
   name: string;
+  currentCode?: string;
+  accountingCode?: string;
   type?: ContactType;
   phone?: string;
   email?: string;
@@ -37,6 +39,7 @@ type CounterpartyRow = {
   id: number;
   name: string;
   code: string;
+  accountingCode?: string;
   type: ContactType;
   phone: string;
   email: string;
@@ -124,7 +127,8 @@ const formatDate = (value?: string) => {
 };
 const mapApiCounterparty = (item: ApiCounterparty, kind: CounterpartyKind): CounterpartyRow => ({
   id: item.id,
-  code: `${codePrefixFor(kind)}-${String(item.id).padStart(3, "0")}`,
+  code: item.currentCode ?? `${codePrefixFor(kind)}-${String(item.id).padStart(3, "0")}`,
+  accountingCode: item.accountingCode ?? "",
   name: item.name,
   type: item.type ?? "company",
   phone: item.phone ?? "",
@@ -930,12 +934,13 @@ function CustomerCardOverview({
           </div>
           <span className={cx("rounded-full px-3 py-1 text-xs font-medium", soft)}>{row.type === "company" ? "Şirkət" : "Fiziki şəxs"}</span>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           {[
             [<I.Phone className="h-4 w-4" />, "Telefon", row.phone || "Əlavə edilməyib"],
             [<I.Mail className="h-4 w-4" />, "E-poçt", row.email || "Əlavə edilməyib"],
             [<I.MapPin className="h-4 w-4" />, "Ünvan", row.address || "Əlavə edilməyib"],
             [<I.Receipt className="h-4 w-4" />, "VKN / TCKN", row.taxId || "Əlavə edilməyib"],
+            [<I.Receipt className="h-4 w-4" />, "Mühasibat hesabı", row.accountingCode || (isSupplier ? "320" : "120")],
             [<I.Receipt className="h-4 w-4" />, "e-Belge", isSupplier ? "Təchizatçı" : row.eDocumentPreference === "eInvoice" ? "e-Fatura" : row.eDocumentPreference === "eArchive" ? "e-Arşiv" : "Avtomatik"],
           ].map(([icon, label, value]) => (
             <div key={String(label)} className={cx("rounded-xl border p-3", border, isDark ? "bg-white/[0.03]" : "bg-white/70")}>

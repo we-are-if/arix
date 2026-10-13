@@ -9,6 +9,7 @@ import MoneyActivity from "./pages/MoneyActivity";
 import OnlineCollections, { type OnlineCollectionSection } from "./pages/OnlineCollections";
 import Company, { type CompanySection } from "./pages/Company";
 import Reports from "./pages/Reports";
+import Accounting from "./pages/Accounting";
 import DocumentCreatePanel, { DocumentCreateMenu, type DocumentCreateKind } from "./components/DocumentCreatePanel";
 import { languageOptions, useI18n, useStaticDomTranslation } from "./i18n";
 
@@ -752,7 +753,7 @@ export default function App() {
                   <DisabledNavItem label={t("nav.cashShifts")} icon={<I.Receipt className="h-full w-full" />} />
                 </li>
                 <li>
-                  <DisabledNavItem label={t("nav.financeActivity")} icon={<I.Chart className="h-full w-full" />} />
+                  <NavItem to="/accounting" label={t("nav.financeActivity")} icon={<I.Chart className="h-full w-full" />} />
                 </li>
                 <li>
                   <NavItem to="/reports" label={t("nav.reports")} icon={<I.Reports className="h-full w-full" />} />
@@ -797,6 +798,7 @@ export default function App() {
               />
             ))}
             <Route path="/reports" element={<Reports isDark={isDark} />} />
+            <Route path="/accounting" element={<Accounting isDark={isDark} />} />
             <Route path="/contacts/suppliers" element={<Counterparties isDark={isDark} kind="suppliers" />} />
             <Route path="/contacts/customers" element={<Counterparties isDark={isDark} kind="customers" />} />
           </Routes>

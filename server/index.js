@@ -7,6 +7,13 @@ import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.j
 import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
 import {
+  accountingOverview,
+  accountingTrialBalance,
+  ensureCounterpartyAccounting,
+  normalizeAccountingStore,
+  upsertDocumentJournal,
+} from "./accounting.js";
+import {
   buildEDocumentDraft,
   buildGibComplianceReport,
   buildGibDocumentModel,
@@ -179,6 +186,7 @@ function normalizeDb(db) {
     },
   };
   normalizeEDocumentStore(db);
+  normalizeAccountingStore(db);
   db.stockContainers ??= [];
   db.stockPallets ??= [];
   db.stockRolls ??= [];
@@ -531,7 +539,7 @@ async function handleCounterparties(req, res, url, parts) {
 
   if (req.method === "POST" && parts.length === 1) {
     const body = await parseBody(req);
-    const item = { id: nextNumericId(db.counterparties), createdAt: new Date().toISOString(), ...body };
+    const item = ensureCounterpartyAccounting(db, { id: nextNumericId(db.counterparties), createdAt: new Date().toISOString(), ...body });
     db.counterparties.push(item);
     await writeDb(db);
     return send(res, 201, { data: item });
@@ -541,11 +549,57 @@ async function handleCounterparties(req, res, url, parts) {
     const index = db.counterparties.findIndex((item) => item.id === id);
     if (index < 0) return notFound(res);
     const body = await parseBody(req);
-    db.counterparties[index] = { ...db.counterparties[index], ...body, updatedAt: new Date().toISOString() };
+    db.counterparties[index] = ensureCounterpartyAccounting(db, { ...db.counterparties[index], ...body, updatedAt: new Date().toISOString() });
     await writeDb(db);
     return send(res, 200, { data: db.counterparties[index] });
   }
 
+  return notFound(res);
+}
+
+async function handleAccounting(req, res, url, parts) {
+  const db = await readDb();
+  const section = parts[1] ?? "overview";
+  if (req.method === "GET" && section === "overview") return send(res, 200, { data: accountingOverview(db) });
+  if (req.method === "GET" && section === "accounts") {
+    const query = String(url.searchParams.get("q") ?? "").trim().toLocaleLowerCase("tr-TR");
+    const data = query
+      ? db.accounting.accounts.filter((account) => [account.code, account.name].some((value) => String(value).toLocaleLowerCase("tr-TR").includes(query)))
+      : db.accounting.accounts;
+    return send(res, 200, { data });
+  }
+  if (req.method === "GET" && section === "journals") return send(res, 200, { data: db.accounting.journals });
+  if (req.method === "GET" && section === "trial-balance") return send(res, 200, { data: accountingTrialBalance(db) });
+  if (req.method === "GET" && section === "periods") return send(res, 200, { data: db.accounting.periods });
+  if (req.method === "GET" && section === "settings") return send(res, 200, { data: db.accounting.settings });
+  if (req.method === "POST" && section === "accounts") {
+    const body = await parseBody(req);
+    const code = String(body.code ?? "").trim();
+    const name = String(body.name ?? "").trim();
+    if (!code || !name) return send(res, 400, { error: "Hesab kodu və adı tələb olunur." });
+    if (db.accounting.accounts.some((account) => account.code === code)) return send(res, 409, { error: "Bu hesab kodu artıq mövcuddur." });
+    const parentCode = String(body.parentCode ?? code.split(".").slice(0, -1).join(".") ?? "").trim() || null;
+    const account = {
+      id: randomUUID(), code, name, parentCode,
+      type: ["asset", "liability", "equity", "income", "expense", "memo"].includes(body.type) ? body.type : "asset",
+      level: Number(body.level) || code.split(".").length,
+      system: false, active: body.active !== false, createdAt: new Date().toISOString(),
+    };
+    db.accounting.accounts.push(account);
+    db.accounting.accounts.sort((a, b) => String(a.code).localeCompare(String(b.code), "tr"));
+    await writeDb(db);
+    return send(res, 201, { data: account });
+  }
+  if (req.method === "PATCH" && section === "settings") {
+    const body = await parseBody(req);
+    db.accounting.settings = {
+      ...db.accounting.settings,
+      ...body,
+      accounts: { ...db.accounting.settings.accounts, ...(body.accounts ?? {}) },
+    };
+    await writeDb(db);
+    return send(res, 200, { data: db.accounting.settings });
+  }
   return notFound(res);
 }
 
@@ -2321,18 +2375,24 @@ async function handleDocuments(req, res) {
       const stockResult = applyDocumentStock(db, updatedDocument);
       if (!stockResult.ok) return send(res, 409, { error: stockResult.error });
     }
+    const replacedPaymentIds = db.documents
+      .filter((item) => item.generatedFromPayment && String(item.linkedDocumentId) === String(id))
+      .map((item) => String(item.id));
     db.documents = db.documents.filter((item) => !(item.generatedFromPayment && String(item.linkedDocumentId) === String(id)));
+    db.accounting.journals = db.accounting.journals.filter((journal) => !replacedPaymentIds.includes(String(journal.sourceDocumentId)));
     const sourceIndex = db.documents.findIndex((item) => String(item.id) === String(id));
     db.documents[sourceIndex] = updatedDocument;
     const paymentDocuments = createPaymentDocuments(updatedDocument);
     db.documents.unshift(...paymentDocuments);
+    const journal = upsertDocumentJournal(db, updatedDocument);
+    paymentDocuments.forEach((paymentDocument) => upsertDocumentJournal(db, paymentDocument));
     rebuildLotAccounting(db, {
       sourceDocumentId: updatedDocument.id,
       effectiveFrom: updatedDocument.documentDate ?? updatedDocument.createdAt,
       reason: "Sənəd redaktəsindən sonra partiya mayası yenidən hesablandı",
     });
     await writeDb(db);
-    return send(res, 200, { data: updatedDocument, payments: paymentDocuments });
+    return send(res, 200, { data: updatedDocument, payments: paymentDocuments, journal });
   }
   if (req.method === "POST") {
     const body = await parseBody(req);
@@ -2356,13 +2416,15 @@ async function handleDocuments(req, res) {
     applyLandedCost(db, document);
     const paymentDocuments = createPaymentDocuments(document);
     db.documents.unshift(...paymentDocuments, document);
+    const journal = upsertDocumentJournal(db, document);
+    paymentDocuments.forEach((paymentDocument) => upsertDocumentJournal(db, paymentDocument));
     rebuildLotAccounting(db, {
       sourceDocumentId: document.id,
       effectiveFrom: document.documentDate ?? document.createdAt,
       reason: "Yeni sənəddən sonra partiya mayası yenidən hesablandı",
     });
     await writeDb(db);
-    return send(res, 201, { data: document, payments: paymentDocuments, products: stockResult.products });
+    return send(res, 201, { data: document, payments: paymentDocuments, products: stockResult.products, journal });
   }
   return notFound(res);
 }
@@ -2543,6 +2605,7 @@ const server = createServer(async (req, res) => {
     if (parts[1] === "categories") return await handleSimpleCollection(req, res, "categories");
     if (parts[1] === "stores") return await handleStores(req, res, parts.slice(1));
     if (parts[1] === "counterparties") return await handleCounterparties(req, res, url, parts.slice(1));
+    if (parts[1] === "accounting") return await handleAccounting(req, res, url, parts.slice(1));
     if (parts[1] === "customer-prices") return await handleCustomerPrices(req, res, url, parts.slice(1));
     if (parts[1] === "online-collections") return await handleOnlineCollections(req, res, parts.slice(1));
     if (parts[1] === "company-settings") return await handleCompanySettings(req, res);
