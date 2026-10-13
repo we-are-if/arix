@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
+import { normalizeDocumentFinancials, validateDocumentFinancials } from "./documentTotals.js";
 import {
   accountingOverview,
   accountingTrialBalance,
@@ -2358,6 +2359,9 @@ async function handleDocuments(req, res) {
       id: previousDocument.id,
       updatedAt: new Date().toISOString(),
     };
+    normalizeDocumentFinancials(db, updatedDocument);
+    const financialError = validateDocumentFinancials(updatedDocument);
+    if (financialError) return send(res, 400, { error: financialError });
     if (updatedDocument.type === "sale" && updatedDocument.saleMode !== "export" && !updatedDocument.exportMode && db.companySettings?.stockMode === "bondedRolls") {
       const rollResult = validateAutomaticSaleRollSelection(db, updatedDocument);
       if (!rollResult.ok) return send(res, 409, { error: rollResult.error });
@@ -2402,6 +2406,9 @@ async function handleDocuments(req, res) {
       createdAt: new Date().toISOString(),
       ...body,
     };
+    normalizeDocumentFinancials(db, document);
+    const financialError = validateDocumentFinancials(document);
+    if (financialError) return send(res, 400, { error: financialError });
     if (document.type === "sale" && document.saleMode !== "export" && !document.exportMode && db.companySettings?.stockMode === "bondedRolls") {
       const rollResult = validateAutomaticSaleRollSelection(db, document);
       if (!rollResult.ok) return send(res, 409, { error: rollResult.error });

@@ -90,7 +90,8 @@ export const defaultAccountingSettings = {
   accounts: {
     cash: "100", bank: "102", customers: "120", suppliers: "320", inventory: "153",
     inputVat: "191", outputVat: "391", domesticSales: "600", exportSales: "601",
-    salesReturns: "610", cogs: "621", generalExpense: "770", writeOff: "689", openingEquity: "500",
+    withholdingReceivable: "136", withholdingPayable: "360", salesReturns: "610", cogs: "621",
+    generalExpense: "770", writeOff: "689", openingEquity: "500",
   },
 };
 
@@ -185,17 +186,31 @@ function postingLines(db, document) {
   const cash = accountForMoney(document, db.accounting.settings);
   const lines = [];
   const push = (accountCode, debit = 0, credit = 0, description = "") => lines.push({ accountCode, debit: amount(debit), credit: amount(credit), description });
+  const tax = amount(document.taxTotal);
+  const withholding = amount(document.withholdingTotal);
+  const net = amount(document.taxExclusiveTotal ?? total - tax + withholding);
   if (document.type === "sale") {
     push(customer, total, 0, document.counterpartyName);
-    push(document.saleMode === "export" || document.exportMode ? cfg.exportSales : cfg.domesticSales, 0, total, "Satış gəliri");
+    if (withholding) push(cfg.withholdingReceivable, withholding, 0, "Alıcı tərəfindən tutulacaq KDV");
+    push(document.saleMode === "export" || document.exportMode ? cfg.exportSales : cfg.domesticSales, 0, net, "Satış gəliri");
+    if (tax) push(cfg.outputVat, 0, tax, "Hesablanan KDV");
     const cost = documentCost(db, document);
     if (cost) { push(cfg.cogs, cost, 0, "Satılan malın mayası"); push(cfg.inventory, 0, cost, "Stok çıxışı"); }
   } else if (document.type === "purchase") {
-    push(cfg.inventory, total, 0, "Mal alışı"); push(supplier, 0, total, document.counterpartyName);
+    push(cfg.inventory, net, 0, "Mal alışı");
+    if (tax) push(cfg.inputVat, tax, 0, "İndiriləcək KDV");
+    push(supplier, 0, total, document.counterpartyName);
+    if (withholding) push(cfg.withholdingPayable, 0, withholding, "Məsul sifəti ilə ödənəcək KDV");
   } else if (document.type === "saleReturn") {
-    push(cfg.salesReturns, total, 0, "Satış qaytarması"); push(customer, 0, total, document.counterpartyName);
+    push(cfg.salesReturns, net, 0, "Satış qaytarması");
+    if (tax) push(cfg.outputVat, tax, 0, "Hesablanan KDV qaytarması");
+    push(customer, 0, total, document.counterpartyName);
+    if (withholding) push(cfg.withholdingReceivable, 0, withholding, "Tevkifat qaytarması");
   } else if (document.type === "purchaseReturn") {
-    push(supplier, total, 0, document.counterpartyName); push(cfg.inventory, 0, total, "Alış qaytarması");
+    push(supplier, total, 0, document.counterpartyName);
+    if (withholding) push(cfg.withholdingPayable, withholding, 0, "Tevkifat qaytarması");
+    push(cfg.inventory, 0, net, "Alış qaytarması");
+    if (tax) push(cfg.inputVat, 0, tax, "İndiriləcək KDV qaytarması");
   } else if (document.type === "cashIn") {
     push(cash, total, 0, "Pul girişi"); push(document.counterpartyId ? customer : "649", 0, total, document.counterpartyName || document.category);
   } else if (document.type === "cashOut") {

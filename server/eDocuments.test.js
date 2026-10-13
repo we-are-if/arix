@@ -237,6 +237,51 @@ test("fills legacy draft supplier details from current company settings before s
   assert.equal(model.supplier.website, "https://example.com");
 });
 
+test("builds TEVKIFAT invoice totals and UBL withholding nodes", () => {
+  const draft = buildEDocumentDraft({
+    id: "edoc-withholding",
+    documentType: "eInvoice",
+    sourceDocument: {
+      id: "sale-withholding",
+      counterpartyName: "Tevkifatlı Alıcı",
+      counterpartyTaxNumber: "1111111111",
+      total: 110,
+      taxTotal: 20,
+      withholdingTotal: 10,
+      lines: [{
+        name: "Hizmet",
+        code: "SRV-1",
+        qty: 1,
+        unit: "əd",
+        price: 100,
+        total: 100,
+        taxRate: 20,
+        taxAmount: 20,
+        withholdingRate: 50,
+        withholdingCode: "601",
+        withholdingAmount: 10,
+      }],
+      eDocumentSupplier: {
+        title: "AriX Ltd.", taxNumber: "1234567890", taxOffice: "İstanbul", country: "TR", address: "Adres", city: "İstanbul",
+      },
+    },
+  });
+  draft.number = "EAR2026000000002";
+  draft.uuid = "14e26a62-7c00-46d0-878c-6f7c60834525";
+
+  const model = buildGibDocumentModel(draft);
+  const qr = buildGibQrPayload(draft);
+  const xml = buildUblTrXml(draft);
+  assert.equal(model.typeCode, "TEVKIFAT");
+  assert.equal(model.totals.taxTotal, 20);
+  assert.equal(model.totals.withholdingTotal, 10);
+  assert.equal(model.totals.payable, 110);
+  assert.equal(qr.kdvtevkifat, "10.00");
+  assert.match(xml, /<cbc:InvoiceTypeCode>TEVKIFAT<\/cbc:InvoiceTypeCode>/);
+  assert.match(xml, /<cac:WithholdingTaxTotal>/);
+  assert.match(xml, /<cbc:TaxTypeCode>601<\/cbc:TaxTypeCode>/);
+});
+
 test("keeps completed document supplier snapshot immutable", () => {
   const completed = {
     status: "completed",

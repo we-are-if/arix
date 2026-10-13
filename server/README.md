@@ -40,6 +40,7 @@ Vite proxies frontend `/api/*` requests to this server.
 - `GET /api/accounting/journals`
 - `GET /api/accounting/trial-balance`
 - `GET /api/accounting/periods`
+- `GET/PATCH /api/accounting/settings`
 - `GET /api/online-collections`
 - `GET /api/online-collections/pos`
 - `GET /api/online-collections/collections`
@@ -58,3 +59,7 @@ Data is persisted to `server/data/db.json`. The app starts with empty business d
 - `movement`: subtract from source warehouse and add to target warehouse.
 
 If stock is insufficient, the API returns `409`.
+
+## Tax and Withholding
+
+Sale, purchase, and return lines are recalculated by the API before they are saved. Line discounts reduce the KDV base, KDV stays outside inventory cost, and KDV withholding reduces the payable amount. Accounting entries separate input/output KDV in `191/391` and withholding in `136/360`. A line with withholding requires a three-digit GIB withholding code.

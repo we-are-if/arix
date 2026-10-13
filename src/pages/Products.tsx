@@ -937,8 +937,8 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
   };
   const barcodeLabel = (product: Product) => product.barcode || `${String(product.id).padStart(5, "0")}000${(product.kod ?? "").slice(-3)}`;
   const pluLabel = (product: Product) => product.cardProfile?.plu || `PLU-${String(product.id).padStart(4, "0")}`;
-  const taxesLabel = (product: Product) => product.type === "service" ? "0%" : "18%";
-  const discountLabel = (product: Product) => product.id % 9 === 0 ? "5%" : "—";
+  const taxesLabel = (product: Product) => product.cardProfile?.taxFree ? "Azad" : `%${Number(product.cardProfile?.taxRate ?? 20)}`;
+  const discountLabel = (product: Product) => product.cardProfile?.discountPercent ? `%${product.cardProfile.discountPercent}` : "—";
   const countryLabel = (product: Product) => product.country || "—";
 
   /* filtering */

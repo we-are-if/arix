@@ -21,8 +21,8 @@ export type GibDocumentModel = {
   accountingCustomer?: { title: string; taxNumber: string } | null;
   shipment: { actualDespatchDate?: string; actualDespatchTime?: string; carrierTaxNumber?: string; carrierName?: string; plate?: string; driverFirstName?: string; driverLastName?: string; driverNationalId?: string; deliveryAddress?: string };
   exportDetails?: { incoterm?: string; transportModeCode?: string; packageTypeCode?: string; packageId?: string; packageQuantity?: number; exchangeRate?: number; deliveryAddress?: string; countryName?: string };
-  lines: Array<{ id: string; name: string; code: string; quantity: number; unit: string; unitCode: string; unitPrice: number; discountRate: number; taxRate: number; extensionAmount: number; taxAmount: number; gtip?: string; labelNumber?: string; outstandingQuantity?: number }>;
-  totals: { goodsTotal: number; taxTotal: number; taxInclusive: number; payable: number; discountTotal: number };
+  lines: Array<{ id: string; name: string; code: string; quantity: number; unit: string; unitCode: string; unitPrice: number; discountRate: number; taxRate: number; extensionAmount: number; taxAmount: number; withholdingRate?: number; withholdingCode?: string; withholdingAmount?: number; gtip?: string; labelNumber?: string; outstandingQuantity?: number }>;
+  totals: { goodsTotal: number; taxTotal: number; withholdingTotal: number; taxInclusive: number; payable: number; discountTotal: number };
   taxBreakdown: Array<{ rate: number; taxableAmount: number; taxAmount: number }>;
   taxExemption?: { code: string; reason: string } | null;
   standards?: { ublTr: string; qr: string; signature: string };
@@ -233,6 +233,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               <Total label="Mal / hizmet toplamı" value={formatMoney(model.totals.goodsTotal, model.currency)} />
               <Total label="Toplam iskonto" value={formatMoney(model.totals.discountTotal, model.currency)} />
               {model.taxBreakdown.map((tax) => <Total key={tax.rate} label={`Hesaplanan KDV (%${tax.rate})`} value={formatMoney(tax.taxAmount, model.currency)} />)}
+              {model.totals.withholdingTotal > 0 && <Total label="KDV tevkifatı" value={`-${formatMoney(model.totals.withholdingTotal, model.currency)}`} />}
               <Total label="Vergiler dahil toplam" value={formatMoney(model.totals.taxInclusive, model.currency)} />
               <Total label="Ödenecek tutar" value={formatMoney(model.totals.payable, model.currency)} strong />
             </div>

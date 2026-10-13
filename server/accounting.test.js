@@ -65,3 +65,59 @@ test("reposting the same source replaces its previous journal", () => {
   assert.equal(db.accounting.journals.length, 1);
   assert.equal(db.accounting.journals[0].debit, 125);
 });
+
+test("posts KDV and withholding separately from sale revenue", () => {
+  const db = dbFixture();
+  normalizeAccountingStore(db);
+  const customer = ensureCounterpartyAccounting(db, { id: 2, kind: "customer", name: "Tevkifatlı Alıcı" });
+  db.counterparties.push(customer);
+
+  const journal = upsertDocumentJournal(db, {
+    id: "sale-tax-1",
+    type: "sale",
+    status: "posted",
+    posted: true,
+    total: 110,
+    taxExclusiveTotal: 100,
+    taxTotal: 20,
+    withholdingTotal: 10,
+    counterpartyId: 2,
+    counterpartyName: "Tevkifatlı Alıcı",
+    lines: [],
+  });
+
+  assert.equal(journal.debit, 120);
+  assert.equal(journal.credit, 120);
+  assert.ok(journal.lines.some((line) => line.accountCode === "120.01.00002" && line.debit === 110));
+  assert.ok(journal.lines.some((line) => line.accountCode === "136" && line.debit === 10));
+  assert.ok(journal.lines.some((line) => line.accountCode === "600" && line.credit === 100));
+  assert.ok(journal.lines.some((line) => line.accountCode === "391" && line.credit === 20));
+});
+
+test("posts purchase KDV and buyer withholding to 191 and 360", () => {
+  const db = dbFixture();
+  normalizeAccountingStore(db);
+  const supplier = ensureCounterpartyAccounting(db, { id: 3, kind: "supplier", name: "Tevkifatlı Satıcı" });
+  db.counterparties.push(supplier);
+
+  const journal = upsertDocumentJournal(db, {
+    id: "purchase-tax-1",
+    type: "purchase",
+    status: "posted",
+    posted: true,
+    total: 110,
+    taxExclusiveTotal: 100,
+    taxTotal: 20,
+    withholdingTotal: 10,
+    counterpartyId: 3,
+    counterpartyName: "Tevkifatlı Satıcı",
+    lines: [],
+  });
+
+  assert.equal(journal.debit, 120);
+  assert.equal(journal.credit, 120);
+  assert.ok(journal.lines.some((line) => line.accountCode === "153" && line.debit === 100));
+  assert.ok(journal.lines.some((line) => line.accountCode === "191" && line.debit === 20));
+  assert.ok(journal.lines.some((line) => line.accountCode === "320.01.00003" && line.credit === 110));
+  assert.ok(journal.lines.some((line) => line.accountCode === "360" && line.credit === 10));
+});

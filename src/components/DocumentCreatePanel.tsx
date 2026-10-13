@@ -32,6 +32,11 @@ type ProductLine = {
   priceStore?: string;
   qty?: number;
   discount?: number;
+  taxRate?: number;
+  taxAmount?: number;
+  withholdingRate?: number;
+  withholdingCode?: string;
+  withholdingAmount?: number;
   movementMode?: MovementSelectionMode;
   deliveryMode?: SaleDeliveryMode;
   cutLengths?: number[];
@@ -52,6 +57,9 @@ type ApiProduct = {
   salePrice?: number;
   purchasePrice?: number;
   cost?: number;
+  taxRate?: number;
+  taxFree?: boolean;
+  cardProfile?: { taxRate?: number; taxFree?: boolean };
   storePrices?: Record<string, number>;
   warehouses?: Record<string, number>;
 };
@@ -109,6 +117,12 @@ export type ApiDocumentDraft = {
   method?: string;
   amount?: number;
   total?: number;
+  subtotal?: number;
+  discountTotal?: number;
+  taxExclusiveTotal?: number;
+  taxTotal?: number;
+  withholdingTotal?: number;
+  taxInclusiveTotal?: number;
   comment?: string;
   paymentSummary?: {
     total?: number;
@@ -137,6 +151,11 @@ export type ApiDocumentDraft = {
     priceSource?: string;
     priceStore?: string;
     discount?: number;
+    taxRate?: number;
+    taxAmount?: number;
+    withholdingRate?: number;
+    withholdingCode?: string;
+    withholdingAmount?: number;
     movementMode?: MovementSelectionMode;
     requestedQty?: number;
     deliveryMode?: SaleDeliveryMode;
@@ -680,6 +699,9 @@ const mapApiProduct = (product: ApiProduct, store: ApiStore | string = "ERSA DEP
   stock: Number(product.warehouses?.[storeKey] ?? 0),
   price: standardPrice,
   standardPrice,
+  taxRate: product.taxFree || product.cardProfile?.taxFree ? 0 : Number(product.taxRate ?? product.cardProfile?.taxRate ?? 20),
+  withholdingRate: 0,
+  withholdingCode: "",
   priceSource: isPurchasePrice ? "Son təchizatçı alış qiyməti" : "Mağaza standartı",
   priceStore: storeName,
   deliveryMode: "singlePiece",
@@ -758,6 +780,11 @@ const mapDocumentLinesToProducts = (document: ApiDocument | null | undefined, pr
       priceStore: line.priceStore ?? product?.priceStore,
       qty,
       discount,
+      taxRate: Number(line.taxRate ?? product?.taxRate ?? 20),
+      taxAmount: Number(line.taxAmount ?? 0),
+      withholdingRate: Number(line.withholdingRate ?? 0),
+      withholdingCode: String(line.withholdingCode ?? ""),
+      withholdingAmount: Number(line.withholdingAmount ?? 0),
       type: product?.type,
       deliveryMode: line.deliveryMode ?? product?.deliveryMode ?? "singlePiece",
       cutLengths: Array.isArray(line.cutLengths) ? line.cutLengths.map(Number).filter((value) => value > 0) : product?.cutLengths ?? [],
@@ -769,6 +796,79 @@ const mapDocumentLinesToProducts = (document: ApiDocument | null | undefined, pr
           : product?.movementMode ?? "meters",
     };
   });
+};
+
+type LineFinancials = {
+  grossAmount: number;
+  discountAmount: number;
+  taxableAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  withholdingRate: number;
+  withholdingAmount: number;
+  payableAmount: number;
+};
+
+type DocumentFinancials = {
+  subtotal: number;
+  discountTotal: number;
+  taxExclusiveTotal: number;
+  taxTotal: number;
+  withholdingTotal: number;
+  taxInclusiveTotal: number;
+  payableTotal: number;
+};
+
+const panelMoney = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
+
+const calculateLineFinancials = (row: ProductLine, qty: number, taxable: boolean, forceTaxExempt: boolean): LineFinancials => {
+  const grossAmount = panelMoney(Math.max(0, qty) * Math.max(0, row.price));
+  const discountAmount = Math.min(grossAmount, Math.max(0, Number(row.discount) || 0));
+  const taxableAmount = panelMoney(grossAmount - discountAmount);
+  const taxRate = taxable && !forceTaxExempt ? Math.min(100, Math.max(0, Number(row.taxRate) || 0)) : 0;
+  const taxAmount = panelMoney(taxableAmount * taxRate / 100);
+  const withholdingRate = taxAmount > 0 ? Math.min(100, Math.max(0, Number(row.withholdingRate) || 0)) : 0;
+  const withholdingAmount = panelMoney(taxAmount * withholdingRate / 100);
+  return {
+    grossAmount,
+    discountAmount,
+    taxableAmount,
+    taxRate,
+    taxAmount,
+    withholdingRate,
+    withholdingAmount,
+    payableAmount: panelMoney(taxableAmount + taxAmount - withholdingAmount),
+  };
+};
+
+const calculateDocumentFinancials = (
+  rows: ProductLine[],
+  quantityFor: (row: ProductLine) => number,
+  taxable: boolean,
+  forceTaxExempt: boolean
+): DocumentFinancials => {
+  const totals = rows.reduce((result, row) => {
+    const line = calculateLineFinancials(row, quantityFor(row), taxable, forceTaxExempt);
+    result.subtotal += line.grossAmount;
+    result.discountTotal += line.discountAmount;
+    result.taxExclusiveTotal += line.taxableAmount;
+    result.taxTotal += line.taxAmount;
+    result.withholdingTotal += line.withholdingAmount;
+    return result;
+  }, { subtotal: 0, discountTotal: 0, taxExclusiveTotal: 0, taxTotal: 0, withholdingTotal: 0 });
+  const taxExclusiveTotal = panelMoney(totals.taxExclusiveTotal);
+  const taxTotal = panelMoney(totals.taxTotal);
+  const withholdingTotal = panelMoney(totals.withholdingTotal);
+  const taxInclusiveTotal = panelMoney(taxExclusiveTotal + taxTotal);
+  return {
+    subtotal: panelMoney(totals.subtotal),
+    discountTotal: panelMoney(totals.discountTotal),
+    taxExclusiveTotal,
+    taxTotal,
+    withholdingTotal,
+    taxInclusiveTotal,
+    payableTotal: panelMoney(taxInclusiveTotal - withholdingTotal),
+  };
 };
 
 const collectCostContainers = (documents: ApiDocument[]): CostContainerOption[] => {
@@ -990,6 +1090,7 @@ export default function DocumentCreatePanel({
   const soft = isDark ? "bg-white/7" : "bg-slate-50";
   const muted = isDark ? "text-slate-400" : "text-slate-500";
   const isExportSale = kind === "sale" && saleMode === "export";
+  const usesDocumentTax = ["sale", "purchase", "saleReturn", "purchaseReturn"].includes(kind);
   const activeStores = useMemo(() => availableStores.filter((store) => store.status === "active"), [availableStores]);
   const selectedDocumentStore = availableStores.find((store) => store.name === documentAccount);
   const usesMovementSelection = kind === "movement" || isExportSale;
@@ -1055,16 +1156,18 @@ export default function DocumentCreatePanel({
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
-  const total = useMemo(
-    () => selectedProducts.reduce((sum, product) => {
-      const movementLine = usesMovementSelection
-        ? selectedMovementSuggestion?.lines.find((line) => line.productId === product.id)
-        : undefined;
-      const qty = movementLine?.selectedQty ?? product.qty ?? 1;
-      return sum + Math.max(0, qty * product.price - (product.discount ?? 0));
-    }, 0),
-    [selectedProducts, selectedMovementSuggestion, usesMovementSelection]
+  const financialTotals = useMemo(
+    () => calculateDocumentFinancials(
+      selectedProducts,
+      (product) => usesMovementSelection
+        ? selectedMovementSuggestion?.lines.find((line) => line.productId === product.id)?.selectedQty ?? product.qty ?? 1
+        : product.qty ?? 1,
+      usesDocumentTax,
+      isExportSale
+    ),
+    [isExportSale, selectedProducts, selectedMovementSuggestion, usesDocumentTax, usesMovementSelection]
   );
+  const total = financialTotals.payableTotal;
   const documentPaidTotal = documentPayments.reduce((sum, payment) => sum + Math.max(0, Number(payment.amount ?? 0)), 0);
   const documentRemaining = Math.max(0, total - documentPaidTotal);
   const documentPaymentStatus = total <= 0
@@ -1868,6 +1971,13 @@ export default function DocumentCreatePanel({
       setMessage(`Ödəniş sənədin qalıq borcundan çox ola bilməz: ${selectedLinkedDocument.remaining.toFixed(2)} ₼`);
       return false;
     }
+    const invalidWithholdingLine = usesDocumentTax && !isExportSale
+      ? selectedProducts.find((product) => (Number(product.withholdingRate) || 0) > 0 && !/^\d{3}$/.test(String(product.withholdingCode ?? "")))
+      : undefined;
+    if (invalidWithholdingLine) {
+      setMessage(`${invalidWithholdingLine.name} üçün 3 rəqəmli GİB tevkifat kodunu daxil et.`);
+      return false;
+    }
     setSaving(true);
     setMessage("");
     try {
@@ -1879,6 +1989,7 @@ export default function DocumentCreatePanel({
           : isBondedPurchase && rollTotals.has(product.id)
             ? rollTotals.get(product.id)
             : product.qty ?? 1;
+        const lineFinancials = calculateLineFinancials(product, qty ?? 0, usesDocumentTax, isExportSale);
         return {
           productId: product.id,
           name: product.name,
@@ -1895,8 +2006,15 @@ export default function DocumentCreatePanel({
           standardPrice: product.standardPrice,
           priceSource: product.priceSource,
           priceStore: product.priceStore,
-          discount: product.discount ?? 0,
-          total: Math.max(0, (qty ?? 0) * product.price - (product.discount ?? 0)),
+          discount: lineFinancials.discountAmount,
+          discountAmount: lineFinancials.discountAmount,
+          taxRate: lineFinancials.taxRate,
+          taxAmount: lineFinancials.taxAmount,
+          withholdingRate: lineFinancials.withholdingRate,
+          withholdingCode: lineFinancials.withholdingRate > 0 ? product.withholdingCode ?? "" : "",
+          withholdingAmount: lineFinancials.withholdingAmount,
+          total: lineFinancials.taxableAmount,
+          payableAmount: lineFinancials.payableAmount,
         };
       });
       const documentPayload = {
@@ -1920,6 +2038,12 @@ export default function DocumentCreatePanel({
         method: isMoney ? moneyMethod : undefined,
         amount: isMoney ? moneyTotal : undefined,
         total: isMoney ? moneyTotal : total,
+        subtotal: !isMoney ? financialTotals.subtotal : undefined,
+        discountTotal: !isMoney ? financialTotals.discountTotal : undefined,
+        taxExclusiveTotal: !isMoney ? financialTotals.taxExclusiveTotal : undefined,
+        taxTotal: !isMoney ? financialTotals.taxTotal : undefined,
+        withholdingTotal: !isMoney ? financialTotals.withholdingTotal : undefined,
+        taxInclusiveTotal: !isMoney ? financialTotals.taxInclusiveTotal : undefined,
         comment: isMoney ? moneyComment : undefined,
         saleMode: kind === "sale" ? saleMode : undefined,
         exportMode: isExportSale || undefined,
@@ -2294,6 +2418,8 @@ export default function DocumentCreatePanel({
                       movementToAccount={stockSelectionToAccount}
                       movementFromKey={stockSelectionFromKey}
                       movementToKey={stockSelectionToKey}
+                      taxEnabled={usesDocumentTax}
+                      forceTaxExempt={isExportSale}
                       onRemove={removeProduct}
                       onUpdate={updateProduct}
                     />
@@ -2359,6 +2485,8 @@ export default function DocumentCreatePanel({
                       count={selectedProducts.length}
                       movementQty={selectedMovementSuggestion?.selectedQty}
                       total={total}
+                      financials={financialTotals}
+                      showTax={usesDocumentTax}
                       isDark={isDark}
                     />
                     <label className={cx("mt-8 block text-lg font-semibold", muted)}>{kind === "writeOff" ? "Şərh/Silinmə səbəbi" : "Şərh"}</label>
@@ -3428,6 +3556,8 @@ function ProductDocumentTable({
   movementToAccount,
   movementFromKey,
   movementToKey,
+  taxEnabled,
+  forceTaxExempt,
   onRemove,
   onUpdate,
 }: {
@@ -3440,6 +3570,8 @@ function ProductDocumentTable({
   movementToAccount?: string;
   movementFromKey?: string;
   movementToKey?: string;
+  taxEnabled?: boolean;
+  forceTaxExempt?: boolean;
   onRemove: (id: number) => void;
   onUpdate: (id: number, patch: Partial<ProductLine>) => void;
 }) {
@@ -3448,8 +3580,8 @@ function ProductDocumentTable({
   const isMovement = kind === "movement";
   const isStockSelection = isMovement || Boolean(stockSelection);
   return (
-    <div className={cx("overflow-hidden rounded-2xl border", border)}>
-      <table className="w-full min-w-[980px] text-sm">
+    <div className={cx("overflow-x-auto rounded-2xl border", border)}>
+      <table className={cx("w-full text-sm", taxEnabled ? "min-w-[1260px]" : "min-w-[980px]")}>
         <thead className={isDark ? "bg-white/5 text-slate-400" : "bg-slate-50 text-slate-500"}>
           <tr>
             <th className="px-4 py-3 text-left">#</th>
@@ -3465,17 +3597,19 @@ function ProductDocumentTable({
                   <>
                     <th className="px-4 py-3 text-right">Qiymət</th>
                     <th className="px-4 py-3 text-right">Endirim</th>
-                    <th className="px-4 py-3 text-right">Ümumi nəticə</th>
+                    {taxEnabled && <><th className="px-4 py-3 text-right">KDV</th><th className="px-4 py-3 text-right">Tevkifat</th></>}
+                    <th className="px-4 py-3 text-right">{taxEnabled ? "Ödənəcək" : "Ümumi nəticə"}</th>
                   </>
                 )}
               </>
-            ) : isInventory ? <><th className="px-4 py-3 text-right">Təxmini qalıq</th><th className="px-4 py-3 text-right">Faktiki qalıq</th><th className="px-4 py-3 text-right">Fərq</th></> : <><th className="px-4 py-3 text-right">Miqdar</th><th className="px-4 py-3 text-right">Qiymət</th><th className="px-4 py-3 text-right">Endirim</th><th className="px-4 py-3 text-right">Ümumi nəticə</th></>}
+            ) : isInventory ? <><th className="px-4 py-3 text-right">Təxmini qalıq</th><th className="px-4 py-3 text-right">Faktiki qalıq</th><th className="px-4 py-3 text-right">Fərq</th></> : <><th className="px-4 py-3 text-right">Miqdar</th><th className="px-4 py-3 text-right">Qiymət</th><th className="px-4 py-3 text-right">Endirim</th>{taxEnabled && <><th className="px-4 py-3 text-right">KDV</th><th className="px-4 py-3 text-right">Tevkifat</th></>}<th className="px-4 py-3 text-right">{taxEnabled ? "Ödənəcək" : "Ümumi nəticə"}</th></>}
             <th className="px-4 py-3" />
           </tr>
         </thead>
         <tbody>
           {rows.map((row, index) => {
             const effectiveQty = selectedQuantities?.get(row.id) ?? row.qty ?? 1;
+            const financials = calculateLineFinancials(row, effectiveQty, Boolean(taxEnabled), Boolean(forceTaxExempt));
             return (
             <tr key={row.id} className={cx("border-t", border)}>
               <td className="px-4 py-3">{index + 1}</td>
@@ -3539,7 +3673,8 @@ function ProductDocumentTable({
                       <td className="px-4 py-3 text-right">
                         <NumberCell value={row.discount ?? 0} onChange={(value) => onUpdate(row.id, { discount: value })} step="0.01" />
                       </td>
-                      <td className="px-4 py-3 text-right font-semibold">{Math.max(0, effectiveQty * row.price - (row.discount ?? 0)).toFixed(2)}</td>
+                      {taxEnabled && <TaxLineCells row={row} financials={financials} forceTaxExempt={Boolean(forceTaxExempt)} onUpdate={onUpdate} />}
+                      <td className="px-4 py-3 text-right font-semibold">{(taxEnabled ? financials.payableAmount : financials.taxableAmount).toFixed(2)}</td>
                     </>
                   )}
                 </>
@@ -3574,7 +3709,8 @@ function ProductDocumentTable({
                   <td className="px-4 py-3 text-right">
                     <NumberCell value={row.discount ?? 0} onChange={(value) => onUpdate(row.id, { discount: value })} step="0.01" />
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold">{Math.max(0, (row.qty ?? 1) * row.price - (row.discount ?? 0)).toFixed(2)}</td>
+                  {taxEnabled && <TaxLineCells row={row} financials={financials} forceTaxExempt={Boolean(forceTaxExempt)} onUpdate={onUpdate} />}
+                  <td className="px-4 py-3 text-right font-semibold">{(taxEnabled ? financials.payableAmount : financials.taxableAmount).toFixed(2)}</td>
                 </>
               )}
               <td className="px-4 py-3 text-right"><button type="button" onClick={() => onRemove(row.id)} className="text-rose-500"><I.Trash className="h-4 w-4" /></button></td>
@@ -3584,6 +3720,59 @@ function ProductDocumentTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function TaxLineCells({
+  row,
+  financials,
+  forceTaxExempt,
+  onUpdate,
+}: {
+  row: ProductLine;
+  financials: LineFinancials;
+  forceTaxExempt: boolean;
+  onUpdate: (id: number, patch: Partial<ProductLine>) => void;
+}) {
+  const withholdingEnabled = !forceTaxExempt && financials.taxAmount > 0;
+  return (
+    <>
+      <td className="px-4 py-3 text-right">
+        <select
+          value={forceTaxExempt ? 0 : row.taxRate ?? 20}
+          disabled={forceTaxExempt}
+          onChange={(event) => onUpdate(row.id, { taxRate: Number(event.target.value), withholdingRate: Number(event.target.value) > 0 ? row.withholdingRate : 0, withholdingCode: Number(event.target.value) > 0 ? row.withholdingCode : "" })}
+          className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-2 text-right tabular-nums outline-none disabled:bg-slate-100"
+        >
+          {[0, 1, 10, 20].map((value) => <option key={value} value={value}>%{value}</option>)}
+        </select>
+        <div className="mt-1 text-[10px] text-slate-400">{financials.taxAmount.toFixed(2)}</div>
+      </td>
+      <td className="px-4 py-3 text-right">
+        <div className="flex justify-end gap-1">
+          <select
+            value={withholdingEnabled ? row.withholdingRate ?? 0 : 0}
+            disabled={!withholdingEnabled}
+            onChange={(event) => onUpdate(row.id, { withholdingRate: Number(event.target.value), withholdingCode: Number(event.target.value) > 0 ? row.withholdingCode : "" })}
+            className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-1 text-right text-xs tabular-nums outline-none disabled:bg-slate-100"
+          >
+            <option value="0">Yox</option>
+            {[20, 30, 40, 50, 70, 90].map((value) => <option key={value} value={value}>{value / 10}/10</option>)}
+          </select>
+          {(row.withholdingRate ?? 0) > 0 && withholdingEnabled && (
+            <input
+              value={row.withholdingCode ?? ""}
+              onChange={(event) => onUpdate(row.id, { withholdingCode: event.target.value.replace(/\D/g, "").slice(0, 3) })}
+              className="h-9 w-14 rounded-lg border border-slate-200 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-indigo-400"
+              inputMode="numeric"
+              placeholder="Kod"
+              aria-label={`${row.name} tevkifat kodu`}
+            />
+          )}
+        </div>
+        <div className="mt-1 text-[10px] text-slate-400">{financials.withholdingAmount.toFixed(2)}</div>
+      </td>
+    </>
   );
 }
 
@@ -3608,7 +3797,7 @@ function NumberCell({
   );
 }
 
-function Totals({ kind, count, movementQty, total, isDark }: { kind: DocumentCreateKind; count: number; movementQty?: number; total: number; isDark: boolean }) {
+function Totals({ kind, count, movementQty, total, financials, showTax, isDark }: { kind: DocumentCreateKind; count: number; movementQty?: number; total: number; financials: DocumentFinancials; showTax: boolean; isDark: boolean }) {
   const showMoney = !["inventory", "writeOff", "movement"].includes(kind);
   return (
     <div className="mt-8 w-full space-y-4">
@@ -3616,11 +3805,12 @@ function Totals({ kind, count, movementQty, total, isDark }: { kind: DocumentCre
       <TotalLine label={kind === "inventory" ? "Cəmi mövqe sayı" : "Mövqe sayı"} value={String(count)} />
       {showMoney && (
         <>
-          <TotalLine label="Ödənilənlər" value="0.00 ₼" />
-          <TotalLine label="Vergilər" value="0.00 ₼" />
-          <TotalLine label="Sənəd üzrə endirim" value="0%" />
-          <TotalLine label="Ümumi endirim" value="% (0.00 ₼)" />
-          <TotalLine label="Yekun" value={`${total.toFixed(2)} ₼`} strong />
+          <TotalLine label="Mal / xidmət cəmi" value={`${financials.subtotal.toFixed(2)} ₼`} />
+          <TotalLine label="Ümumi endirim" value={`-${financials.discountTotal.toFixed(2)} ₼`} />
+          {showTax && <TotalLine label="KDV matrahı" value={`${financials.taxExclusiveTotal.toFixed(2)} ₼`} />}
+          {showTax && <TotalLine label="Hesablanan KDV" value={`+${financials.taxTotal.toFixed(2)} ₼`} />}
+          {showTax && financials.withholdingTotal > 0 && <TotalLine label="KDV tevkifatı" value={`-${financials.withholdingTotal.toFixed(2)} ₼`} />}
+          <TotalLine label={showTax ? "Ödənəcək məbləğ" : "Yekun"} value={`${total.toFixed(2)} ₼`} strong />
         </>
       )}
       {kind === "inventory" && (

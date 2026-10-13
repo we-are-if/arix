@@ -166,7 +166,7 @@ const emptyForm = (groupId: number | null = null, code = ""): ProductCreateForm 
   storePrices: false,
   storeSalePrices: {},
   endirim: "",
-  vergi: "",
+  vergi: "20",
   taxFree: false,
   groupId: groupId == null ? "" : String(groupId),
   stockGroup: "",
@@ -514,7 +514,7 @@ export default function ProductCreatePanel({
 
             {section === "tax" && (
               <FormSection title="Vergi və gömrük məlumatları">
-                <div className="grid gap-3 md:grid-cols-2"><label><span className="mb-1 block text-xs font-medium">ƏDV</span><select className={ui.input} value={form.vergi} onChange={handleChange("vergi")}><option value="">Vergi seçin</option><option value="20">ƏDV 20%</option><option value="18">ƏDV 18%</option><option value="0">0%</option></select></label><label><span className="mb-1 block text-xs font-medium">GTİP / gömrük kodu</span><input className={ui.input} value={form.tariffCode} onChange={handleChange("tariffCode")} placeholder="Gömrük tarif kodu" /></label></div>
+                <div className="grid gap-3 md:grid-cols-2"><label><span className="mb-1 block text-xs font-medium">KDV</span><select className={ui.input} value={form.vergi} disabled={form.taxFree} onChange={handleChange("vergi")}><option value="20">KDV 20%</option><option value="10">KDV 10%</option><option value="1">KDV 1%</option><option value="0">KDV 0%</option></select></label><label><span className="mb-1 block text-xs font-medium">GTİP / gömrük kodu</span><input className={ui.input} value={form.tariffCode} onChange={handleChange("tariffCode")} placeholder="Gömrük tarif kodu" /></label></div>
                 <div className="mt-5"><ToggleControl {...toggleProps} checked={form.taxFree} onChange={(next) => setField("taxFree", next)} label="Vergidən azaddır" /></div>
               </FormSection>
             )}

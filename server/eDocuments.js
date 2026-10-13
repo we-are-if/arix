@@ -299,7 +299,11 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, relatedE
       account: sourceDocument.account ?? "",
       currency: sourceDocument.currency ?? "TRY",
       total: Number(sourceDocument.total ?? sourceDocument.paymentSummary?.total ?? 0),
+      subtotal: Number(sourceDocument.subtotal ?? 0),
+      taxExclusiveTotal: Number(sourceDocument.taxExclusiveTotal ?? 0),
       taxTotal: Number(sourceDocument.taxTotal ?? 0),
+      withholdingTotal: Number(sourceDocument.withholdingTotal ?? 0),
+      taxInclusiveTotal: Number(sourceDocument.taxInclusiveTotal ?? 0),
       discountTotal: Number(sourceDocument.discountTotal ?? 0),
       comment: String(sourceDocument.comment ?? ""),
       supplier: sourceDocument.eDocumentSupplier ? { ...sourceDocument.eDocumentSupplier } : null,
@@ -353,6 +357,10 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, relatedE
         unitPrice: Number(line.price ?? line.unitPrice ?? 0),
         discount: Number(line.discount ?? 0),
         taxRate: Number(line.taxRate ?? line.vatRate ?? 0),
+        taxAmount: Number(line.taxAmount ?? 0),
+        withholdingRate: Number(line.withholdingRate ?? 0),
+        withholdingCode: String(line.withholdingCode ?? ""),
+        withholdingAmount: Number(line.withholdingAmount ?? 0),
         total: Number(line.total ?? 0),
         gtip: String(line.gtip ?? line.customsCode ?? ""),
         labelNumber: String(line.labelNumber ?? line.label ?? line.barcode ?? ""),
@@ -477,7 +485,7 @@ function lineAmount(line) {
   const explicit = Number(line.total);
   if (Number.isFinite(explicit) && explicit > 0) return decimal(explicit);
   const gross = Number(line.quantity ?? 0) * Number(line.unitPrice ?? 0);
-  return decimal(gross * (1 - Number(line.discount ?? 0) / 100));
+  return decimal(Math.max(0, gross - Number(line.discount ?? 0)));
 }
 
 const cleanUpper = (value, maxLength = 64) => cleanText(String(value ?? "")).toUpperCase().slice(0, maxLength);
@@ -507,14 +515,19 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       : document.documentType === "eArchive"
         ? "EARSIVFATURA"
         : document.gib?.profileId ?? gibProfiles[document.documentType] ?? "TEMELFATURA";
+  const hasWithholding = !isExport && (Number(snapshot.withholdingTotal) > 0 || (snapshot.lines ?? []).some((line) => Number(line.withholdingRate) > 0));
   const typeCode = isExport
     ? "ISTISNA"
     : document.documentType === "eDespatch"
       ? "SEVK"
-      : document.gib?.typeCode ?? gibTypeCodes[document.documentType] ?? "SATIS";
+      : hasWithholding
+        ? "TEVKIFAT"
+        : document.gib?.typeCode ?? gibTypeCodes[document.documentType] ?? "SATIS";
   const lines = (snapshot.lines ?? []).map((line, index) => {
     const extensionAmount = lineAmount(line);
     const taxRate = isExport ? 0 : decimal(line.taxRate);
+    const taxAmount = decimal(extensionAmount * taxRate / 100);
+    const withholdingRate = taxAmount > 0 ? decimal(line.withholdingRate) : 0;
     return {
       id: String(index + 1),
       name: String(line.name ?? ""),
@@ -526,7 +539,10 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       discountRate: decimal(line.discount),
       taxRate,
       extensionAmount,
-      taxAmount: decimal(extensionAmount * taxRate / 100),
+      taxAmount,
+      withholdingRate,
+      withholdingCode: String(line.withholdingCode ?? "").replace(/\D/g, "").slice(0, 3),
+      withholdingAmount: decimal(taxAmount * withholdingRate / 100),
       gtip: normalizeGtip(snapshot.exportDetails?.gtips?.[String(index + 1)] ?? line.gtip),
       labelNumber: cleanText(line.labelNumber),
       outstandingQuantity: Math.max(0, decimal(line.outstandingQuantity)),
@@ -536,11 +552,27 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
   const calculatedTaxTotal = decimal(lines.reduce((sum, line) => sum + line.taxAmount, 0));
   const taxTotal = isExport ? 0 : decimal(Number(snapshot.taxTotal) || calculatedTaxTotal);
   const taxInclusive = decimal(goodsTotal + taxTotal);
-  const payable = isExport ? goodsTotal : decimal(Number(snapshot.total) || taxInclusive);
+  const calculatedWithholdingTotal = decimal(lines.reduce((sum, line) => sum + line.withholdingAmount, 0));
+  const withholdingTotal = isExport ? 0 : decimal(Number(snapshot.withholdingTotal) || calculatedWithholdingTotal);
+  const payable = isExport ? goodsTotal : decimal(Number(snapshot.total) || taxInclusive - withholdingTotal);
   const taxBreakdown = [...new Set(lines.map((line) => line.taxRate))].map((rate) => {
     const taxableAmount = decimal(lines.filter((line) => line.taxRate === rate).reduce((sum, line) => sum + line.extensionAmount, 0));
     return { rate, taxableAmount, taxAmount: decimal(taxableAmount * rate / 100) };
   });
+  const withholdingBreakdown = [...new Set(lines
+    .filter((line) => line.withholdingAmount > 0)
+    .map((line) => `${line.withholdingCode}:${line.withholdingRate}`))]
+    .map((key) => {
+      const [code, value] = key.split(":");
+      const rate = Number(value);
+      const matching = lines.filter((line) => line.withholdingCode === code && line.withholdingRate === rate);
+      return {
+        code,
+        rate,
+        taxableAmount: decimal(matching.reduce((sum, line) => sum + line.extensionAmount, 0)),
+        taxAmount: decimal(matching.reduce((sum, line) => sum + line.withholdingAmount, 0)),
+      };
+    });
 
   return {
     standard: "UBL-TR",
@@ -603,8 +635,9 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       exchangeRate: Math.max(0, Number(snapshot.exportDetails?.exchangeRate ?? 0)),
     },
     lines,
-    totals: { goodsTotal, taxTotal, taxInclusive, payable, discountTotal: decimal(snapshot.discountTotal) },
+    totals: { goodsTotal, taxTotal, withholdingTotal, taxInclusive, payable, discountTotal: decimal(snapshot.discountTotal) },
     taxBreakdown,
+    withholdingBreakdown,
     taxExemption: isExport ? { code: "301", reason: "11/1-a Mal ihracatı" } : null,
     standards: {
       ublTr: document.documentType === "eDespatch" ? "UBL-TR 1.2.1 e-İrsaliye" : "UBL-TR 1.2 Fatura",
@@ -648,6 +681,7 @@ export function buildGibQrPayload(document, settings = defaultEDocumentSettings)
     payload[`kdvmatrah(${tax.rate})`] = decimalText(tax.taxableAmount);
     payload[`hesaplanankdv(${tax.rate})`] = decimalText(tax.taxAmount);
   }
+  if (model.totals.withholdingTotal > 0) payload.kdvtevkifat = decimalText(model.totals.withholdingTotal);
   payload.vergidahil = decimalText(model.totals.taxInclusive);
   payload.odenecek = decimalText(model.totals.payable);
   return payload;
@@ -730,6 +764,16 @@ function taxSubtotalXml(model, taxableAmount, taxAmount, rate) {
   return `<cac:TaxSubtotal><cbc:TaxableAmount currencyID="${model.currency}">${decimalText(taxableAmount)}</cbc:TaxableAmount><cbc:TaxAmount currencyID="${model.currency}">${decimalText(taxAmount)}</cbc:TaxAmount><cbc:Percent>${decimalText(rate)}</cbc:Percent>${taxCategoryXml(model, rate)}</cac:TaxSubtotal>`;
 }
 
+function withholdingSubtotalXml(model, taxableAmount, taxAmount, rate, code) {
+  return `<cac:TaxSubtotal><cbc:TaxableAmount currencyID="${model.currency}">${decimalText(taxableAmount)}</cbc:TaxableAmount><cbc:TaxAmount currencyID="${model.currency}">${decimalText(taxAmount)}</cbc:TaxAmount><cbc:Percent>${decimalText(rate)}</cbc:Percent><cac:TaxCategory><cac:TaxScheme><cbc:Name>KDV Tevkifat</cbc:Name><cbc:TaxTypeCode>${xmlEscape(code)}</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal>`;
+}
+
+function withholdingTaxTotalXml(model, total, breakdown) {
+  if (!total) return "";
+  const subtotals = breakdown.map((tax) => withholdingSubtotalXml(model, tax.taxableAmount, tax.taxAmount, tax.rate, tax.code)).join("");
+  return `<cac:WithholdingTaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(total)}</cbc:TaxAmount>${subtotals}</cac:WithholdingTaxTotal>`;
+}
+
 function exportDeliveryXml(model, line) {
   const details = model.exportDetails;
   const deliveryParty = { ...model.buyer, address: details.deliveryAddress || model.buyer.address, city: details.city || model.buyer.city, countryCode: details.countryCode || model.buyer.countryCode, countryName: details.countryName || model.buyer.countryName };
@@ -737,7 +781,10 @@ function exportDeliveryXml(model, line) {
 }
 
 function invoiceLineXml(model, line) {
-  return `<cac:InvoiceLine><cbc:ID>${line.id}</cbc:ID><cbc:InvoicedQuantity unitCode="${line.unitCode}">${line.quantity}</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(line.extensionAmount)}</cbc:LineExtensionAmount>${model.documentType === "exportInvoice" ? exportDeliveryXml(model, line) : ""}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(line.taxAmount)}</cbc:TaxAmount>${taxSubtotalXml(model, line.extensionAmount, line.taxAmount, line.taxRate)}</cac:TaxTotal><cac:Item><cbc:Name>${xmlEscape(line.name)}</cbc:Name><cac:SellersItemIdentification><cbc:ID>${xmlEscape(line.code)}</cbc:ID></cac:SellersItemIdentification></cac:Item><cac:Price><cbc:PriceAmount currencyID="${model.currency}">${decimalText(line.unitPrice)}</cbc:PriceAmount></cac:Price></cac:InvoiceLine>`;
+  const withholding = line.withholdingAmount > 0
+    ? withholdingTaxTotalXml(model, line.withholdingAmount, [{ taxableAmount: line.extensionAmount, taxAmount: line.withholdingAmount, rate: line.withholdingRate, code: line.withholdingCode }])
+    : "";
+  return `<cac:InvoiceLine><cbc:ID>${line.id}</cbc:ID><cbc:InvoicedQuantity unitCode="${line.unitCode}">${line.quantity}</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(line.extensionAmount)}</cbc:LineExtensionAmount>${model.documentType === "exportInvoice" ? exportDeliveryXml(model, line) : ""}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(line.taxAmount)}</cbc:TaxAmount>${taxSubtotalXml(model, line.extensionAmount, line.taxAmount, line.taxRate)}</cac:TaxTotal>${withholding}<cac:Item><cbc:Name>${xmlEscape(line.name)}</cbc:Name><cac:SellersItemIdentification><cbc:ID>${xmlEscape(line.code)}</cbc:ID></cac:SellersItemIdentification></cac:Item><cac:Price><cbc:PriceAmount currencyID="${model.currency}">${decimalText(line.unitPrice)}</cbc:PriceAmount></cac:Price></cac:InvoiceLine>`;
 }
 
 function despatchShipmentXml(model) {
@@ -775,7 +822,8 @@ export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
     : partyXml("AccountingCustomerParty", { ...model.buyer, title: model.buyer.name });
   const lines = model.lines.map((line) => invoiceLineXml(model, line)).join("");
   const note = model.note ? `<cbc:Note>${xmlEscape(model.note)}</cbc:Note>` : "";
-  return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:InvoiceTypeCode>${model.typeCode}</cbc:InvoiceTypeCode>${note}<cbc:DocumentCurrencyCode>${model.currency}</cbc:DocumentCurrencyCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("AccountingSupplierParty", model.supplier)}${customerXml}${paymentMeansXml(model)}${exchangeRate}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(model.totals.taxTotal)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal><cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.taxInclusive)}</cbc:TaxInclusiveAmount><cbc:AllowanceTotalAmount currencyID="${model.currency}">${decimalText(model.totals.discountTotal)}</cbc:AllowanceTotalAmount><cbc:PayableAmount currencyID="${model.currency}">${decimalText(model.totals.payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</Invoice>`;
+  const withholdingTotal = withholdingTaxTotalXml(model, model.totals.withholdingTotal, model.withholdingBreakdown);
+  return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:InvoiceTypeCode>${model.typeCode}</cbc:InvoiceTypeCode>${note}<cbc:DocumentCurrencyCode>${model.currency}</cbc:DocumentCurrencyCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("AccountingSupplierParty", model.supplier)}${customerXml}${paymentMeansXml(model)}${exchangeRate}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(model.totals.taxTotal)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal>${withholdingTotal}<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.taxInclusive)}</cbc:TaxInclusiveAmount><cbc:AllowanceTotalAmount currencyID="${model.currency}">${decimalText(model.totals.discountTotal)}</cbc:AllowanceTotalAmount><cbc:PayableAmount currencyID="${model.currency}">${decimalText(model.totals.payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</Invoice>`;
 }
 
 export function buildGibComplianceReport(document, settings = defaultEDocumentSettings) {
