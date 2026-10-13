@@ -207,20 +207,24 @@ export function resolveEDocumentPlan(sourceDocument, counterparty = {}, settings
 
   const preference = sourceDocument.counterpartyEDocumentPreference ?? counterparty.eDocumentPreference ?? "auto";
   const registered = sourceDocument.counterpartyEInvoiceRegistered ?? counterparty.eInvoiceRegistered;
-  const recommendedType = preference === "eInvoice" || preference === "eArchive"
-    ? preference
-    : registered === true
-      ? "eInvoice"
-      : "eArchive";
-  const availableTypes = ["eInvoice", "eArchive", "eDespatch"].filter((type) => normalized.modules[moduleForDocumentType[type]]);
+  const invoiceType = registered === true
+    ? "eInvoice"
+    : registered === false
+      ? "eArchive"
+      : preference === "eInvoice" || preference === "eArchive"
+        ? preference
+        : "eArchive";
+  const availableTypes = [invoiceType, "eDespatch"].filter((type) => normalized.modules[moduleForDocumentType[type]]);
   return {
-    recommendedType: availableTypes.includes(recommendedType) ? recommendedType : availableTypes[0] ?? recommendedType,
+    recommendedType: availableTypes.includes(invoiceType) ? invoiceType : availableTypes[0] ?? invoiceType,
     availableTypes,
-    reason: preference !== "auto"
-      ? "Müştəri kartındakı e-Belge seçimi tətbiq edildi; sevkiyyat üçün e-İrsaliye ayrıca hazırlana bilər."
-      : registered === true
-        ? "Müştəri e-Fatura istifadəçisi kimi işarələnib; sevkiyyat üçün e-İrsaliye ayrıca hazırlana bilər."
-        : "Provayder reyestri qoşulana qədər e-Arşiv başlanğıc seçimi kimi istifadə olunur; sevkiyyat üçün e-İrsaliye ayrıca hazırlana bilər.",
+    reason: registered === true
+      ? "Alıcı e-Fatura mükəlləf reyestrindədir; bu satış üçün yalnız e-Fatura yaradıla bilər. e-İrsaliye ayrıca sənəddir."
+      : registered === false
+        ? "Alıcı e-Fatura mükəlləf reyestrində deyil; bu satış üçün yalnız e-Arşiv yaradıla bilər. e-İrsaliye ayrıca sənəddir."
+        : preference !== "auto"
+          ? "Canlı reyestr cavabı olmadığı üçün müştəri kartındakı müvəqqəti seçim tətbiq edildi. e-İrsaliye ayrıca sənəddir."
+          : "Canlı provayder reyestri qoşulmayıb; yoxlama tamamlanana qədər e-Arşiv seçildi. e-İrsaliye ayrıca sənəddir.",
     recipientStatus: registered === true ? "registered" : registered === false ? "not-registered" : "unknown",
   };
 }

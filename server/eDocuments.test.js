@@ -88,14 +88,28 @@ test("chooses export documents from sale mode and regular documents from custome
     { eInvoiceRegistered: true },
   );
   assert.equal(invoicePlan.recommendedType, "eInvoice");
-  assert.deepEqual(invoicePlan.availableTypes, ["eInvoice", "eArchive", "eDespatch"]);
+  assert.deepEqual(invoicePlan.availableTypes, ["eInvoice", "eDespatch"]);
 
   const archivePlan = resolveEDocumentPlan(
     { id: "sale-local-archive", type: "sale", saleMode: "regular" },
     { eInvoiceRegistered: false },
   );
   assert.equal(archivePlan.recommendedType, "eArchive");
-  assert.ok(archivePlan.availableTypes.includes("eDespatch"));
+  assert.deepEqual(archivePlan.availableTypes, ["eArchive", "eDespatch"]);
+
+  const registryWinsOverPreference = resolveEDocumentPlan(
+    { id: "sale-registry-wins", type: "sale", counterpartyEDocumentPreference: "eArchive" },
+    { eInvoiceRegistered: true },
+  );
+  assert.equal(registryWinsOverPreference.recommendedType, "eInvoice");
+  assert.deepEqual(registryWinsOverPreference.availableTypes, ["eInvoice", "eDespatch"]);
+
+  const unknownRecipientPlan = resolveEDocumentPlan(
+    { id: "sale-registry-unknown", type: "sale" },
+  );
+  assert.equal(unknownRecipientPlan.recommendedType, "eArchive");
+  assert.equal(unknownRecipientPlan.recipientStatus, "unknown");
+  assert.deepEqual(unknownRecipientPlan.availableTypes, ["eArchive", "eDespatch"]);
 });
 
 test("blocks sending until company and recipient requirements are complete", () => {

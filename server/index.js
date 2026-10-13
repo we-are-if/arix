@@ -906,7 +906,24 @@ async function handleEDocuments(req, res, url, parts) {
     if (existing) return send(res, 200, { data: existing, reused: true });
     let draft;
     try {
-      draft = buildEDocumentDraft({ id: randomUUID(), sourceDocument: eDocumentSourceWithCounterparty(db, sourceDocument), documentType: body.documentType });
+      const counterparty = db.counterparties.find((item) => Number(item.id) === Number(sourceDocument.counterpartyId)) ?? null;
+      const enrichedSource = eDocumentSourceWithCounterparty(db, sourceDocument);
+      const plan = resolveEDocumentPlan(enrichedSource, counterparty ?? {}, db.companySettings.eDocumentSettings);
+      if (!plan.availableTypes.includes(body.documentType)) {
+        return send(res, 409, { error: `Alıcının mükəlləf reyestri nəticəsinə görə ${body.documentType === "eInvoice" ? "e-Fatura" : body.documentType === "eArchive" ? "e-Arşiv" : "bu sənəd növü"} yaradıla bilməz.` });
+      }
+      if (body.documentType === "eInvoice" || body.documentType === "eArchive") {
+        const conflictingInvoice = db.eDocuments.documents.find((item) =>
+          item.status !== "failed"
+          && String(item.sourceDocumentId) === String(sourceDocument.id)
+          && (item.documentType === "eInvoice" || item.documentType === "eArchive")
+          && item.documentType !== body.documentType
+        );
+        if (conflictingInvoice) {
+          return send(res, 409, { error: `Bu satış üçün artıq ${conflictingInvoice.documentType === "eInvoice" ? "e-Fatura" : "e-Arşiv"} yaradılıb; e-Fatura və e-Arşiv birlikdə yaradıla bilməz.` });
+        }
+      }
+      draft = buildEDocumentDraft({ id: randomUUID(), sourceDocument: enrichedSource, documentType: body.documentType });
       draft.number = nextEDocumentNumber(db, body.documentType, db.companySettings.eDocumentSettings);
       draft.uuid = randomUUID();
       draft.gib = {

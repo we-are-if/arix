@@ -296,9 +296,10 @@ export default function EDocumentWorkflowDialog({
           {loading && <div className={cx("py-16 text-center text-sm", subtle)}>Məlumatlar hazırlanır...</div>}
           {!loading && context && (
             <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Info label="Müştəri" value={context.sourceDocument.counterpartyName || "-"} border={border} soft={soft} subtle={subtle} />
                 <Info label="VKN / TCKN" value={context.sourceDocument.counterpartyTaxNumber || "Əlavə edilməyib"} border={border} soft={soft} subtle={subtle} />
+                <Info label="GİB mükəlləf statusu" value={context.plan.recipientStatus === "registered" ? "e-Fatura mükəlləfi" : context.plan.recipientStatus === "not-registered" ? "e-Arşiv alıcısı" : "Reyestr cavabı yoxdur"} border={border} soft={soft} subtle={subtle} />
                 <Info label="Satış məbləği" value={money(context.sourceDocument.total, context.sourceDocument.currency)} border={border} soft={soft} subtle={subtle} />
               </div>
 
