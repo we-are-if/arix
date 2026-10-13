@@ -11,6 +11,7 @@ import {
   normalizeEDocumentSettings,
   resolveEDocumentSupplier,
   resolveEDocumentPlan,
+  resolveSourceDocumentLock,
   testEDocumentConnection,
   validateEDocumentForSending,
 } from "./eDocuments.js";
@@ -69,13 +70,28 @@ test("builds an immutable e-document snapshot from a sale", () => {
     total: 120,
     lines: [{ productId: 7, name: "Folyo", qty: 10, unit: "mt", price: 12 }],
   };
-  const draft = buildEDocumentDraft({ id: "edoc-1", sourceDocument: source, documentType: "eInvoice" });
+  const draft = buildEDocumentDraft({ id: "edoc-1", sourceDocument: source, documentType: "eInvoice", relatedEDocumentIds: ["despatch-1", "despatch-1"] });
 
   source.lines[0].qty = 99;
   assert.equal(draft.status, "draft");
   assert.equal(draft.sourceDocumentId, "sale-1");
+  assert.deepEqual(draft.relatedEDocumentIds, ["despatch-1"]);
   assert.equal(draft.snapshot.lines[0].quantity, 10);
   assert.equal(draft.snapshot.total, 120);
+});
+
+test("locks a sale only after an official e-document is processing or completed", () => {
+  const documents = [
+    { id: "draft", sourceDocumentId: "sale-1", documentType: "eDespatch", status: "draft", number: "IRS1" },
+    { id: "failed", sourceDocumentId: "sale-1", documentType: "eInvoice", status: "failed", number: "FAT1" },
+  ];
+  assert.equal(resolveSourceDocumentLock(documents, "sale-1").locked, false);
+
+  documents.push({ id: "sent", sourceDocumentId: "sale-1", documentType: "eDespatch", status: "completed", number: "IRS2" });
+  const lock = resolveSourceDocumentLock(documents, "sale-1");
+  assert.equal(lock.locked, true);
+  assert.equal(lock.document.id, "sent");
+  assert.match(lock.reason, /IRS2/);
 });
 
 test("chooses export documents from sale mode and regular documents from customer status", () => {

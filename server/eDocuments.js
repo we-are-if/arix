@@ -273,7 +273,7 @@ export function validateEDocumentForSending(document, settings, environment = pr
   return { ready: issues.length === 0, issues, credentials };
 }
 
-export function buildEDocumentDraft({ id, sourceDocument, documentType, createdAt = new Date().toISOString() }) {
+export function buildEDocumentDraft({ id, sourceDocument, documentType, relatedEDocumentIds = [], createdAt = new Date().toISOString() }) {
   if (!sourceDocument?.id) throw new Error("Mənbə sənəd tapılmadı.");
   if (!documentTypes.has(documentType)) throw new Error("e-Belge növü düzgün deyil.");
 
@@ -286,6 +286,7 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, createdA
     number: null,
     uuid: null,
     sourceDocumentId: sourceDocument.id,
+    relatedEDocumentIds: Array.from(new Set(relatedEDocumentIds.map((value) => String(value)).filter(Boolean))),
     sourceRevision: sourceDocument.updatedAt ?? sourceDocument.createdAt ?? createdAt,
     counterpartyId: sourceDocument.counterpartyId ?? null,
     counterpartyName: sourceDocument.counterpartyName ?? "",
@@ -358,6 +359,29 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, createdA
         outstandingQuantity: Number(line.outstandingQuantity ?? line.remainingToSend ?? 0),
       })),
     },
+  };
+}
+
+export function resolveSourceDocumentLock(documents = [], sourceDocumentId) {
+  const active = documents.filter((document) =>
+    String(document?.sourceDocumentId) === String(sourceDocumentId)
+    && (document.status === "processing" || document.status === "completed")
+  );
+  const invoice = active.find((document) => ["eInvoice", "eArchive", "exportInvoice"].includes(document.documentType));
+  const despatch = active.find((document) => document.documentType === "eDespatch");
+  const lockingDocument = invoice ?? despatch ?? null;
+  if (!lockingDocument) return { locked: false, document: null, reason: "" };
+  const label = lockingDocument.documentType === "eDespatch"
+    ? "e-İrsaliye"
+    : lockingDocument.documentType === "eArchive"
+      ? "e-Arşiv"
+      : lockingDocument.documentType === "exportInvoice"
+        ? "İhracat e-Faturası"
+        : "e-Fatura";
+  return {
+    locked: true,
+    document: lockingDocument,
+    reason: `${label} ${lockingDocument.number || ""} göndərildiyi üçün satış sənədi dəyişdirilə bilməz.`.replace(/\s+/g, " ").trim(),
   };
 }
 

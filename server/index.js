@@ -18,6 +18,7 @@ import {
   publicEDocumentSettings,
   resolveEDocumentSupplier,
   resolveEDocumentPlan,
+  resolveSourceDocumentLock,
   testEDocumentConnection,
   validateEDocumentForSending,
 } from "./eDocuments.js";
@@ -840,6 +841,7 @@ async function handleEDocuments(req, res, url, parts) {
         plan,
         readiness,
         documents: relatedDocuments,
+        sourceLock: resolveSourceDocumentLock(db.eDocuments.documents, sourceDocument.id),
         settings: publicEDocumentSettings(db.companySettings.eDocumentSettings),
       },
     });
@@ -848,8 +850,16 @@ async function handleEDocuments(req, res, url, parts) {
     const document = db.eDocuments.documents.find((item) => String(item.id) === String(action));
     if (!document) return send(res, 404, { error: "e-Belge tapılmadı." });
     try {
+      const linkedIds = new Set((document.relatedEDocumentIds ?? []).map((id) => String(id)));
       const relatedDocuments = db.eDocuments.documents
-        .filter((item) => item.id !== document.id && String(item.sourceDocumentId) === String(document.sourceDocumentId))
+        .filter((item) => {
+          if (item.id === document.id || String(item.sourceDocumentId) !== String(document.sourceDocumentId)) return false;
+          if (["eInvoice", "eArchive", "exportInvoice"].includes(document.documentType)) {
+            if (item.documentType !== "eDespatch" || item.status !== "completed") return false;
+            return linkedIds.size === 0 || linkedIds.has(String(item.id));
+          }
+          return item.status === "completed" && ["eInvoice", "eArchive", "exportInvoice"].includes(item.documentType);
+        })
         .map((item) => ({
           documentType: item.documentType,
           number: item.number ?? "",
@@ -898,6 +908,16 @@ async function handleEDocuments(req, res, url, parts) {
     if (body.documentType !== "eDespatch" && sourceDocument.type !== "sale") {
       return send(res, 409, { error: "Fatura qaralaması yalnız satış sənədindən yaradıla bilər." });
     }
+    if (body.documentType === "eDespatch") {
+      const activeInvoice = db.eDocuments.documents.find((item) =>
+        String(item.sourceDocumentId) === String(sourceDocument.id)
+        && ["processing", "completed"].includes(item.status)
+        && ["eInvoice", "eArchive", "exportInvoice"].includes(item.documentType)
+      );
+      if (activeInvoice) {
+        return send(res, 409, { error: `${activeInvoice.number || "Fatura"} yaradıldığı üçün bu satışdan yeni e-İrsaliye hazırlana bilməz.` });
+      }
+    }
     const existing = db.eDocuments.documents.find((item) =>
       item.status === "draft"
       && String(item.sourceDocumentId) === String(sourceDocument.id)
@@ -923,7 +943,17 @@ async function handleEDocuments(req, res, url, parts) {
           return send(res, 409, { error: `Bu satış üçün artıq ${conflictingInvoice.documentType === "eInvoice" ? "e-Fatura" : "e-Arşiv"} yaradılıb; e-Fatura və e-Arşiv birlikdə yaradıla bilməz.` });
         }
       }
-      draft = buildEDocumentDraft({ id: randomUUID(), sourceDocument: enrichedSource, documentType: body.documentType });
+      const requestedRelatedIds = new Set(Array.isArray(body.relatedEDocumentIds) ? body.relatedEDocumentIds.map((id) => String(id)) : []);
+      const completedDespatches = db.eDocuments.documents.filter((item) =>
+        String(item.sourceDocumentId) === String(sourceDocument.id)
+        && item.documentType === "eDespatch"
+        && item.status === "completed"
+        && (requestedRelatedIds.size === 0 || requestedRelatedIds.has(String(item.id)))
+      );
+      const relatedEDocumentIds = ["eInvoice", "eArchive", "exportInvoice"].includes(body.documentType)
+        ? completedDespatches.map((item) => item.id)
+        : [];
+      draft = buildEDocumentDraft({ id: randomUUID(), sourceDocument: enrichedSource, documentType: body.documentType, relatedEDocumentIds });
       draft.number = nextEDocumentNumber(db, body.documentType, db.companySettings.eDocumentSettings);
       draft.uuid = randomUUID();
       draft.gib = {
@@ -950,6 +980,14 @@ async function handleEDocuments(req, res, url, parts) {
     const document = db.eDocuments.documents.find((item) => String(item.id) === String(documentId));
     if (!document) return send(res, 404, { error: "e-Belge tapılmadı." });
     if (document.status === "completed") return send(res, 409, { error: "Göndərilmiş e-Belge dəyişdirilə bilməz." });
+    if (document.documentType === "eDespatch") {
+      const completedInvoice = db.eDocuments.documents.find((item) =>
+        String(item.sourceDocumentId) === String(document.sourceDocumentId)
+        && ["processing", "completed"].includes(item.status)
+        && ["eInvoice", "eArchive", "exportInvoice"].includes(item.documentType)
+      );
+      if (completedInvoice) return send(res, 409, { error: `Bu e-İrsaliye ${completedInvoice.number || "fatura"} ilə faturalanıb və artıq dəyişdirilə bilməz.` });
+    }
     const body = await parseBody(req);
     const allowedProfiles = document.documentType === "eInvoice"
       ? new Set(["TEMELFATURA", "TICARIFATURA"])
@@ -2256,6 +2294,10 @@ async function handleDocuments(req, res) {
     if (index < 0) return notFound(res);
     const body = await parseBody(req);
     const previousDocument = db.documents[index];
+    const sourceLock = resolveSourceDocumentLock(db.eDocuments.documents, previousDocument.id);
+    if (previousDocument.type === "sale" && sourceLock.locked) {
+      return send(res, 409, { error: sourceLock.reason, lock: sourceLock });
+    }
     const updatedDocument = {
       ...previousDocument,
       ...body,

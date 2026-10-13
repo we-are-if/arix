@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type Dispatch, type SetStateAction, type 
 import { createPortal } from "react-dom";
 import { requestJson } from "../api";
 import DocumentCreatePanel, { type ApiDocumentDraft, type DocumentCreateKind } from "../components/DocumentCreatePanel";
-import EDocumentWorkflowDialog from "../components/EDocumentWorkflowDialog";
+import EDocumentWorkflowDialog, { type EDocumentType } from "../components/EDocumentWorkflowDialog";
 import { arixPrintBaseCss, renderArixPrintFooter, renderArixPrintHeader } from "../print/arixPrintTemplate";
 import { defaultPrintSettings, mergePrintSettings, type PrintFormKey, type PrintSettings } from "../print/printSettings";
 
@@ -58,6 +58,7 @@ type ActivityEDocument = {
   documentType?: "eInvoice" | "eArchive" | "eDespatch" | "exportInvoice";
   status?: "draft" | "processing" | "completed" | "failed";
   number?: string | null;
+  relatedEDocumentIds?: string[];
 };
 type ProductLine = {
   productId: number;
@@ -140,6 +141,7 @@ type ApiDocument = {
   fromAccount?: string;
   toAccount?: string;
   counterpartyName?: string;
+  counterpartyEInvoiceRegistered?: boolean;
   author?: string;
   total?: number;
   paid?: number;
@@ -294,6 +296,9 @@ const printDefaultOptions: DocumentPrintOptions = {
 
 const kindLabel = (kind: ActivityKind) =>
   kind === "sale" ? "Satış" : kind === "purchase" ? "Alış" : kind === "transfer" ? "Transfer" : "Düzəliş";
+
+const statusLabelsForActivity = (status?: ActivityEDocument["status"]) =>
+  status === "completed" ? "Qəbul edildi" : status === "processing" ? "Göndərilir" : status === "failed" ? "Xəta" : "Qaralama";
 
 const activityAccent = (row: ActivityRow) => {
   if (row.status === "Ləğv edilib") return "bg-rose-500";
@@ -1536,6 +1541,7 @@ export default function ProductActivity({ isDark = false }: { isDark?: boolean }
         row={selectedActivity}
         products={activityLines[selectedActivity.id] ?? []}
         document={selectedActivity.documentId ? documentsById[selectedActivity.documentId] : undefined}
+        eDocuments={selectedActivity.documentId ? eDocumentsBySource[selectedActivity.documentId] ?? [] : []}
         printSettings={printSettings}
         isDark={isDark}
         onClose={() => {
@@ -1867,6 +1873,7 @@ function ActivityDetailPanel({
   row,
   products,
   document,
+  eDocuments,
   printSettings,
   isDark,
   onClose,
@@ -1876,6 +1883,7 @@ function ActivityDetailPanel({
   row: ActivityRow;
   products: ProductLine[];
   document?: ApiDocument;
+  eDocuments: ActivityEDocument[];
   printSettings: PrintSettings;
   isDark: boolean;
   onClose: () => void;
@@ -1892,7 +1900,24 @@ function ActivityDetailPanel({
   const hasCustomsSelection = (document?.movementSelection?.containers?.length ?? 0) > 0;
   const [printOpen, setPrintOpen] = useState(false);
   const [eDocumentOpen, setEDocumentOpen] = useState(false);
+  const [eDocumentInitialType, setEDocumentInitialType] = useState<EDocumentType | undefined>(undefined);
+  const [sourceEDocumentId, setSourceEDocumentId] = useState<string | undefined>(undefined);
   const isSaleDocument = row.kind === "sale" || row.documentType === "sale";
+  const activeOfficialDocuments = eDocuments.filter((item) => item.status === "processing" || item.status === "completed");
+  const saleLockDocument = activeOfficialDocuments.find((item) => ["eInvoice", "eArchive", "exportInvoice"].includes(item.documentType ?? ""))
+    ?? activeOfficialDocuments.find((item) => item.documentType === "eDespatch");
+  const despatchDocuments = eDocuments.filter((item) => item.documentType === "eDespatch");
+  const invoiceDocument = eDocuments.find((item) => ["eInvoice", "eArchive", "exportInvoice"].includes(item.documentType ?? ""));
+  const preferredInvoiceType: EDocumentType = document?.saleMode === "export" || document?.exportMode
+    ? "exportInvoice"
+    : document && "counterpartyEInvoiceRegistered" in document && document.counterpartyEInvoiceRegistered === true
+      ? "eInvoice"
+      : "eArchive";
+  const openEDocument = (type?: EDocumentType, originId?: string) => {
+    setEDocumentInitialType(type);
+    setSourceEDocumentId(originId);
+    setEDocumentOpen(true);
+  };
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-md">
@@ -1902,12 +1927,12 @@ function ActivityDetailPanel({
             <button type="button" onClick={onClose} className={cx("flex h-11 w-11 items-center justify-center rounded-xl border", border, isDark ? "hover:bg-white/10" : "hover:bg-slate-50")} aria-label="Bağla">
               <I.X className="h-5 w-5" />
             </button>
-            <button type="button" onClick={() => onEdit(row)} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold">
+            <button type="button" onClick={() => onEdit(row)} disabled={Boolean(saleLockDocument)} title={saleLockDocument ? `${saleLockDocument.number || "e-Belge"} səbəbilə satış kilidlənib` : "Redaktə et"} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-45">
               <I.Edit className="h-4 w-4" />
               Redaktə
             </button>
             {isSaleDocument && document?.id && (
-              <button type="button" onClick={() => setEDocumentOpen(true)} className={cx("inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold text-indigo-600", border, isDark ? "hover:bg-white/10" : "hover:bg-indigo-50")}>
+              <button type="button" onClick={() => openEDocument()} className={cx("inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold text-indigo-600", border, isDark ? "hover:bg-white/10" : "hover:bg-indigo-50")}>
                 <I.Printer className="h-4 w-4" />
                 e-Belge
               </button>
@@ -1967,6 +1992,35 @@ function ActivityDetailPanel({
             <InfoTile label={row.kind === "purchase" ? "Təchizatçı" : "Müştəri"} value={row.recipient} isDark={isDark} />
             <InfoTile label="Müəllif" value={row.author} isDark={isDark} />
           </div>
+
+          {isSaleDocument && document?.id && (
+            <section className={cx("mb-8 rounded-2xl border p-4", border)}>
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold">Sənəd zənciri</h3>
+                  <p className={cx("mt-1 text-xs", subtle)}>Satışdan sevkiyyata, sevkiyyatdan faturaya bütün əlaqə burada qorunur.</p>
+                </div>
+                {saleLockDocument && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">{saleLockDocument.number || "Rəsmi sənəd"} · satış kilidlidir</span>}
+              </div>
+              <div className="grid gap-3 lg:grid-cols-3">
+                <div className={cx("rounded-xl border p-4", border, soft)}>
+                  <div className={cx("text-xs font-semibold uppercase", subtle)}>1 · Satış sənədi</div>
+                  <div className="mt-1 font-semibold">{row.order}</div>
+                  <div className="mt-2 text-xs text-emerald-600">Hazırdır</div>
+                </div>
+                <button type="button" onClick={() => openEDocument("eDespatch")} className={cx("rounded-xl border p-4 text-left transition", border, isDark ? "hover:bg-white/7" : "hover:bg-indigo-50")}>
+                  <div className={cx("text-xs font-semibold uppercase", subtle)}>2 · e-İrsaliye</div>
+                  <div className="mt-1 font-semibold">{despatchDocuments[0]?.number || "e-İrsaliye yarat"}</div>
+                  <div className={cx("mt-2 text-xs", despatchDocuments[0]?.status === "completed" ? "text-emerald-600" : subtle)}>{despatchDocuments[0] ? statusLabelsForActivity(despatchDocuments[0].status) : "Sevkiyyat sənədi hazırla"}</div>
+                </button>
+                <button type="button" onClick={() => openEDocument(invoiceDocument?.documentType ?? preferredInvoiceType, despatchDocuments.find((item) => item.status === "completed")?.id)} className={cx("rounded-xl border p-4 text-left transition", border, isDark ? "hover:bg-white/7" : "hover:bg-indigo-50")}>
+                  <div className={cx("text-xs font-semibold uppercase", subtle)}>3 · Fatura</div>
+                  <div className="mt-1 font-semibold">{invoiceDocument?.number || "Fatura yarat"}</div>
+                  <div className={cx("mt-2 text-xs", invoiceDocument?.status === "completed" ? "text-emerald-600" : subtle)}>{invoiceDocument ? statusLabelsForActivity(invoiceDocument.status) : despatchDocuments.some((item) => item.status === "completed") ? "e-İrsaliyedən hazırla" : "Birbaşa satışdan hazırla"}</div>
+                </button>
+              </div>
+            </section>
+          )}
 
           <SectionTitle title="Ödəniş" isDark={isDark} />
           <div className={cx("mb-8 overflow-hidden rounded-2xl border", border)}>
@@ -2068,7 +2122,7 @@ function ActivityDetailPanel({
         window.document.body
       )}
       {eDocumentOpen && document?.id && (
-        <EDocumentWorkflowDialog sourceDocumentId={document.id} isDark={isDark} onClose={() => setEDocumentOpen(false)} />
+        <EDocumentWorkflowDialog sourceDocumentId={document.id} initialType={eDocumentInitialType} sourceEDocumentId={sourceEDocumentId} isDark={isDark} onClose={() => setEDocumentOpen(false)} />
       )}
     </div>
   );

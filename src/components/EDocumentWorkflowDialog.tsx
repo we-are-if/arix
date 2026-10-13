@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { requestJson } from "../api";
 import EDocumentPreviewDialog, { type EDocumentArtifact } from "./EDocumentPreviewDialog";
 
-type EDocumentType = "eInvoice" | "eArchive" | "eDespatch" | "exportInvoice";
+export type EDocumentType = "eInvoice" | "eArchive" | "eDespatch" | "exportInvoice";
 type EDocumentRecord = {
   id: string;
   documentType: EDocumentType;
@@ -13,6 +13,7 @@ type EDocumentRecord = {
   createdAt?: string;
   sentAt?: string;
   providerResponse?: { code?: string; message?: string };
+  relatedEDocumentIds?: string[];
   gib?: { profileId?: string; typeCode?: string };
   snapshot?: {
     shipment?: ShipmentDraft;
@@ -69,6 +70,7 @@ type WorkflowContext = {
   };
   readiness: Partial<Record<EDocumentType, Readiness>>;
   documents: EDocumentRecord[];
+  sourceLock?: { locked: boolean; reason: string; document?: EDocumentRecord | null };
   settings: { enabled: boolean; provider: string; environment: string };
 };
 
@@ -119,10 +121,14 @@ const initialExportDetails: ExportDetailsDraft = {
 
 export default function EDocumentWorkflowDialog({
   sourceDocumentId,
+  initialType,
+  sourceEDocumentId,
   isDark,
   onClose,
 }: {
   sourceDocumentId: string | number;
+  initialType?: EDocumentType;
+  sourceEDocumentId?: string;
   isDark: boolean;
   onClose: () => void;
 }) {
@@ -136,6 +142,7 @@ export default function EDocumentWorkflowDialog({
   const [shipment, setShipment] = useState<ShipmentDraft>(initialShipment);
   const [exportDetails, setExportDetails] = useState<ExportDetailsDraft>(initialExportDetails);
   const [previewArtifact, setPreviewArtifact] = useState<EDocumentArtifact | null>(null);
+  const [relatedEDocumentIds, setRelatedEDocumentIds] = useState<string[]>(sourceEDocumentId ? [sourceEDocumentId] : []);
   const border = isDark ? "border-white/10" : "border-slate-200";
   const panel = isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-900";
   const soft = isDark ? "bg-white/5" : "bg-slate-50";
@@ -146,14 +153,18 @@ export default function EDocumentWorkflowDialog({
     try {
       const payload = await requestJson<{ data: WorkflowContext }>(`/api/e-documents/context?sourceDocumentId=${encodeURIComponent(sourceDocumentId)}`);
       setContext(payload.data);
-      setSelectedType((current) => current && payload.data.plan.availableTypes.includes(current) ? current : payload.data.plan.recommendedType);
+      setSelectedType((current) => {
+        if (current && payload.data.plan.availableTypes.includes(current)) return current;
+        if (initialType && payload.data.plan.availableTypes.includes(initialType)) return initialType;
+        return payload.data.plan.recommendedType;
+      });
     } catch (error) {
       setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "e-Belge məlumatları açılmadı.");
     } finally {
       setLoading(false);
     }
-  }, [sourceDocumentId]);
+  }, [initialType, sourceDocumentId]);
 
   useEffect(() => {
     void load();
@@ -164,6 +175,21 @@ export default function EDocumentWorkflowDialog({
     [context?.documents, selectedType],
   );
   const readiness = selectedType ? context?.readiness[selectedType] : undefined;
+  const invoiceType = context?.plan.availableTypes.find((type) => type !== "eDespatch") ?? null;
+  const despatchDocuments = context?.documents.filter((item) => item.documentType === "eDespatch") ?? [];
+  const invoiceDocument = context?.documents.find((item) => ["eInvoice", "eArchive", "exportInvoice"].includes(item.documentType));
+  const activeInvoiceDocument = invoiceDocument && (invoiceDocument.status === "processing" || invoiceDocument.status === "completed") ? invoiceDocument : null;
+  const selectedDocumentLocked = selectedDocument?.status === "completed" || (selectedType === "eDespatch" && Boolean(activeInvoiceDocument));
+
+  useEffect(() => {
+    if (sourceEDocumentId) setRelatedEDocumentIds([sourceEDocumentId]);
+  }, [sourceEDocumentId]);
+
+  const selectWorkflowType = (type: EDocumentType, relatedIds: string[] = []) => {
+    setSelectedType(type);
+    setRelatedEDocumentIds(relatedIds);
+    setMessage("");
+  };
 
   useEffect(() => {
     if (!selectedType) return;
@@ -189,7 +215,7 @@ export default function EDocumentWorkflowDialog({
     if (!selectedType) return null;
     const payload = await requestJson<{ data: EDocumentRecord }>("/api/e-documents/drafts", {
       method: "POST",
-      body: JSON.stringify({ sourceDocumentId, documentType: selectedType }),
+      body: JSON.stringify({ sourceDocumentId, documentType: selectedType, relatedEDocumentIds }),
     });
     return payload.data;
   };
@@ -303,6 +329,34 @@ export default function EDocumentWorkflowDialog({
                 <Info label="Satış məbləği" value={money(context.sourceDocument.total, context.sourceDocument.currency)} border={border} soft={soft} subtle={subtle} />
               </div>
 
+              <section className={cx("rounded-xl border p-4", border)}>
+                <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold">Sənəd zənciri</h3>
+                    <p className={cx("mt-1 text-xs", subtle)}>Satış əsas sənəddir; e-İrsaliye və fatura onun dəyişməz məlumatlarından yaranır.</p>
+                  </div>
+                  {context.sourceLock?.locked && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Satış kilidlənib</span>}
+                </div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  <div className={cx("rounded-lg border p-3", border, soft)}>
+                    <div className={cx("text-xs font-semibold uppercase", subtle)}>1 · Satış</div>
+                    <div className="mt-1 truncate font-semibold">#{String(context.sourceDocument.id).slice(0, 8)}</div>
+                    <div className="mt-2 text-xs text-emerald-600">Hazırdır</div>
+                  </div>
+                  <button type="button" onClick={() => selectWorkflowType("eDespatch")} className={cx("rounded-lg border p-3 text-left transition", selectedType === "eDespatch" ? "border-indigo-500 bg-indigo-500/10" : border, selectedType !== "eDespatch" && soft)}>
+                    <div className={cx("text-xs font-semibold uppercase", subtle)}>2 · e-İrsaliye</div>
+                    <div className="mt-1 truncate font-semibold">{despatchDocuments[0]?.number || "e-İrsaliye yarat"}</div>
+                    <div className={cx("mt-2 text-xs", despatchDocuments[0]?.status === "completed" ? "text-emerald-600" : subtle)}>{despatchDocuments[0] ? statusLabels[despatchDocuments[0].status] : "Sevkiyyat sənədi"}</div>
+                  </button>
+                  {invoiceType && <button type="button" onClick={() => selectWorkflowType(invoiceType, despatchDocuments.filter((item) => item.status === "completed").map((item) => item.id))} className={cx("rounded-lg border p-3 text-left transition", selectedType === invoiceType ? "border-indigo-500 bg-indigo-500/10" : border, selectedType !== invoiceType && soft)}>
+                    <div className={cx("text-xs font-semibold uppercase", subtle)}>3 · Fatura</div>
+                    <div className="mt-1 truncate font-semibold">{invoiceDocument?.number || `${labels[invoiceType].title} yarat`}</div>
+                    <div className={cx("mt-2 text-xs", invoiceDocument?.status === "completed" ? "text-emerald-600" : subtle)}>{invoiceDocument ? statusLabels[invoiceDocument.status] : despatchDocuments.some((item) => item.status === "completed") ? "e-İrsaliyedən hazırla" : "Birbaşa satışdan hazırla"}</div>
+                  </button>}
+                </div>
+                {context.sourceLock?.reason && <p className={cx("mt-3 text-xs", subtle)}>{context.sourceLock.reason}</p>}
+              </section>
+
               <section>
                 <div className="mb-3">
                   <h3 className="font-semibold">Sənəd növü</h3>
@@ -313,7 +367,7 @@ export default function EDocumentWorkflowDialog({
                     const active = selectedType === type;
                     const existing = context.documents.find((item) => item.documentType === type);
                     return (
-                      <button key={type} type="button" onClick={() => setSelectedType(type)} className={cx("rounded-xl border p-4 text-left transition", active ? "border-indigo-500 bg-indigo-500/10" : border, !active && soft)}>
+                      <button key={type} type="button" onClick={() => selectWorkflowType(type, type === "eDespatch" ? [] : despatchDocuments.filter((item) => item.status === "completed").map((item) => item.id))} className={cx("rounded-xl border p-4 text-left transition", active ? "border-indigo-500 bg-indigo-500/10" : border, !active && soft)}>
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-semibold">{labels[type].title}</span>
                           {existing && <span className={cx("rounded-full px-2 py-1 text-xs font-semibold", existing.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>{statusLabels[existing.status] ?? existing.status}</span>}
@@ -328,7 +382,7 @@ export default function EDocumentWorkflowDialog({
               {selectedType === "eInvoice" && (
                 <section className={cx("rounded-xl border p-4", border, soft)}>
                   <label className="block text-sm font-semibold">GİB fatura ssenarisi</label>
-                  <select value={profileId} onChange={(event) => setProfileId(event.target.value)} disabled={selectedDocument?.status === "completed"} className={cx("mt-2 h-11 w-full rounded-xl border bg-transparent px-3 text-sm outline-none sm:max-w-sm", border)}>
+                  <select value={profileId} onChange={(event) => setProfileId(event.target.value)} disabled={selectedDocumentLocked} className={cx("mt-2 h-11 w-full rounded-xl border bg-transparent px-3 text-sm outline-none sm:max-w-sm", border)}>
                     <option value="TEMELFATURA">TEMELFATURA</option>
                     <option value="TICARIFATURA">TICARIFATURA</option>
                   </select>
@@ -336,10 +390,11 @@ export default function EDocumentWorkflowDialog({
               )}
 
               {selectedType === "eDespatch" && (
-                <section className={cx("rounded-xl border p-4", border, soft)}>
+                <fieldset disabled={selectedDocumentLocked} className={cx("rounded-xl border p-4 disabled:opacity-65", border, soft)}>
                   <div className="mb-3">
                     <h3 className="font-semibold">Sevkiyyat məlumatları</h3>
                     <p className={cx("mt-1 text-xs", subtle)}>Karekod və UBL-TR e-İrsaliye üçün faktiki tarix və saat məcburidir.</p>
+                    {activeInvoiceDocument && <p className="mt-2 text-xs font-semibold text-amber-700">{activeInvoiceDocument.number || labels[activeInvoiceDocument.documentType].title} yaradıldığı üçün e-İrsaliye dəyişdirilə bilməz.</p>}
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <WorkflowField label="Faktiki sevk tarixi" border={border}><input type="date" value={shipment.actualDespatchDate} onChange={(event) => setShipment((value) => ({ ...value, actualDespatchDate: event.target.value }))} /></WorkflowField>
@@ -352,7 +407,7 @@ export default function EDocumentWorkflowDialog({
                     <WorkflowField label="Sürücü TCKN" border={border}><input value={shipment.driverNationalId} onChange={(event) => setShipment((value) => ({ ...value, driverNationalId: event.target.value.replace(/\D/g, "").slice(0, 11) }))} inputMode="numeric" /></WorkflowField>
                     <div className="sm:col-span-2"><WorkflowField label="Təslim ünvanı" border={border}><input value={shipment.deliveryAddress} onChange={(event) => setShipment((value) => ({ ...value, deliveryAddress: event.target.value }))} /></WorkflowField></div>
                   </div>
-                </section>
+                </fieldset>
               )}
 
               {selectedType === "exportInvoice" && (
@@ -420,6 +475,9 @@ export default function EDocumentWorkflowDialog({
                     <span className={cx("rounded-full px-3 py-1 text-xs font-semibold", selectedDocument.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>{statusLabels[selectedDocument.status] ?? selectedDocument.status}</span>
                   </div>
                   {selectedDocument.providerResponse?.message && <p className={cx("mt-2 text-sm", subtle)}>{selectedDocument.providerResponse.message}</p>}
+                  {selectedDocument.documentType === "eDespatch" && invoiceType && !invoiceDocument && selectedDocument.status === "completed" && (
+                    <button type="button" onClick={() => selectWorkflowType(invoiceType, [selectedDocument.id])} className="surface-primary mt-3 h-10 rounded-lg px-4 text-sm font-semibold">Fatura yarat</button>
+                  )}
                 </section>
               )}
 
@@ -431,7 +489,7 @@ export default function EDocumentWorkflowDialog({
         <footer className={cx("flex flex-col-reverse gap-2 border-t px-5 py-4 sm:flex-row sm:justify-end", border)}>
           <button type="button" onClick={onClose} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border, soft)}>Bağla</button>
           {context && selectedType && <button type="button" onClick={() => void openPreview()} disabled={working} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border, soft, working && "opacity-60")}>Önizlə / XML</button>}
-          {context && selectedType && selectedDocument?.status !== "completed" && (
+          {context && selectedType && !selectedDocumentLocked && (
             <>
               {!selectedDocument && <button type="button" onClick={() => void prepare()} disabled={working} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border, soft, working && "opacity-60")}>Qaralama saxla</button>}
               {selectedDocument && <button type="button" onClick={() => void saveDetails()} disabled={working} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border, soft, working && "opacity-60")}>Məlumatları saxla</button>}
