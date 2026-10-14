@@ -292,14 +292,8 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   ];
 
   return (
-    <div
-      className={cx(
-        "min-w-0 space-y-4",
-        (section === "settings" || section === "printForms") && "flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden"
-      )}
-      data-stock-mode-count={stockModes.length}
-    >
-      <div className={cx("rounded-2xl border p-4", border, card)}>
+    <div className="flex h-[calc(100vh-8rem)] min-h-0 min-w-0 flex-col space-y-4 overflow-hidden" data-stock-mode-count={stockModes.length}>
+      <div className={cx("shrink-0 rounded-2xl border p-4", border, card)}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className={cx("text-xs font-semibold uppercase tracking-wide", subtle)}>Şirkət / {meta.title}</div>
@@ -318,7 +312,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid shrink-0 gap-3 md:grid-cols-3">
         {stats.map((item) => (
           <div key={item.label} className={cx("rounded-2xl border p-4", border, card)}>
             <div className={cx("text-xs font-semibold", subtle)}>{item.label}</div>
@@ -328,12 +322,16 @@ export default function Company({ section, isDark = false }: { section: CompanyS
       </div>
 
       {section === "settings" && <SettingsView border={border} card={card} subtle={subtle} input={input} />}
-      {section === "employees" && <EmployeesView border={border} card={card} soft={soft} subtle={subtle} isDark={isDark} />}
-      {section === "stores" && <StoresView stores={companyStores} onChanged={loadStores} border={border} card={card} soft={soft} subtle={subtle} input={input} />}
-      {section === "accounts" && <AccountsView border={border} card={card} soft={soft} subtle={subtle} />}
-      {section === "loyalty" && <LoyaltyView border={border} card={card} soft={soft} subtle={subtle} />}
       {section === "printForms" && <PrintFormsView border={border} card={card} soft={soft} subtle={subtle} input={input} isDark={isDark} />}
-      {section === "eDocuments" && <EDocumentsSettings border={border} card={card} subtle={subtle} input={input} isDark={isDark} />}
+      {section !== "settings" && section !== "printForms" && (
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+          {section === "employees" && <EmployeesView border={border} card={card} soft={soft} subtle={subtle} isDark={isDark} />}
+          {section === "stores" && <StoresView stores={companyStores} onChanged={loadStores} border={border} card={card} soft={soft} subtle={subtle} input={input} />}
+          {section === "accounts" && <AccountsView border={border} card={card} soft={soft} subtle={subtle} />}
+          {section === "loyalty" && <LoyaltyView border={border} card={card} soft={soft} subtle={subtle} />}
+          {section === "eDocuments" && <EDocumentsSettings border={border} card={card} subtle={subtle} input={input} isDark={isDark} />}
+        </div>
+      )}
     </div>
   );
 }
