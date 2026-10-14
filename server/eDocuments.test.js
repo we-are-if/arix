@@ -298,6 +298,33 @@ test("builds TEVKIFAT invoice totals and UBL withholding nodes", () => {
   assert.match(xml, /<cbc:TaxTypeCode>601<\/cbc:TaxTypeCode>/);
 });
 
+test("writes each domestic KDV exemption reason on its own invoice line", () => {
+  const draft = buildEDocumentDraft({
+    id: "edoc-exemption",
+    documentType: "eInvoice",
+    sourceDocument: {
+      id: "sale-exemption",
+      counterpartyName: "İstisnalı Alıcı",
+      counterpartyTaxNumber: "1111111111",
+      invoiceDetails: { typeCode: "AUTO" },
+      lines: [
+        { name: "Ardiye", qty: 1, unit: "əd", price: 100, taxRate: 0, taxExemptionCode: "242", taxExemptionReason: "17/4-ö Gümrüklü sahalarda ardiye" },
+        { name: "Normal xidmət", qty: 1, unit: "əd", price: 100, taxRate: 20 },
+      ],
+    },
+  });
+  draft.number = "EAR2026000000003";
+  draft.uuid = "24e26a62-7c00-46d0-878c-6f7c60834525";
+
+  const model = buildGibDocumentModel(draft);
+  const xml = buildUblTrXml(draft);
+  assert.equal(model.typeCode, "ISTISNA");
+  assert.equal(model.taxBreakdown.length, 2);
+  assert.equal(model.lines[0].taxExemption.code, "242");
+  assert.equal(model.lines[1].taxExemption, null);
+  assert.equal((xml.match(/<cbc:TaxExemptionReasonCode>242<\/cbc:TaxExemptionReasonCode>/g) ?? []).length, 2);
+});
+
 test("keeps completed document supplier snapshot immutable", () => {
   const completed = {
     status: "completed",

@@ -6,7 +6,8 @@ import { randomUUID } from "node:crypto";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
-import { normalizeDocumentFinancials, validateDocumentFinancials } from "./documentTotals.js";
+import { normalizeDocumentFinancials, resolveDocumentInvoiceType, validateDocumentFinancials } from "./documentTotals.js";
+import { gibCodeCatalog } from "./gibCodes.js";
 import {
   accountingOverview,
   accountingTrialBalance,
@@ -900,6 +901,9 @@ function nextEDocumentNumber(db, documentType, settings, now = new Date()) {
 async function handleEDocuments(req, res, url, parts) {
   const db = await readDb();
   const action = parts[1];
+  if (req.method === "GET" && action === "codes") {
+    return send(res, 200, { data: gibCodeCatalog() });
+  }
   if (req.method === "GET" && !action) {
     const sourceDocumentId = url.searchParams.get("sourceDocumentId");
     const documents = sourceDocumentId
@@ -1099,7 +1103,11 @@ async function handleEDocuments(req, res, url, parts) {
       draft.uuid = randomUUID();
       draft.gib = {
         profileId: body.documentType === "eArchive" ? "EARSIVFATURA" : body.documentType === "eDespatch" ? "TEMELIRSALIYE" : body.documentType === "exportInvoice" ? "IHRACAT" : "TEMELFATURA",
-        typeCode: body.documentType === "eDespatch" ? "SEVK" : body.documentType === "exportInvoice" ? "ISTISNA" : "SATIS",
+        typeCode: body.documentType === "eDespatch"
+          ? "SEVK"
+          : body.documentType === "exportInvoice"
+            ? "ISTISNA"
+            : resolveDocumentInvoiceType(enrichedSource),
       };
     } catch (error) {
       return send(res, 400, { error: error instanceof Error ? error.message : "Qaralama yaradıla bilmədi." });

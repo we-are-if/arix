@@ -37,6 +37,9 @@ type ProductLine = {
   withholdingRate?: number;
   withholdingCode?: string;
   withholdingAmount?: number;
+  taxExemptionCode?: string;
+  taxExemptionReason?: string;
+  gtip?: string;
   movementMode?: MovementSelectionMode;
   deliveryMode?: SaleDeliveryMode;
   cutLengths?: number[];
@@ -71,6 +74,43 @@ type ApiStore = {
   type: string;
   isBonded: boolean;
   status: "active" | "inactive";
+};
+
+type GibCodeOption = {
+  code: string;
+  name: string;
+  rate?: number;
+};
+
+type GibCodeCatalog = {
+  version: string;
+  invoiceTypes: GibCodeOption[];
+  taxExemptions: GibCodeOption[];
+  withholdings: GibCodeOption[];
+  packageTypes: GibCodeOption[];
+  transportModes: GibCodeOption[];
+  incoterms: GibCodeOption[];
+};
+
+type InvoiceDetails = {
+  typeCode: string;
+  resolvedTypeCode?: string;
+  packageTypeCode: string;
+  packageId: string;
+  packageQuantity: number;
+  transportModeCode: string;
+  incoterm: string;
+  exchangeRate: number;
+};
+
+const emptyGibCodeCatalog: GibCodeCatalog = {
+  version: "",
+  invoiceTypes: [],
+  taxExemptions: [],
+  withholdings: [],
+  packageTypes: [],
+  transportModes: [],
+  incoterms: [],
 };
 
 type ApiCounterparty = {
@@ -130,6 +170,7 @@ export type ApiDocumentDraft = {
     remaining?: number;
     status?: string;
   };
+  invoiceDetails?: Partial<InvoiceDetails>;
   payments?: Array<{
     account?: string;
     method?: string;
@@ -156,6 +197,9 @@ export type ApiDocumentDraft = {
     withholdingRate?: number;
     withholdingCode?: string;
     withholdingAmount?: number;
+    taxExemptionCode?: string;
+    taxExemptionReason?: string;
+    gtip?: string;
     movementMode?: MovementSelectionMode;
     requestedQty?: number;
     deliveryMode?: SaleDeliveryMode;
@@ -702,6 +746,9 @@ const mapApiProduct = (product: ApiProduct, store: ApiStore | string = "ERSA DEP
   taxRate: product.taxFree || product.cardProfile?.taxFree ? 0 : Number(product.taxRate ?? product.cardProfile?.taxRate ?? 20),
   withholdingRate: 0,
   withholdingCode: "",
+  taxExemptionCode: "",
+  taxExemptionReason: "",
+  gtip: "",
   priceSource: isPurchasePrice ? "Son təchizatçı alış qiyməti" : "Mağaza standartı",
   priceStore: storeName,
   deliveryMode: "singlePiece",
@@ -785,6 +832,9 @@ const mapDocumentLinesToProducts = (document: ApiDocument | null | undefined, pr
       withholdingRate: Number(line.withholdingRate ?? 0),
       withholdingCode: String(line.withholdingCode ?? ""),
       withholdingAmount: Number(line.withholdingAmount ?? 0),
+      taxExemptionCode: String(line.taxExemptionCode ?? ""),
+      taxExemptionReason: String(line.taxExemptionReason ?? ""),
+      gtip: String(line.gtip ?? ""),
       type: product?.type,
       deliveryMode: line.deliveryMode ?? product?.deliveryMode ?? "singlePiece",
       cutLengths: Array.isArray(line.cutLengths) ? line.cutLengths.map(Number).filter((value) => value > 0) : product?.cutLengths ?? [],
@@ -1052,7 +1102,18 @@ export default function DocumentCreatePanel({
   const [counterparties, setCounterparties] = useState<ApiCounterparty[]>([]);
   const [availableStores, setAvailableStores] = useState<ApiStore[]>([]);
   const [counterpartyId, setCounterpartyId] = useState(editingDocument?.counterpartyId ? String(editingDocument.counterpartyId) : "");
-  const [activeTab, setActiveTab] = useState<"products" | "payment" | "costs">("products");
+  const [activeTab, setActiveTab] = useState<"products" | "invoice" | "payment" | "costs">("products");
+  const [gibCodes, setGibCodes] = useState<GibCodeCatalog>(emptyGibCodeCatalog);
+  const [invoiceDetails, setInvoiceDetails] = useState<InvoiceDetails>(() => ({
+    typeCode: editingDocument?.invoiceDetails?.typeCode ?? "AUTO",
+    resolvedTypeCode: editingDocument?.invoiceDetails?.resolvedTypeCode ?? "",
+    packageTypeCode: editingDocument?.invoiceDetails?.packageTypeCode ?? "",
+    packageId: editingDocument?.invoiceDetails?.packageId ?? "",
+    packageQuantity: Number(editingDocument?.invoiceDetails?.packageQuantity ?? 0),
+    transportModeCode: editingDocument?.invoiceDetails?.transportModeCode ?? "",
+    incoterm: editingDocument?.invoiceDetails?.incoterm ?? "",
+    exchangeRate: Number(editingDocument?.invoiceDetails?.exchangeRate ?? 0),
+  }));
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -1654,6 +1715,20 @@ export default function DocumentCreatePanel({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    requestJson<{ data: GibCodeCatalog }>("/api/e-documents/codes")
+      .then((payload) => {
+        if (!cancelled) setGibCodes({ ...emptyGibCodeCatalog, ...payload.data });
+      })
+      .catch(() => {
+        if (!cancelled) setGibCodes(emptyGibCodeCatalog);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isBondedPurchase || selectedProducts.length === 0) return;
     setContainers((current) => {
       const selectedIds = new Set(selectedProducts.map((product) => product.id));
@@ -1971,11 +2046,27 @@ export default function DocumentCreatePanel({
       setMessage(`Ödəniş sənədin qalıq borcundan çox ola bilməz: ${selectedLinkedDocument.remaining.toFixed(2)} ₼`);
       return false;
     }
+    const withholdingCodeSet = new Set(gibCodes.withholdings.map((item) => item.code));
     const invalidWithholdingLine = usesDocumentTax && !isExportSale
-      ? selectedProducts.find((product) => (Number(product.withholdingRate) || 0) > 0 && !/^\d{3}$/.test(String(product.withholdingCode ?? "")))
+      ? selectedProducts.find((product) => (Number(product.withholdingRate) || 0) > 0 && (
+        !/^\d{3}$/.test(String(product.withholdingCode ?? ""))
+        || (withholdingCodeSet.size > 0 && !withholdingCodeSet.has(String(product.withholdingCode ?? "")))
+      ))
       : undefined;
     if (invalidWithholdingLine) {
       setMessage(`${invalidWithholdingLine.name} üçün 3 rəqəmli GİB tevkifat kodunu daxil et.`);
+      return false;
+    }
+    const exemptionCodeSet = new Set(gibCodes.taxExemptions.map((item) => item.code));
+    const missingExemptionLine = usesDocumentTax && !isExportSale
+      ? selectedProducts.find((product) => Number(product.taxRate) === 0 && (
+        !product.taxExemptionCode
+        || (exemptionCodeSet.size > 0 && !exemptionCodeSet.has(product.taxExemptionCode))
+      ))
+      : undefined;
+    if (missingExemptionLine) {
+      setMessage(`${missingExemptionLine.name} üçün 0% KDV səbəb kodunu Fatura bilgileri bölməsindən seç.`);
+      setActiveTab("invoice");
       return false;
     }
     setSaving(true);
@@ -2013,6 +2104,9 @@ export default function DocumentCreatePanel({
           withholdingRate: lineFinancials.withholdingRate,
           withholdingCode: lineFinancials.withholdingRate > 0 ? product.withholdingCode ?? "" : "",
           withholdingAmount: lineFinancials.withholdingAmount,
+          taxExemptionCode: lineFinancials.taxRate === 0 ? product.taxExemptionCode ?? "" : "",
+          taxExemptionReason: lineFinancials.taxRate === 0 ? product.taxExemptionReason ?? "" : "",
+          gtip: product.gtip ?? "",
           total: lineFinancials.taxableAmount,
           payableAmount: lineFinancials.payableAmount,
         };
@@ -2047,6 +2141,7 @@ export default function DocumentCreatePanel({
         comment: isMoney ? moneyComment : undefined,
         saleMode: kind === "sale" ? saleMode : undefined,
         exportMode: isExportSale || undefined,
+        invoiceDetails: usesDocumentTax ? invoiceDetails : undefined,
         documentLink: isMoney && costLinkEnabled ? {
           enabled: true,
           type: documentLinkType,
@@ -2376,6 +2471,11 @@ export default function DocumentCreatePanel({
 
                 <div className="mb-4 flex flex-wrap items-center gap-6">
                   <button type="button" onClick={() => setActiveTab("products")} className={cx("border-b-2 pb-2 text-xl font-semibold", activeTab === "products" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-400")}>Məhsullar</button>
+                  {usesDocumentTax && (
+                    <button type="button" onClick={() => setActiveTab("invoice")} className={cx("border-b-2 pb-2 text-xl font-semibold", activeTab === "invoice" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-300")}>
+                      Fatura bilgileri
+                    </button>
+                  )}
                   <button type="button" onClick={() => setActiveTab("payment")} className={cx("border-b-2 pb-2 text-xl font-semibold", activeTab === "payment" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-300")}>Ödənişlər</button>
                   {kind === "purchase" && (
                     <button type="button" onClick={() => setActiveTab("costs")} className={cx("inline-flex items-center gap-2 border-b-2 pb-2 text-xl font-semibold", activeTab === "costs" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-300")}>
@@ -2492,6 +2592,17 @@ export default function DocumentCreatePanel({
                     <label className={cx("mt-8 block text-lg font-semibold", muted)}>{kind === "writeOff" ? "Şərh/Silinmə səbəbi" : "Şərh"}</label>
                     <textarea className={cx("mt-3 h-28 w-full rounded-xl border p-3 outline-none", border, isDark ? "bg-white/5" : "bg-white")} />
                   </>
+                ) : activeTab === "invoice" ? (
+                  <InvoiceDetailsTab
+                    kind={kind}
+                    isDark={isDark}
+                    isExport={isExportSale}
+                    details={invoiceDetails}
+                    codes={gibCodes}
+                    products={selectedProducts}
+                    onDetailsChange={(patch) => setInvoiceDetails((current) => ({ ...current, ...patch }))}
+                    onProductChange={updateProduct}
+                  />
                 ) : activeTab === "payment" ? (
                   <PaymentTab
                     kind={kind}
@@ -3773,6 +3884,170 @@ function TaxLineCells({
         <div className="mt-1 text-[10px] text-slate-400">{financials.withholdingAmount.toFixed(2)}</div>
       </td>
     </>
+  );
+}
+
+function InvoiceDetailsTab({
+  kind,
+  isDark,
+  isExport,
+  details,
+  codes,
+  products,
+  onDetailsChange,
+  onProductChange,
+}: {
+  kind: DocumentCreateKind;
+  isDark: boolean;
+  isExport: boolean;
+  details: InvoiceDetails;
+  codes: GibCodeCatalog;
+  products: ProductLine[];
+  onDetailsChange: (patch: Partial<InvoiceDetails>) => void;
+  onProductChange: (id: number, patch: Partial<ProductLine>) => void;
+}) {
+  const border = isDark ? "border-white/10" : "border-slate-200";
+  const surface = isDark ? "bg-white/5" : "bg-white";
+  const input = cx("h-10 w-full rounded-lg border px-3 text-sm outline-none focus:border-indigo-400", border, isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-800");
+  const hasWithholding = products.some((product) => Number(product.withholdingRate) > 0);
+  const exemptionCodes = products.map((product) => product.taxExemptionCode ?? "").filter(Boolean);
+  const resolvedTypeCode = isExport
+    ? "ISTISNA"
+    : details.typeCode && details.typeCode !== "AUTO"
+      ? details.typeCode
+      : kind === "saleReturn" || kind === "purchaseReturn"
+        ? hasWithholding ? "TEVKIFATIADE" : "IADE"
+        : exemptionCodes.some((code) => /^70[1-4]$/.test(code))
+          ? "IHRACKAYITLI"
+          : exemptionCodes.some((code) => /^8(0[1-9]|1[0-2])$/.test(code))
+            ? "OZELMATRAH"
+            : exemptionCodes.length > 0
+              ? "ISTISNA"
+              : hasWithholding ? "TEVKIFAT" : "SATIS";
+  const resolvedType = codes.invoiceTypes.find((item) => item.code === resolvedTypeCode);
+
+  return (
+    <div className="space-y-4">
+      <section className={cx("rounded-xl border p-4", border, surface)}>
+        <div className="grid gap-4 lg:grid-cols-[minmax(240px,1fr)_minmax(220px,1fr)_auto] lg:items-end">
+          <label>
+            <span className="mb-1.5 block text-xs font-semibold text-slate-500">Fatura növü</span>
+            <select value={isExport ? "AUTO" : details.typeCode} disabled={isExport} onChange={(event) => onDetailsChange({ typeCode: event.target.value })} className={input}>
+              <option value="AUTO">Avtomatik</option>
+              {codes.invoiceTypes.map((item) => <option key={item.code} value={item.code}>{item.code} · {item.name}</option>)}
+            </select>
+          </label>
+          <div>
+            <span className="mb-1.5 block text-xs font-semibold text-slate-500">Hesablanan GİB növü</span>
+            <div className={cx("flex h-10 items-center rounded-lg border px-3 text-sm font-semibold", border, isDark ? "bg-slate-950" : "bg-slate-50")}>
+              {resolvedTypeCode}{resolvedType ? ` · ${resolvedType.name}` : ""}
+            </div>
+          </div>
+          {codes.version && <span className="pb-2 text-xs text-slate-400">{codes.version}</span>}
+        </div>
+      </section>
+
+      <section className={cx("overflow-hidden rounded-xl border", border, surface)}>
+        <div className={cx("grid min-w-[980px] grid-cols-[minmax(180px,1.2fr)_110px_minmax(280px,2fr)_minmax(280px,2fr)_150px] gap-3 border-b px-4 py-3 text-xs font-semibold uppercase text-slate-500", border, isDark ? "bg-white/5" : "bg-slate-50")}>
+          <span>Məhsul</span><span>KDV</span><span>İstisna / işlem kodu</span><span>Tevkifat kodu</span><span>GTİP</span>
+        </div>
+        <div className="overflow-x-auto">
+          <div className="min-w-[980px]">
+            {products.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-slate-400">Məhsul seçilməyib.</div>
+            ) : products.map((product) => {
+              const selectedWithholding = codes.withholdings.find((item) => item.code === product.withholdingCode);
+              return (
+                <div key={product.id} className={cx("grid grid-cols-[minmax(180px,1.2fr)_110px_minmax(280px,2fr)_minmax(280px,2fr)_150px] items-center gap-3 border-b px-4 py-3 last:border-b-0", border)}>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{product.name}</div>
+                    <div className="truncate text-xs text-slate-400">{product.code || product.sku}</div>
+                  </div>
+                  <select
+                    value={isExport ? 0 : product.taxRate ?? 20}
+                    disabled={isExport}
+                    onChange={(event) => {
+                      const taxRate = Number(event.target.value);
+                      onProductChange(product.id, {
+                        taxRate,
+                        taxExemptionCode: taxRate === 0 ? product.taxExemptionCode : "",
+                        taxExemptionReason: taxRate === 0 ? product.taxExemptionReason : "",
+                        withholdingCode: taxRate > 0 ? product.withholdingCode : "",
+                        withholdingRate: taxRate > 0 ? product.withholdingRate : 0,
+                      });
+                    }}
+                    className={input}
+                  >
+                    {[0, 1, 10, 20].map((value) => <option key={value} value={value}>%{value}</option>)}
+                  </select>
+                  <select
+                    value={isExport ? "301" : product.taxExemptionCode ?? ""}
+                    disabled={isExport || Number(product.taxRate) > 0}
+                    onChange={(event) => {
+                      const selected = codes.taxExemptions.find((item) => item.code === event.target.value);
+                      onProductChange(product.id, { taxRate: 0, taxExemptionCode: selected?.code ?? "", taxExemptionReason: selected?.name ?? "" });
+                    }}
+                    className={input}
+                  >
+                    <option value="">Kod seçin</option>
+                    {isExport && <option value="301">301 · 11/1-a Mal ihracatı</option>}
+                    {!isExport && codes.taxExemptions.map((item) => <option key={item.code} value={item.code}>{item.code} · {item.name}</option>)}
+                  </select>
+                  <select
+                    value={product.withholdingCode ?? ""}
+                    disabled={isExport || Number(product.taxRate) === 0}
+                    onChange={(event) => {
+                      const selected = codes.withholdings.find((item) => item.code === event.target.value);
+                      onProductChange(product.id, { withholdingCode: selected?.code ?? "", withholdingRate: selected?.rate ?? 0 });
+                    }}
+                    className={input}
+                  >
+                    <option value="">Yox</option>
+                    {codes.withholdings.map((item) => <option key={item.code} value={item.code}>{item.code} · {item.rate ? `${item.rate / 10}/10 · ` : ""}{item.name}</option>)}
+                  </select>
+                  <div>
+                    <input
+                      value={product.gtip ?? ""}
+                      onChange={(event) => onProductChange(product.id, { gtip: event.target.value.replace(/\D/g, "").slice(0, 12) })}
+                      className={input}
+                      inputMode="numeric"
+                      placeholder="12 rəqəm"
+                    />
+                    {selectedWithholding && <span className="sr-only">{selectedWithholding.name}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {isExport && (
+        <section className={cx("rounded-xl border p-4", border, surface)}>
+          <h3 className="mb-4 text-sm font-semibold">İxrac logistika məlumatları</h3>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <InvoiceSelect label="Incoterms" value={details.incoterm} options={codes.incoterms} className={input} onChange={(value) => onDetailsChange({ incoterm: value })} />
+            <InvoiceSelect label="Daşıma növü" value={details.transportModeCode} options={codes.transportModes} className={input} onChange={(value) => onDetailsChange({ transportModeCode: value })} />
+            <InvoiceSelect label="Kap / ambalaj növü" value={details.packageTypeCode} options={codes.packageTypes} className={input} onChange={(value) => onDetailsChange({ packageTypeCode: value })} />
+            <label><span className="mb-1.5 block text-xs font-semibold text-slate-500">Kap nömrəsi</span><input value={details.packageId} onChange={(event) => onDetailsChange({ packageId: event.target.value })} className={input} /></label>
+            <label><span className="mb-1.5 block text-xs font-semibold text-slate-500">Kap miqdarı</span><input type="number" min="0" step="1" value={details.packageQuantity} onChange={(event) => onDetailsChange({ packageQuantity: Number(event.target.value) || 0 })} className={input} /></label>
+            <label><span className="mb-1.5 block text-xs font-semibold text-slate-500">TRY məzənnəsi</span><input type="number" min="0" step="0.000001" value={details.exchangeRate} onChange={(event) => onDetailsChange({ exchangeRate: Number(event.target.value) || 0 })} className={input} /></label>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function InvoiceSelect({ label, value, options, className, onChange }: { label: string; value: string; options: GibCodeOption[]; className: string; onChange: (value: string) => void }) {
+  return (
+    <label>
+      <span className="mb-1.5 block text-xs font-semibold text-slate-500">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} className={className}>
+        <option value="">Seçin</option>
+        {options.map((item) => <option key={item.code} value={item.code}>{item.code} · {item.name}</option>)}
+      </select>
+    </label>
   );
 }
 

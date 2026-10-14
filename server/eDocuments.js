@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { resolveDocumentInvoiceType } from "./documentTotals.js";
+import { findTaxExemption } from "./gibCodes.js";
 
 const providerIds = new Set(["mock", "izibiz", "edm", "qnb"]);
 const environments = new Set(["test", "production"]);
@@ -365,13 +367,14 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, relatedE
         driverNationalId: sourceDocument.shipment?.driverNationalId ?? "",
         deliveryAddress: sourceDocument.shipment?.deliveryAddress ?? sourceDocument.counterpartyAddress ?? "",
       },
+      invoiceDetails: { ...(sourceDocument.invoiceDetails ?? {}) },
       exportDetails: {
-        incoterm: sourceDocument.exportDetails?.incoterm ?? "",
-        transportModeCode: sourceDocument.exportDetails?.transportModeCode ?? "",
-        packageTypeCode: sourceDocument.exportDetails?.packageTypeCode ?? "",
-        packageId: sourceDocument.exportDetails?.packageId ?? "",
-        packageQuantity: Number(sourceDocument.exportDetails?.packageQuantity ?? 0),
-        exchangeRate: Number(sourceDocument.exportDetails?.exchangeRate ?? sourceDocument.exchangeRate ?? 0),
+        incoterm: sourceDocument.exportDetails?.incoterm ?? sourceDocument.invoiceDetails?.incoterm ?? "",
+        transportModeCode: sourceDocument.exportDetails?.transportModeCode ?? sourceDocument.invoiceDetails?.transportModeCode ?? "",
+        packageTypeCode: sourceDocument.exportDetails?.packageTypeCode ?? sourceDocument.invoiceDetails?.packageTypeCode ?? "",
+        packageId: sourceDocument.exportDetails?.packageId ?? sourceDocument.invoiceDetails?.packageId ?? "",
+        packageQuantity: Number(sourceDocument.exportDetails?.packageQuantity ?? sourceDocument.invoiceDetails?.packageQuantity ?? 0),
+        exchangeRate: Number(sourceDocument.exportDetails?.exchangeRate ?? sourceDocument.invoiceDetails?.exchangeRate ?? sourceDocument.exchangeRate ?? 0),
         deliveryAddress: sourceDocument.exportDetails?.deliveryAddress ?? sourceDocument.counterpartyAddress ?? "",
         countryCode: sourceDocument.exportDetails?.countryCode ?? sourceDocument.counterpartyCountryCode ?? "",
         countryName: sourceDocument.exportDetails?.countryName ?? sourceDocument.counterpartyCountryName ?? "",
@@ -391,6 +394,8 @@ export function buildEDocumentDraft({ id, sourceDocument, documentType, relatedE
         withholdingRate: Number(line.withholdingRate ?? 0),
         withholdingCode: String(line.withholdingCode ?? ""),
         withholdingAmount: Number(line.withholdingAmount ?? 0),
+        taxExemptionCode: String(line.taxExemptionCode ?? ""),
+        taxExemptionReason: String(line.taxExemptionReason ?? ""),
         total: Number(line.total ?? 0),
         gtip: String(line.gtip ?? line.customsCode ?? ""),
         labelNumber: String(line.labelNumber ?? line.label ?? line.barcode ?? ""),
@@ -546,18 +551,31 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
         ? "EARSIVFATURA"
         : document.gib?.profileId ?? gibProfiles[document.documentType] ?? "TEMELFATURA";
   const hasWithholding = !isExport && (Number(snapshot.withholdingTotal) > 0 || (snapshot.lines ?? []).some((line) => Number(line.withholdingRate) > 0));
+  const resolvedInvoiceType = resolveDocumentInvoiceType({
+    type: "sale",
+    saleMode: snapshot.saleMode,
+    exportMode: snapshot.exportMode,
+    invoiceDetails: snapshot.invoiceDetails,
+    lines: snapshot.lines,
+  });
   const typeCode = isExport
     ? "ISTISNA"
     : document.documentType === "eDespatch"
       ? "SEVK"
-      : hasWithholding
-        ? "TEVKIFAT"
-        : document.gib?.typeCode ?? gibTypeCodes[document.documentType] ?? "SATIS";
+      : document.gib?.typeCode ?? resolvedInvoiceType ?? (hasWithholding ? "TEVKIFAT" : gibTypeCodes[document.documentType] ?? "SATIS");
   const lines = (snapshot.lines ?? []).map((line, index) => {
     const extensionAmount = lineAmount(line);
     const taxRate = isExport ? 0 : decimal(line.taxRate);
     const taxAmount = decimal(extensionAmount * taxRate / 100);
     const withholdingRate = taxAmount > 0 ? decimal(line.withholdingRate) : 0;
+    const configuredExemption = findTaxExemption(line.taxExemptionCode);
+    const taxExemption = taxRate === 0
+      ? isExport
+        ? { code: "301", reason: "11/1-a Mal ihracatı" }
+        : configuredExemption
+          ? { code: configuredExemption.code, reason: line.taxExemptionReason || configuredExemption.name }
+          : null
+      : null;
     return {
       id: String(index + 1),
       name: String(line.name ?? ""),
@@ -573,6 +591,7 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
       withholdingRate,
       withholdingCode: String(line.withholdingCode ?? "").replace(/\D/g, "").slice(0, 3),
       withholdingAmount: decimal(taxAmount * withholdingRate / 100),
+      taxExemption,
       gtip: normalizeGtip(snapshot.exportDetails?.gtips?.[String(index + 1)] ?? line.gtip),
       labelNumber: cleanText(line.labelNumber),
       outstandingQuantity: Math.max(0, decimal(line.outstandingQuantity)),
@@ -585,9 +604,17 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
   const calculatedWithholdingTotal = decimal(lines.reduce((sum, line) => sum + line.withholdingAmount, 0));
   const withholdingTotal = isExport ? 0 : decimal(Number(snapshot.withholdingTotal) || calculatedWithholdingTotal);
   const payable = isExport ? goodsTotal : decimal(Number(snapshot.total) || taxInclusive - withholdingTotal);
-  const taxBreakdown = [...new Set(lines.map((line) => line.taxRate))].map((rate) => {
-    const taxableAmount = decimal(lines.filter((line) => line.taxRate === rate).reduce((sum, line) => sum + line.extensionAmount, 0));
-    return { rate, taxableAmount, taxAmount: decimal(taxableAmount * rate / 100) };
+  const taxBreakdown = [...new Set(lines.map((line) => `${line.taxRate}:${line.taxExemption?.code ?? ""}`))].map((key) => {
+    const [rateValue, exemptionCode] = key.split(":");
+    const rate = Number(rateValue);
+    const matching = lines.filter((line) => line.taxRate === rate && (line.taxExemption?.code ?? "") === exemptionCode);
+    const taxableAmount = decimal(matching.reduce((sum, line) => sum + line.extensionAmount, 0));
+    return {
+      rate,
+      taxableAmount,
+      taxAmount: decimal(matching.reduce((sum, line) => sum + line.taxAmount, 0)),
+      taxExemption: matching[0]?.taxExemption ?? null,
+    };
   });
   const withholdingBreakdown = [...new Set(lines
     .filter((line) => line.withholdingAmount > 0)
@@ -669,7 +696,7 @@ export function buildGibDocumentModel(document, settings = defaultEDocumentSetti
     totals: { goodsTotal, taxTotal, withholdingTotal, taxInclusive, payable, discountTotal: decimal(snapshot.discountTotal) },
     taxBreakdown,
     withholdingBreakdown,
-    taxExemption: isExport ? { code: "301", reason: "11/1-a Mal ihracatı" } : null,
+    taxExemption: lines.find((line) => line.taxExemption)?.taxExemption ?? null,
     standards: {
       ublTr: document.documentType === "eDespatch" ? "UBL-TR 1.2.1 e-İrsaliye" : "UBL-TR 1.2 Fatura",
       qr: "GİB Karekod Standardı v1.2",
@@ -784,15 +811,15 @@ function unsignedExtensionXml() {
   return `<ext:UBLExtensions><ext:UBLExtension><ext:ExtensionContent><arix:UnsignedDraft xmlns:arix="urn:arix:draft">true</arix:UnsignedDraft></ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions>`;
 }
 
-function taxCategoryXml(model, rate) {
-  const exemption = model.taxExemption
-    ? `<cbc:TaxExemptionReasonCode>${model.taxExemption.code}</cbc:TaxExemptionReasonCode><cbc:TaxExemptionReason>${xmlEscape(model.taxExemption.reason)}</cbc:TaxExemptionReason>`
+function taxCategoryXml(taxExemption) {
+  const exemption = taxExemption
+    ? `<cbc:TaxExemptionReasonCode>${taxExemption.code}</cbc:TaxExemptionReasonCode><cbc:TaxExemptionReason>${xmlEscape(taxExemption.reason)}</cbc:TaxExemptionReason>`
     : "";
   return `<cac:TaxCategory>${exemption}<cac:TaxScheme><cbc:Name>KDV</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory>`;
 }
 
-function taxSubtotalXml(model, taxableAmount, taxAmount, rate) {
-  return `<cac:TaxSubtotal><cbc:TaxableAmount currencyID="${model.currency}">${decimalText(taxableAmount)}</cbc:TaxableAmount><cbc:TaxAmount currencyID="${model.currency}">${decimalText(taxAmount)}</cbc:TaxAmount><cbc:Percent>${decimalText(rate)}</cbc:Percent>${taxCategoryXml(model, rate)}</cac:TaxSubtotal>`;
+function taxSubtotalXml(model, taxableAmount, taxAmount, rate, taxExemption = null) {
+  return `<cac:TaxSubtotal><cbc:TaxableAmount currencyID="${model.currency}">${decimalText(taxableAmount)}</cbc:TaxableAmount><cbc:TaxAmount currencyID="${model.currency}">${decimalText(taxAmount)}</cbc:TaxAmount><cbc:Percent>${decimalText(rate)}</cbc:Percent>${taxCategoryXml(taxExemption)}</cac:TaxSubtotal>`;
 }
 
 function withholdingSubtotalXml(model, taxableAmount, taxAmount, rate, code) {
@@ -815,7 +842,7 @@ function invoiceLineXml(model, line) {
   const withholding = line.withholdingAmount > 0
     ? withholdingTaxTotalXml(model, line.withholdingAmount, [{ taxableAmount: line.extensionAmount, taxAmount: line.withholdingAmount, rate: line.withholdingRate, code: line.withholdingCode }])
     : "";
-  return `<cac:InvoiceLine><cbc:ID>${line.id}</cbc:ID><cbc:InvoicedQuantity unitCode="${line.unitCode}">${line.quantity}</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(line.extensionAmount)}</cbc:LineExtensionAmount>${model.documentType === "exportInvoice" ? exportDeliveryXml(model, line) : ""}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(line.taxAmount)}</cbc:TaxAmount>${taxSubtotalXml(model, line.extensionAmount, line.taxAmount, line.taxRate)}</cac:TaxTotal>${withholding}<cac:Item><cbc:Name>${xmlEscape(line.name)}</cbc:Name><cac:SellersItemIdentification><cbc:ID>${xmlEscape(line.code)}</cbc:ID></cac:SellersItemIdentification></cac:Item><cac:Price><cbc:PriceAmount currencyID="${model.currency}">${decimalText(line.unitPrice)}</cbc:PriceAmount></cac:Price></cac:InvoiceLine>`;
+  return `<cac:InvoiceLine><cbc:ID>${line.id}</cbc:ID><cbc:InvoicedQuantity unitCode="${line.unitCode}">${line.quantity}</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(line.extensionAmount)}</cbc:LineExtensionAmount>${model.documentType === "exportInvoice" ? exportDeliveryXml(model, line) : ""}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(line.taxAmount)}</cbc:TaxAmount>${taxSubtotalXml(model, line.extensionAmount, line.taxAmount, line.taxRate, line.taxExemption)}</cac:TaxTotal>${withholding}<cac:Item><cbc:Name>${xmlEscape(line.name)}</cbc:Name><cac:SellersItemIdentification><cbc:ID>${xmlEscape(line.code)}</cbc:ID></cac:SellersItemIdentification></cac:Item><cac:Price><cbc:PriceAmount currencyID="${model.currency}">${decimalText(line.unitPrice)}</cbc:PriceAmount></cac:Price></cac:InvoiceLine>`;
 }
 
 function despatchShipmentXml(model) {
@@ -844,7 +871,7 @@ export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
     return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:DespatchAdviceTypeCode>${model.typeCode}</cbc:DespatchAdviceTypeCode>${note}<cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("DespatchSupplierParty", model.supplier)}${partyXml("DeliveryCustomerParty", { ...model.buyer, title: model.buyer.name })}${despatchShipmentXml(model)}${lines}</DespatchAdvice>`;
   }
 
-  const taxSubtotals = model.taxBreakdown.map((tax) => taxSubtotalXml(model, tax.taxableAmount, tax.taxAmount, tax.rate)).join("");
+  const taxSubtotals = model.taxBreakdown.map((tax) => taxSubtotalXml(model, tax.taxableAmount, tax.taxAmount, tax.rate, tax.taxExemption)).join("");
   const exchangeRate = model.currency !== "TRY" && model.exportDetails?.exchangeRate > 0
     ? `<cac:PricingExchangeRate><cbc:SourceCurrencyCode>${model.currency}</cbc:SourceCurrencyCode><cbc:TargetCurrencyCode>TRY</cbc:TargetCurrencyCode><cbc:CalculationRate>${model.exportDetails.exchangeRate}</cbc:CalculationRate></cac:PricingExchangeRate>`
     : "";
