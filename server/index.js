@@ -54,6 +54,10 @@ const printForm = (title, subtitle) => ({
   showLogo: true,
   showMeta: true,
   showFooter: true,
+  showCompanyDetails: true,
+  showBankAccounts: true,
+  showNotes: true,
+  showStamp: true,
 });
 
 const defaultPrintSettings = {
@@ -74,6 +78,10 @@ const defaultPrintSettings = {
     writeOff: printForm("Silinmə aktı", "Stokdan silinən məhsullar"),
     receipt: printForm("Ödəniş qəbzi", "Ödəniş və kontragent məlumatları"),
     label: printForm("Məhsul etiketi", "Məhsul və barkod məlumatları"),
+    eInvoice: printForm("e-FATURA", "TEMELFATURA ssenarisi"),
+    eArchive: printForm("e-ARŞİV FATURA", "EARSIVFATURA ssenarisi"),
+    eDespatch: printForm("e-İRSALİYE", "TEMELIRSALIYE ssenarisi"),
+    exportInvoice: printForm("e-FATURA", "IHRACAT ssenarisi"),
   },
 };
 
@@ -1025,6 +1033,7 @@ async function handleEDocuments(req, res, url, parts) {
           draft: document.status !== "completed",
           companyLogo: db.companySettings?.printSettings?.companyLogo ?? "",
           companyStamp: db.companySettings?.printSettings?.companyStamp ?? "",
+          printSettings: db.companySettings?.printSettings ?? defaultPrintSettings,
         },
       });
     } catch (error) {

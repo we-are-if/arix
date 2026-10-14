@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState, type SVGProps } from "react";
+import { createPortal } from "react-dom";
+import QRCode from "qrcode";
 import { requestJson } from "../api";
 import AriXLogo from "../components/AriXLogo";
 import { defaultPrintSettings, mergePrintSettings, type PrintCompanyDetails, type PrintFormKey, type PrintSettings } from "../print/printSettings";
@@ -199,6 +201,15 @@ const accounts = [
 
 const printGroups: Array<{ title: string; forms: Array<{ key: PrintFormKey; label: string; description: string }> }> = [
   {
+    title: "GİB e-Belgələri",
+    forms: [
+      { key: "eInvoice", label: "e-Fatura", description: "e-Fatura mükəlləfləri üçün rəsmi fatura" },
+      { key: "eArchive", label: "e-Arşiv Fatura", description: "e-Fatura mükəlləfi olmayan alıcılar" },
+      { key: "eDespatch", label: "e-İrsaliye", description: "Sevkiyyat və mal çıxışı sənədi" },
+      { key: "exportInvoice", label: "İhracat e-Fatura", description: "IHRACAT ssenarili xarici satış faturası" },
+    ],
+  },
+  {
     title: "Əməliyyat sənədləri",
     forms: [
       { key: "sale", label: "Satış sənədi", description: "Satış, məhsul və ödəniş məlumatları" },
@@ -221,6 +232,9 @@ const printGroups: Array<{ title: string; forms: Array<{ key: PrintFormKey; labe
     ],
   },
 ];
+
+const eDocumentPrintKeys: PrintFormKey[] = ["eInvoice", "eArchive", "eDespatch", "exportInvoice"];
+const isEDocumentPrintKey = (key: PrintFormKey) => eDocumentPrintKeys.includes(key);
 
 const toneClass = (tone: string, isDark: boolean) => {
   const dark: Record<string, string> = {
@@ -271,7 +285,10 @@ export default function Company({ section, isDark = false }: { section: CompanyS
       { label: "Aktiv nöqtə", value: String(companyStores.filter((store) => store.status === "active").length) },
     ];
     if (section === "accounts") return [{ label: "Balans", value: "-625,722.87 ₼" }, { label: "Kassa", value: "2" }, { label: "Mağaza hesabı", value: "2" }];
-    if (section === "printForms") return [{ label: "Şablon", value: "8" }, { label: "Aktiv", value: "8" }, { label: "Qrup", value: "4" }];
+    if (section === "printForms") {
+      const templateCount = printGroups.reduce((total, group) => total + group.forms.length, 0);
+      return [{ label: "Şablon", value: String(templateCount) }, { label: "Aktiv", value: String(templateCount) }, { label: "Qrup", value: String(printGroups.length) }];
+    }
     if (section === "eDocuments") return [{ label: "Mühit", value: "Test" }, { label: "Provayder", value: "AriX Test" }, { label: "Modul", value: "5" }];
     return [{ label: "Profil", value: "Hazır" }, { label: "Valyuta", value: "AZN" }, { label: "Ölkə", value: "Azərbaycan" }];
   }, [companyStores, section]);
@@ -1005,7 +1022,7 @@ function PrintFormsView({
   isDark: boolean;
 }) {
   const [settings, setSettings] = useState<PrintSettings>(defaultPrintSettings);
-  const [selected, setSelected] = useState<PrintFormKey>("customs");
+  const [selected, setSelected] = useState<PrintFormKey>("eInvoice");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const activeForm = settings.forms[selected];
@@ -1294,14 +1311,32 @@ function PrintFormsView({
 
               <section className={cx("border-t pt-5", border)}>
                 <h3 className="mb-3 text-base font-semibold">Görünüş</h3>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <PrintToggle label="Ortada şirkət loqosu" checked={activeForm.showLogo} onChange={(checked) => updateForm({ showLogo: checked })} border={border} soft={soft} />
-                  <PrintToggle label="Sənəd məlumatları" checked={activeForm.showMeta} onChange={(checked) => updateForm({ showMeta: checked })} border={border} soft={soft} />
-                  <PrintToggle label="Aşağı hissə" checked={activeForm.showFooter} onChange={(checked) => updateForm({ showFooter: checked })} border={border} soft={soft} />
-                </div>
-                <p className={cx("mt-2 text-xs", subtle)}>
-                  AriX loqosu solda sabit qalır. Yüklənmiş şirkət loqosu sənəd başlığının ortasında göstərilir.
-                </p>
+                {isEDocumentPrintKey(selected) ? (
+                  <>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <PrintToggle label="Şirkət loqosu" checked={activeForm.showLogo} onChange={(checked) => updateForm({ showLogo: checked })} border={border} soft={soft} />
+                      <PrintToggle label="Şirkət rekvizitləri" checked={activeForm.showCompanyDetails} onChange={(checked) => updateForm({ showCompanyDetails: checked })} border={border} soft={soft} />
+                      <PrintToggle label="Bank hesabları" checked={activeForm.showBankAccounts} onChange={(checked) => updateForm({ showBankAccounts: checked })} border={border} soft={soft} />
+                      <PrintToggle label="Açıqlama cədvəli" checked={activeForm.showNotes} onChange={(checked) => updateForm({ showNotes: checked })} border={border} soft={soft} />
+                      {selected === "eArchive" && <PrintToggle label="Kaşe və imza" checked={activeForm.showStamp} onChange={(checked) => updateForm({ showStamp: checked })} border={border} soft={soft} />}
+                      <PrintToggle label="Xüsusi alt qeyd" checked={activeForm.showFooter} onChange={(checked) => updateForm({ showFooter: checked })} border={border} soft={soft} />
+                    </div>
+                    <p className={cx("mt-2 text-xs", subtle)}>
+                      GİB loqosu, karekod, alıcı, sənəd məlumatları və məhsul cədvəli məcburi olduğu üçün həmişə göstərilir.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <PrintToggle label="Ortada şirkət loqosu" checked={activeForm.showLogo} onChange={(checked) => updateForm({ showLogo: checked })} border={border} soft={soft} />
+                      <PrintToggle label="Sənəd məlumatları" checked={activeForm.showMeta} onChange={(checked) => updateForm({ showMeta: checked })} border={border} soft={soft} />
+                      <PrintToggle label="Aşağı hissə" checked={activeForm.showFooter} onChange={(checked) => updateForm({ showFooter: checked })} border={border} soft={soft} />
+                    </div>
+                    <p className={cx("mt-2 text-xs", subtle)}>
+                      AriX loqosu solda sabit qalır. Yüklənmiş şirkət loqosu sənəd başlığının ortasında göstərilir.
+                    </p>
+                  </>
+                )}
               </section>
               <div className={cx("flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between", border)}>
                 <div className={cx("text-sm", message ? (message.includes("xəta") ? "text-rose-600" : "text-emerald-600") : subtle)}>
@@ -1313,7 +1348,7 @@ function PrintFormsView({
               </div>
             </div>
 
-            <PrintFormPreview settings={settings} form={activeForm} subtle={subtle} />
+            <PrintFormPreview settings={settings} formKey={selected} form={activeForm} subtle={subtle} />
           </div>
         </div>
       </div>
@@ -1332,7 +1367,14 @@ function PrintToggle({ label, checked, onChange, border, soft }: { label: string
   );
 }
 
-function PrintFormPreview({ settings, form, subtle }: { settings: PrintSettings; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
+function PrintFormPreview({ settings, formKey, form, subtle }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
+  if (isEDocumentPrintKey(formKey)) {
+    return <GibPrintFormPreview settings={settings} formKey={formKey} form={form} subtle={subtle} />;
+  }
+  return <StandardPrintFormPreview settings={settings} form={form} subtle={subtle} />;
+}
+
+function StandardPrintFormPreview({ settings, form, subtle }: { settings: PrintSettings; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
   return (
     <aside className="min-w-0 max-w-full xl:sticky xl:top-4 xl:self-start">
       <div className={cx("mb-2 text-xs font-semibold", subtle)}>Canlı önizləmə</div>
@@ -1396,6 +1438,126 @@ function PrintFormPreview({ settings, form, subtle }: { settings: PrintSettings;
       </div>
     </aside>
   );
+}
+
+function GibPrintFormPreview({ settings, formKey, form, subtle }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
+  const [fullSize, setFullSize] = useState(false);
+  const [qrUrl, setQrUrl] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    void QRCode.toDataURL(JSON.stringify({ vkn: settings.companyDetails.taxNumber || "1234567890", no: "ARX2026000000001", ettn: "DEMO-ETTN-2026", tip: formKey }), {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 240,
+      color: { dark: "#111827", light: "#ffffff" },
+    }).then((url) => { if (active) setQrUrl(url); });
+    return () => { active = false; };
+  }, [formKey, settings.companyDetails.taxNumber]);
+
+  return (
+    <aside className="min-w-0 max-w-full xl:sticky xl:top-4 xl:self-start">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className={cx("text-xs font-semibold", subtle)}>Real A4 önizləmə</div>
+        <button type="button" onClick={() => setFullSize(true)} className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+          Tam ölçüdə bax
+        </button>
+      </div>
+      <div className="h-[148.5mm] max-w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm">
+        <div className="w-[210mm] origin-top-left scale-50">
+          <GibPrintPage settings={settings} formKey={formKey} form={form} qrUrl={qrUrl} />
+        </div>
+      </div>
+      {fullSize && createPortal(
+        <div className="fixed inset-0 z-[180] flex flex-col bg-slate-950/70" role="dialog" aria-modal="true" aria-label={`${form.title} A4 önizləmə`}>
+          <div className="flex items-center justify-between border-b border-white/10 bg-slate-950 px-4 py-3 text-white">
+            <div><div className="text-xs text-slate-400">Çap forması · real A4</div><div className="mt-0.5 font-semibold">{form.title}</div></div>
+            <button type="button" onClick={() => setFullSize(false)} className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 text-xl" aria-label="Bağla">×</button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
+            <div className="mx-auto w-[210mm] min-w-[210mm] shadow-2xl">
+              <GibPrintPage settings={settings} formKey={formKey} form={form} qrUrl={qrUrl} />
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </aside>
+  );
+}
+
+function GibPrintPage({ settings, formKey, form, qrUrl }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey]; qrUrl: string }) {
+  const company = settings.companyDetails;
+  const isDespatch = formKey === "eDespatch";
+  const isExport = formKey === "exportInvoice";
+  const isArchive = formKey === "eArchive";
+  const documentLabel = isDespatch ? "İrsaliye" : "Fatura";
+  const scenario = isDespatch ? "TEMELIRSALIYE" : isExport ? "IHRACAT" : isArchive ? "EARSIVFATURA" : "TEMELFATURA";
+  const number = isDespatch ? "ERS20260000001348" : "ERF20260000001179";
+  const address = [company.address, company.district, company.city, company.postalCode].filter(Boolean).join(" · ");
+  const lines = [
+    { code: "ERSA 513", name: "SOFT TOUCH KAYA GRİ", quantity: 300, unit: "Metre Tül", price: 243.9017, tax: 20 },
+    { code: "ERSA 600", name: "FOLYOLU SEDEF METAL", quantity: 240, unit: "Metre Tül", price: 202.09, tax: 20 },
+    { code: "ERSA 801", name: "DARK PASİFİC", quantity: 100, unit: "Metre Tül", price: 181.1841, tax: 20 },
+  ];
+  const goodsTotal = lines.reduce((sum, line) => sum + line.quantity * line.price, 0);
+  const taxTotal = goodsTotal * 0.2;
+  const money = (value: number) => `${value.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+
+  return (
+    <article className="min-h-[297mm] w-[210mm] bg-white p-[8mm] text-[9px] leading-tight text-slate-900">
+      <div className={cx("grid items-center gap-4 border-b-2 border-slate-900 pb-2", form.showLogo && settings.companyLogo ? "grid-cols-4" : "grid-cols-3")}>
+        {form.showLogo && settings.companyLogo && <div className="flex h-20 items-center justify-center"><img src={settings.companyLogo} alt="Şirkət loqosu" className="max-h-16 max-w-36 object-contain" /></div>}
+        <div className="flex h-20 flex-col items-center justify-center text-center"><AriXLogo className="h-11 w-11" /><div className="mt-0.5 text-[10px] font-medium text-slate-700">AriX</div></div>
+        <div className="flex h-20 flex-col items-center justify-center text-center">
+          <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-13 w-16 object-contain" />
+          <div className="mt-0.5 text-[9px] font-bold text-slate-800">{form.title}</div>
+        </div>
+        <div className="flex h-20 items-center justify-center">{qrUrl ? <img src={qrUrl} alt="GİB karekod" className="h-20 w-20" /> : <div className="h-20 w-20 border" />}</div>
+      </div>
+
+      {form.showCompanyDetails && (
+        <div className="grid grid-cols-[1.35fr_1fr] gap-5 border-b border-slate-300 py-2.5">
+          <div><div className="text-[15px] font-bold leading-5">{company.title || settings.companyName || "Firma adı"}</div><div className="mt-1.5 leading-4 text-slate-600">{address || "Firma adresi"}</div></div>
+          <div className="leading-4"><div><b>Vergi dairesi:</b> {company.taxOffice || "-"}</div><div><b>VKN/TCKN:</b> {company.taxNumber || "-"}</div>{company.phone && <div className="text-slate-600">Tel: {company.phone}</div>}{company.fax && <div className="text-slate-600">Faks: {company.fax}</div>}{company.website && <div className="text-slate-600">Web: {company.website}</div>}{company.email && <div className="text-slate-600">E-poçt: {company.email}</div>}</div>
+        </div>
+      )}
+
+      <div className="mt-2.5 grid grid-cols-2 gap-4">
+        <section><div className="text-[8px] font-bold uppercase text-slate-500">Alıcı</div><div className="mt-0.5 text-[11px] font-bold">Nümunə müştəri şirkəti</div><div className="mt-1 leading-4 text-slate-600">İstanbul · Türkiye</div><div className="mt-1"><b>VKN/TCKN:</b> 1234567890</div><div><b>Vergi dairesi:</b> HALKALI</div></section>
+        <section className="ml-auto w-full min-w-64 border-l border-t border-slate-300">
+          <GibPreviewMeta label="ETTN" value="F102107D-F6A9-40DB-89EA-FF8D0D62D67F" small />
+          <GibPreviewMeta label="Özelleştirme no" value="TR1.2" /><GibPreviewMeta label="Senaryo" value={scenario} /><GibPreviewMeta label={`${documentLabel} tipi`} value={isDespatch ? "SEVK" : "SATIS"} /><GibPreviewMeta label={`${documentLabel} no`} value={number} /><GibPreviewMeta label={`${documentLabel} tarihi`} value="14-10-2026" /><GibPreviewMeta label="Oluşturma zamanı" value="12:02:36" />
+          {!isDespatch && <GibPreviewMeta label="Para birimi" value="TRY" />}
+        </section>
+      </div>
+
+      {isDespatch && <div className="mt-2.5 grid grid-cols-2 border-l border-t border-slate-300 bg-slate-50"><GibPreviewMeta label="Fiili sevk tarihi" value="14-10-2026" /><GibPreviewMeta label="Fiili sevk zamanı" value="12:15:00" /><GibPreviewMeta label="Taşıyıcı" value="Örnek Lojistik" /><GibPreviewMeta label="Taşıyıcı VKN / Plaka" value="1234567890 · 34 ARX 26" /><GibPreviewMeta label="Sürücü" value="Mehmet Yılmaz" /><GibPreviewMeta label="Sürücü TCKN" value="11111111111" /></div>}
+      {isExport && <div className="mt-2.5 grid grid-cols-2 border-l border-t border-slate-300 bg-slate-50"><GibPreviewMeta label="Gömrük alıcısı" value="T.C. Ticaret Bakanlığı" /><GibPreviewMeta label="Xarici alıcı" value="Sample Import GmbH" /><GibPreviewMeta label="Incoterms" value="CIF" /><GibPreviewMeta label="Nəqliyyat" value="1 · Deniz yolu" /><GibPreviewMeta label="Qab" value="CT · CONT-2026 · 12" /><GibPreviewMeta label="KDV istisnası" value="301 · Mal ihracatı" /></div>}
+
+      <table className="mt-3.5 w-full border-collapse text-[8px] leading-tight">
+        <thead><tr className="bg-slate-900 text-white"><th className="border border-slate-700 px-1 py-0.5 text-left">#</th><th className="border border-slate-700 px-1 py-0.5 text-left">Mal / Hizmet</th><th className="border border-slate-700 px-1 py-0.5 text-left">Kod</th>{isExport && <th className="border border-slate-700 px-1 py-0.5 text-left">GTİP</th>}<th className="border border-slate-700 px-1 py-0.5 text-right">Miktar</th>{isDespatch ? <><th className="border border-slate-700 px-1 py-0.5 text-left">Etiket numarası</th><th className="border border-slate-700 px-1 py-0.5 text-right">Sonra gönderilecek</th></> : <><th className="border border-slate-700 px-1 py-0.5 text-right">Birim fiyat</th><th className="border border-slate-700 px-1 py-0.5 text-right">KDV oranı</th><th className="border border-slate-700 px-1 py-0.5 text-right">KDV tutarı</th><th className="border border-slate-700 px-1 py-0.5 text-right">Tutar</th></>}</tr></thead>
+        <tbody>{lines.map((line, index) => <tr key={line.code}><td className="border border-slate-300 px-1 py-0.5">{index + 1}</td><td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 font-medium">{line.name}</td><td className="border border-slate-300 px-1 py-0.5">{line.code}</td>{isExport && <td className="border border-slate-300 px-1 py-0.5">3920.49.10.00.00</td>}<td className="whitespace-nowrap border border-slate-300 px-1 py-0.5 text-right">{line.quantity} {line.unit}</td>{isDespatch ? <><td className="border border-slate-300 px-1 py-0.5">RL-{index + 1}</td><td className="border border-slate-300 px-1 py-0.5 text-right">-</td></> : <><td className="border border-slate-300 px-1 py-0.5 text-right">{money(line.price)}</td><td className="border border-slate-300 px-1 py-0.5 text-right">%{line.tax}</td><td className="border border-slate-300 px-1 py-0.5 text-right">{money(line.quantity * line.price * .2)}</td><td className="border border-slate-300 px-1 py-0.5 text-right font-semibold">{money(line.quantity * line.price)}</td></>}</tr>)}</tbody>
+      </table>
+
+      {!isDespatch && <div className="mt-3 ml-auto w-full max-w-80 space-y-1 border-t-2 border-slate-900 pt-2"><GibPreviewTotal label="Mal / hizmet toplamı" value={money(goodsTotal)} /><GibPreviewTotal label="Toplam iskonto" value={money(0)} /><GibPreviewTotal label="Hesaplanan KDV (%20)" value={money(taxTotal)} /><GibPreviewTotal label="Vergiler dahil toplam" value={money(goodsTotal + taxTotal)} /><GibPreviewTotal label="Ödenecek tutar" value={money(goodsTotal + taxTotal)} strong /></div>}
+
+      {isDespatch && <><section className="mt-4"><div className="mb-1 text-[10px] font-bold">İlgili Dokümanlar</div><div className="grid grid-cols-3 border-l border-t border-slate-300 bg-slate-100 font-semibold"><span className="border-b border-r border-slate-300 p-1">Doküman no</span><span className="border-b border-r border-slate-300 p-1">Tarih</span><span className="border-b border-r border-slate-300 p-1">Doküman tipi</span><span className="border-b border-r border-slate-300 p-1">SAT-2026-001</span><span className="border-b border-r border-slate-300 p-1">14-10-2026</span><span className="border-b border-r border-slate-300 p-1">SİPARİŞ</span></div></section><div className="mt-4 grid grid-cols-2 border border-slate-300"><section className="border-r border-slate-300 p-2"><b>Açıklamalar</b><div className="mt-1">Asıl alıcı: Nümunə müştəri şirkəti</div><div>İstanbul · Türkiye</div></section><section className="p-2"><b>Taşıyıcı Bilgileri</b><div className="mt-1">Araç plakası: 34 ARX 26</div><div>Şoför: Mehmet Yılmaz</div></section></div></>}
+
+      {!isDespatch && form.showBankAccounts && company.bankAccounts?.length > 0 && <section className="mt-4"><div className="mb-1 text-[10px] font-bold">Banka Hesapları</div><table className="w-full border-collapse"><thead><tr className="bg-slate-100"><th className="border border-slate-300 p-1 text-left">Banka</th><th className="border border-slate-300 p-1 text-left">Para birimi</th><th className="border border-slate-300 p-1 text-left">IBAN</th></tr></thead><tbody>{company.bankAccounts.map((account) => <tr key={`${account.bank}-${account.currency}-${account.iban}`}><td className="border border-slate-300 p-1">{account.bank}</td><td className="border border-slate-300 p-1">{account.currency}</td><td className="border border-slate-300 p-1">{account.iban}</td></tr>)}</tbody></table></section>}
+      {form.showNotes && <section className="mt-4 border border-slate-300"><div className="grid grid-cols-[110px_1fr]"><div className="border-r border-slate-300 bg-slate-100 p-1 font-bold">{isDespatch ? "İrsaliye Açıklaması" : "Fatura Açıklaması"}</div><div className="whitespace-pre-line p-1">{form.footerNote || "Sənədə aid açıqlama burada göstərilir."}</div></div></section>}
+      {isArchive && form.showStamp && settings.companyStamp && <section className="mt-4 flex justify-end"><div className="w-[65mm] text-center"><div className="text-[8px] font-semibold uppercase text-slate-500">Kaşe / İmza</div><div className="flex h-[44mm] items-center justify-center"><img src={settings.companyStamp} alt="Kaşe və imza" className="max-h-[44mm] max-w-[65mm] object-contain" /></div></div></section>}
+      {form.showFooter && form.footerInfo && <footer className="mt-4 flex justify-between border-t border-slate-300 pt-1 text-[8px] text-slate-500"><span>{form.footerInfo}</span><span>{number}</span></footer>}
+    </article>
+  );
+}
+
+function GibPreviewMeta({ label, value, small = false }: { label: string; value: string; small?: boolean }) {
+  return <div className="grid min-w-0 grid-cols-[96px_1fr] gap-1.5 border-b border-r border-slate-300 px-1.5 py-0.5"><span className="whitespace-nowrap font-semibold text-slate-500">{label}</span><span className={small ? "break-all text-[8px]" : "min-w-0 break-words"}>{value}</span></div>;
+}
+
+function GibPreviewTotal({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return <div className={cx("flex items-center justify-between gap-4", strong && "border-t border-slate-400 pt-1 text-[10px] font-bold")}><span>{label}</span><span>{value}</span></div>;
 }
 
 function StoreCard({ item, onEdit, onDelete, border, card, soft, subtle }: {

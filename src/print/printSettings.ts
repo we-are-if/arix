@@ -10,7 +10,11 @@ export type PrintFormKey =
   | "inventory"
   | "writeOff"
   | "receipt"
-  | "label";
+  | "label"
+  | "eInvoice"
+  | "eArchive"
+  | "eDespatch"
+  | "exportInvoice";
 
 export type PrintFormConfig = {
   title: string;
@@ -20,6 +24,10 @@ export type PrintFormConfig = {
   showLogo: boolean;
   showMeta: boolean;
   showFooter: boolean;
+  showCompanyDetails: boolean;
+  showBankAccounts: boolean;
+  showNotes: boolean;
+  showStamp: boolean;
 };
 
 export type PrintCompanyDetails = {
@@ -35,6 +43,7 @@ export type PrintCompanyDetails = {
   fax: string;
   email: string;
   website: string;
+  bankAccounts: Array<{ bank: string; currency: string; iban: string }>;
 };
 
 export type PrintSettings = {
@@ -59,6 +68,7 @@ export const defaultPrintCompanyDetails: PrintCompanyDetails = {
   fax: "",
   email: "",
   website: "",
+  bankAccounts: [],
 };
 
 const form = (title: string, subtitle: string): PrintFormConfig => ({
@@ -69,6 +79,10 @@ const form = (title: string, subtitle: string): PrintFormConfig => ({
   showLogo: true,
   showMeta: true,
   showFooter: true,
+  showCompanyDetails: true,
+  showBankAccounts: true,
+  showNotes: true,
+  showStamp: true,
 });
 
 export const defaultPrintSettings: PrintSettings = {
@@ -90,6 +104,10 @@ export const defaultPrintSettings: PrintSettings = {
     writeOff: form("Silinmə aktı", "Stokdan silinən məhsullar"),
     receipt: form("Ödəniş qəbzi", "Ödəniş və kontragent məlumatları"),
     label: form("Məhsul etiketi", "Məhsul və barkod məlumatları"),
+    eInvoice: form("e-FATURA", "TEMELFATURA ssenarisi"),
+    eArchive: form("e-ARŞİV FATURA", "EARSIVFATURA ssenarisi"),
+    eDespatch: form("e-İRSALİYE", "TEMELIRSALIYE ssenarisi"),
+    exportInvoice: form("e-FATURA", "IHRACAT ssenarisi"),
   },
 };
 

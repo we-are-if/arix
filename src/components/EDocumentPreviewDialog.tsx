@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import AriXLogo from "./AriXLogo";
+import { mergePrintSettings, type PrintFormKey, type PrintSettings } from "../print/printSettings";
 
 export type GibDocumentModel = {
   standard: string;
@@ -37,6 +38,7 @@ export type EDocumentArtifact = {
   draft: boolean;
   companyLogo?: string;
   companyStamp?: string;
+  printSettings?: PrintSettings;
   compliance?: {
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
     passed: number;
@@ -63,6 +65,10 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
   const isExport = model.documentType === "exportInvoice";
   const documentLabel = isDespatch ? "İrsaliye" : "Fatura";
   const relatedDespatch = model.relatedDocuments?.find((item) => item.documentType === "eDespatch");
+  const printSettings = mergePrintSettings(artifact.printSettings);
+  const printForm = printSettings.forms[model.documentType as PrintFormKey];
+  const documentTitle = printForm?.title || titles[model.documentType];
+  const showCompanyLogo = printForm?.showLogo !== false && Boolean(artifact.companyLogo);
 
   useEffect(() => {
     let active = true;
@@ -94,7 +100,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-slate-950/85 px-4 py-3 text-white print:hidden">
         <div>
           <div className="text-xs font-semibold text-slate-400">GİB texniki önizləmə</div>
-          <h2 id="gib-preview-title" className="mt-0.5 text-lg font-semibold">{titles[model.documentType]} · {model.number || "Taslak"}</h2>
+          <h2 id="gib-preview-title" className="mt-0.5 text-lg font-semibold">{documentTitle} · {model.number || "Taslak"}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={downloadXml} className="h-10 rounded-lg border border-white/20 px-4 text-sm font-semibold hover:bg-white/10">XML endir</button>
@@ -115,8 +121,8 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
         </div>
 
         <article className="gib-document-print mx-auto min-h-[297mm] w-[210mm] min-w-[210mm] bg-white p-[8mm] text-[9px] leading-tight text-slate-900 shadow-2xl">
-          <div className={`grid ${artifact.companyLogo ? "grid-cols-4" : "grid-cols-3"} items-center gap-4 border-b-2 border-slate-900 pb-2`}>
-            {artifact.companyLogo && (
+          <div className={`grid ${showCompanyLogo ? "grid-cols-4" : "grid-cols-3"} items-center gap-4 border-b-2 border-slate-900 pb-2`}>
+            {showCompanyLogo && (
               <div className="flex h-20 items-center justify-center">
                 <img src={artifact.companyLogo} alt="Şirkət loqosu" className="max-h-16 max-w-36 object-contain" />
               </div>
@@ -128,7 +134,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             <div className="flex h-20 flex-col items-center justify-center text-center">
               <img src={isDespatch ? "/gib/e-irsaliye.jpg" : "/gib/e-fatura.jpg"} alt="Gelir İdaresi Başkanlığı" className="h-13 w-16 object-contain" />
               <div className="mt-0.5 text-[9px] font-bold text-slate-800">
-                {titles[model.documentType]}
+                {documentTitle}
               </div>
             </div>
             <div className="flex h-20 items-center justify-center">
@@ -136,7 +142,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </div>
           </div>
 
-          <div className="grid grid-cols-[1.35fr_1fr] gap-5 border-b border-slate-300 py-2.5">
+          {printForm?.showCompanyDetails !== false && <div className="grid grid-cols-[1.35fr_1fr] gap-5 border-b border-slate-300 py-2.5">
             <div className="min-w-0">
               <div className="text-[15px] font-bold leading-5 tracking-normal">{model.supplier.title || "Firma adı"}</div>
               <div className="mt-1.5 leading-4 text-slate-600">
@@ -152,7 +158,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
               {model.supplier.website && <div className="text-slate-600">Web: {model.supplier.website}</div>}
               {model.supplier.email && <div className="text-slate-600">E-poçt: {model.supplier.email}</div>}
             </div>
-          </div>
+          </div>}
 
           <div className="mt-2.5 grid grid-cols-2 gap-4">
             <section>
@@ -265,7 +271,7 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </div>
           )}
 
-          {!isDespatch && model.supplier.bankAccounts?.length ? (
+          {!isDespatch && printForm?.showBankAccounts !== false && model.supplier.bankAccounts?.length ? (
             <section className="mt-4">
               <div className="mb-1 text-[10px] font-bold">Banka Hesapları</div>
               <table className="w-full border-collapse">
@@ -275,16 +281,16 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
             </section>
           ) : null}
 
-          <section className="mt-4 border border-slate-300">
+          {printForm?.showNotes !== false && <section className="mt-4 border border-slate-300">
             <div className="grid grid-cols-[110px_1fr] leading-tight">
               <div className="border-r border-slate-300 bg-slate-100 px-1.5 py-1 font-bold">
                 {isDespatch ? "İrsaliye Açıklaması" : "Fatura Açıklaması"}
               </div>
-              <div className="whitespace-pre-line px-1.5 py-1">{model.note || "-"}</div>
+              <div className="whitespace-pre-line px-1.5 py-1">{model.note || printForm?.footerNote || "-"}</div>
             </div>
-          </section>
+          </section>}
 
-          {model.documentType === "eArchive" && artifact.companyStamp && (
+          {model.documentType === "eArchive" && printForm?.showStamp !== false && artifact.companyStamp && (
             <section className="mt-4 flex justify-end">
               <div className="w-[65mm] text-center">
                 <div className="mb-0.5 text-[8px] font-semibold uppercase text-slate-500">Kaşe / İmza</div>
@@ -293,6 +299,13 @@ export default function EDocumentPreviewDialog({ artifact, onClose }: { artifact
                 </div>
               </div>
             </section>
+          )}
+
+          {printForm?.showFooter !== false && printForm?.footerInfo && (
+            <footer className="mt-4 flex justify-between border-t border-slate-300 pt-1 text-[8px] text-slate-500">
+              <span>{printForm.footerInfo}</span>
+              <span>{model.number || "Taslak"}</span>
+            </footer>
           )}
 
         </article>
