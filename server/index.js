@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { XMLValidator } from "fast-xml-parser";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
@@ -70,6 +71,34 @@ const despatchXmlTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <DespatchAdvice xmlns="urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2 UBLTR-DespatchAdvice-2.1.xsd">
 {{EXTENSIONS}}{{COMMON}}{{TYPE_CODE}}{{NOTE}}{{LINE_COUNT}}{{RELATED_DOCUMENTS}}{{XSLT}}{{SIGNATURE}}{{SUPPLIER}}{{CUSTOMER}}{{SHIPMENT}}{{LINES}}
 </DespatchAdvice>`;
+const arixPrintXmlTemplate = (key, orientation, slots) => `<?xml version="1.0" encoding="UTF-8"?>
+<ArixPrintForm key="${key}" paper="A4" orientation="${orientation}">
+${slots.map((slot) => `{{${slot}}}`).join("\n")}
+</ArixPrintForm>`;
+const standardPrintXmlTemplates = {
+  sale: arixPrintXmlTemplate("sale", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "FOOTER"]),
+  orderConfirmation: arixPrintXmlTemplate("orderConfirmation", "portrait", ["HEADER", "DOCUMENT_TITLE", "PARTIES", "PRODUCT_TABLE", "TERMS", "FOOTER"]),
+  proforma: arixPrintXmlTemplate("proforma", "portrait", ["HEADER", "DOCUMENT_TITLE", "PARTIES", "PRODUCT_TABLE", "TERMS", "BANK", "FOOTER"]),
+  commercial: arixPrintXmlTemplate("commercial", "portrait", ["HEADER", "DOCUMENT_TITLE", "PARTIES", "PRODUCT_TABLE", "TERMS", "BANK", "FOOTER"]),
+  packingList: arixPrintXmlTemplate("packingList", "portrait", ["HEADER", "DOCUMENT_TITLE", "PARTIES", "PACKING_TABLE", "PACKING_SUMMARY", "FOOTER"]),
+  purchase: arixPrintXmlTemplate("purchase", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "PALLET_DETAILS", "FOOTER"]),
+  movement: arixPrintXmlTemplate("movement", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "PALLET_DETAILS", "FOOTER"]),
+  customs: arixPrintXmlTemplate("customs", "landscape", ["HEADER", "DECLARATION", "CUSTOMS_TABLE", "FOOTER"]),
+  inventory: arixPrintXmlTemplate("inventory", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "FOOTER"]),
+  writeOff: arixPrintXmlTemplate("writeOff", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "FOOTER"]),
+  receipt: arixPrintXmlTemplate("receipt", "portrait", ["HEADER", "RECEIPT_DETAILS", "SIGNATURES", "FOOTER"]),
+  label: arixPrintXmlTemplate("label", "portrait", ["LABEL"]),
+};
+const validateStandardPrintTemplate = (template, key) => {
+  const source = typeof template === "string" ? template.trim() : "";
+  if (!source) return { ok: false, error: "Forma XML şablonu boş ola bilməz." };
+  const validation = XMLValidator.validate(source);
+  if (validation !== true) return { ok: false, error: `Forma XML şablonu düzgün deyil: ${validation.err.msg}.` };
+  if (!/<ArixPrintForm(?:\s|>)/.test(source) || !source.includes("</ArixPrintForm>")) return { ok: false, error: "Forma XML kök elementi ArixPrintForm olmalıdır." };
+  if (!new RegExp(`key=["']${key}["']`).test(source)) return { ok: false, error: `Forma XML key dəyəri ${key} olmalıdır.` };
+  if (!/\{\{[A-Z_]+\}\}/.test(source)) return { ok: false, error: "Forma XML şablonunda ən azı bir çap bloku qalmalıdır." };
+  return { ok: true, error: "" };
+};
 
 const defaultPrintSettings = {
   companyName: "AriX",
@@ -77,18 +106,18 @@ const defaultPrintSettings = {
   companyLogo: "",
   companyStamp: "",
   forms: {
-    sale: printForm("Satış sənədi", "Məhsul və ödəniş məlumatları"),
-    orderConfirmation: printForm("Sipariş onay formu", "Adi satışlar üçün müştəri təsdiq forması"),
-    proforma: printForm("Proforma invoice", "İxracat satışları üçün ilkin invoice"),
-    commercial: printForm("Commercial invoice", "Rəsmi ixrac invoice forması"),
-    packingList: printForm("Packing list", "Palet, rulo və çəki siyahısı"),
-    purchase: printForm("Alış sənədi", "Təchizatçıdan alınan məhsullar"),
-    movement: printForm("Yerdəyişmə sənədi", "Mağazalar arasında stok hərəkəti"),
-    customs: printForm("Antrepo düşüm", "Bəyannamə üzrə kap, MT, çəki, palet və rulo forması"),
-    inventory: printForm("İnventar siyahısı", "Faktiki və sistem qalığının müqayisəsi"),
-    writeOff: printForm("Silinmə aktı", "Stokdan silinən məhsullar"),
-    receipt: printForm("Ödəniş qəbzi", "Ödəniş və kontragent məlumatları"),
-    label: printForm("Məhsul etiketi", "Məhsul və barkod məlumatları"),
+    sale: { ...printForm("Satış sənədi", "Məhsul və ödəniş məlumatları"), xmlTemplate: standardPrintXmlTemplates.sale },
+    orderConfirmation: { ...printForm("Sipariş onay formu", "Adi satışlar üçün müştəri təsdiq forması"), xmlTemplate: standardPrintXmlTemplates.orderConfirmation },
+    proforma: { ...printForm("Proforma invoice", "İxracat satışları üçün ilkin invoice"), xmlTemplate: standardPrintXmlTemplates.proforma },
+    commercial: { ...printForm("Commercial invoice", "Rəsmi ixrac invoice forması"), xmlTemplate: standardPrintXmlTemplates.commercial },
+    packingList: { ...printForm("Packing list", "Palet, rulo və çəki siyahısı"), xmlTemplate: standardPrintXmlTemplates.packingList },
+    purchase: { ...printForm("Alış sənədi", "Təchizatçıdan alınan məhsullar"), xmlTemplate: standardPrintXmlTemplates.purchase },
+    movement: { ...printForm("Yerdəyişmə sənədi", "Mağazalar arasında stok hərəkəti"), xmlTemplate: standardPrintXmlTemplates.movement },
+    customs: { ...printForm("Antrepo düşüm", "Bəyannamə üzrə kap, MT, çəki, palet və rulo forması"), xmlTemplate: standardPrintXmlTemplates.customs },
+    inventory: { ...printForm("İnventar siyahısı", "Faktiki və sistem qalığının müqayisəsi"), xmlTemplate: standardPrintXmlTemplates.inventory },
+    writeOff: { ...printForm("Silinmə aktı", "Stokdan silinən məhsullar"), xmlTemplate: standardPrintXmlTemplates.writeOff },
+    receipt: { ...printForm("Ödəniş qəbzi", "Ödəniş və kontragent məlumatları"), xmlTemplate: standardPrintXmlTemplates.receipt },
+    label: { ...printForm("Məhsul etiketi", "Məhsul və barkod məlumatları"), xmlTemplate: standardPrintXmlTemplates.label },
     eInvoice: { ...printForm("e-FATURA", "TEMELFATURA ssenarisi"), xmlTemplate: invoiceXmlTemplate },
     eArchive: { ...printForm("e-ARŞİV FATURA", "EARSIVFATURA ssenarisi"), xmlTemplate: invoiceXmlTemplate },
     eDespatch: { ...printForm("e-İRSALİYE", "TEMELIRSALIYE ssenarisi"), xmlTemplate: despatchXmlTemplate },
@@ -199,6 +228,7 @@ function normalizeDb(db) {
           {
             ...form,
             ...(db.companySettings?.printSettings?.forms?.[key] ?? {}),
+            xmlTemplate: db.companySettings?.printSettings?.forms?.[key]?.xmlTemplate?.trim() || form.xmlTemplate,
           },
         ])
       ),
@@ -837,9 +867,11 @@ async function handleCompanySettings(req, res) {
           },
         }
       : db.companySettings.printSettings;
-    for (const documentType of ["eInvoice", "eArchive", "eDespatch", "exportInvoice"]) {
-      const validation = validateUblTrTemplate(nextPrintSettings.forms?.[documentType]?.xmlTemplate, documentType);
-      if (!validation.ok) return send(res, 400, { error: validation.error, documentType });
+    for (const [formKey, form] of Object.entries(nextPrintSettings.forms ?? {})) {
+      const validation = ["eInvoice", "eArchive", "eDespatch", "exportInvoice"].includes(formKey)
+        ? validateUblTrTemplate(form?.xmlTemplate, formKey)
+        : validateStandardPrintTemplate(form?.xmlTemplate, formKey);
+      if (!validation.ok) return send(res, 400, { error: validation.error, formKey });
     }
     const nextExchangeSettings = body.exchangeSettings
       ? {

@@ -4,7 +4,7 @@ import { requestJson } from "../api";
 import DocumentCreatePanel, { type ApiDocumentDraft, type DocumentCreateKind } from "../components/DocumentCreatePanel";
 import EDocumentWorkflowDialog, { type EDocumentType } from "../components/EDocumentWorkflowDialog";
 import { arixPrintBaseCss, renderArixPrintFooter, renderArixPrintHeader } from "../print/arixPrintTemplate";
-import { defaultPrintSettings, mergePrintSettings, type PrintFormKey, type PrintSettings } from "../print/printSettings";
+import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type PrintFormKey, type PrintSettings } from "../print/printSettings";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -597,7 +597,7 @@ const renderCustomsPrintHtml = (
 <body>
   ${sheets.length === 0 ? `<div class="empty">Bu sənəddə gömrük forması üçün seçilmiş rulo yoxdur.</div>` : sheets.map((sheet) => `
     <section class="sheet">
-      ${renderArixPrintHeader({
+      ${printTemplateHasSlot(form, "HEADER") ? renderArixPrintHeader({
         title: form.title,
         subtitle: form.subtitle,
         documentNo: formNumber,
@@ -606,9 +606,9 @@ const renderCustomsPrintHtml = (
         source: sheet.containers.join(", ") || "-",
         settings: printSettings,
         form,
-      })}
-      <div class="customs-declaration">Bəyannamə · ${escapeHtml(sheet.declaration)}</div>
-      <table class="arix-table">
+      }) : ""}
+      ${printTemplateHasSlot(form, "DECLARATION") ? `<div class="customs-declaration">Bəyannamə · ${escapeHtml(sheet.declaration)}</div>` : ""}
+      ${printTemplateHasSlot(form, "CUSTOMS_TABLE") ? `<table class="arix-table">
         <thead><tr>
           <th class="center">No</th><th>Ürün</th><th>Kod</th><th class="center">Kap</th><th class="num">MT</th>
           <th class="num">Birim Fiyat</th><th class="num">Toplam Fiyat</th><th class="num">Net Weight</th>
@@ -628,8 +628,8 @@ const renderCustomsPrintHtml = (
           <td class="num">${money(sheet.totals.qty)} mt</td><td></td><td class="num">$${money(sheet.totals.totalPrice)}</td>
           <td class="num">${money(sheet.totals.netKg)} kg</td><td class="num">${money(sheet.totals.grossKg)} kg</td><td colspan="2"></td>
         </tr></tfoot>
-      </table>
-      ${renderArixPrintFooter(`${formNumber} · ${sheet.declaration}`, printSettings, form)}
+      </table>` : ""}
+      ${printTemplateHasSlot(form, "FOOTER") ? renderArixPrintFooter(`${formNumber} · ${sheet.declaration}`, printSettings, form) : ""}
     </section>
   `).join("")}
   <script>window.addEventListener("load", () => setTimeout(() => window.print(), 250));</script>
@@ -999,7 +999,7 @@ const buildSalesExportPrintHtml = (
   </style>
 </head>
 <body>
-  ${renderArixPrintHeader({
+  ${printTemplateHasSlot(form, "HEADER") ? renderArixPrintHeader({
     title: form.title,
     subtitle: form.subtitle,
     documentNo: docNo,
@@ -1008,35 +1008,35 @@ const buildSalesExportPrintHtml = (
     source: row.sender,
     settings: printSettings,
     form,
-  })}
-  <section class="doc-title"><h1>${escapeHtml(title.title)}</h1><div>${escapeHtml(title.subtitle)}</div></section>
-  <section class="parties">
+  }) : ""}
+  ${printTemplateHasSlot(form, "DOCUMENT_TITLE") ? `<section class="doc-title"><h1>${escapeHtml(title.title)}</h1><div>${escapeHtml(title.subtitle)}</div></section>` : ""}
+  ${printTemplateHasSlot(form, "PARTIES") ? `<section class="parties">
     <div class="to"><span>TO</span><strong>${escapeHtml(row.recipient)}</strong><div>Phone:</div><div>Address:</div></div>
     <div class="meta-lines">
       <div><span>${printDocumentDateLabel(options.formMode)}:</span><strong>${escapeHtml(date)}</strong></div>
       <div><span>${printDocumentNumberLabel(options.formMode)}:</span><strong>${escapeHtml(docNo)}</strong></div>
       ${options.formMode === "orderConfirmation" ? `<div><span>Döviz kuru:</span><strong>TCMB - bir önceki iş günü 09:00</strong></div>` : ""}
     </div>
-  </section>
+  </section>` : ""}
   ${options.formMode === "packingList" ? `
-    <table class="sales">
+    ${printTemplateHasSlot(form, "PACKING_TABLE") ? `<table class="sales">
       <thead><tr><th>No</th><th>PALLET</th><th>PRODUCTS</th><th>CODE</th><th>ROLL</th><th>LM</th><th>SQM</th><th>Net Weight / KG</th><th>Gross Weight / KG</th><th>Qeyd</th></tr></thead>
       <tbody>${packingRows.map((item, index) => `<tr><td class="center">${index + 1}</td><td class="center">${escapeHtml(item.pallet)}</td><td>${escapeHtml(item.productName)}</td><td class="center">${escapeHtml(item.code)}</td><td class="center">${item.rollCount}</td><td class="right">${money(item.qty)}</td><td class="right">${money(item.sqm)}</td><td class="right">${money(item.netKg)}</td><td class="right">${money(item.grossKg)}</td><td class="center">${item.full ? "FULL PALET" : escapeHtml(item.rollNumbers)}</td></tr>`).join("")}</tbody>
       <tfoot><tr><td colspan="4" class="right">TOTAL</td><td class="center">${packingTotals.roll}</td><td class="right">${money(packingTotals.qty)}</td><td class="right">${money(packingTotals.sqm)}</td><td class="right">${money(packingTotals.netKg)}</td><td class="right">${money(packingTotals.grossKg)}</td><td></td></tr></tfoot>
     </table>
-    <div class="strategy">Paletləmə: ${options.packingStrategy === "splitTen" ? "20 rulo kimi hallar 10/10 bölünə bilər." : options.packingStrategy === "keepPartial" ? "Parçalı palet olduğu kimi saxlanır." : "Tam paletlər parçalanmır, eyni bəyannamə ruloları birlikdə saxlanır."}</div>
-    <div class="packing-summary"><span>TOTAL PALLET</span><strong>${packingTotals.pallets.size}</strong><span>TOTAL NET WEIGHT</span><strong>${money(packingTotals.netKg)} KG</strong><span>TOTAL GROSS WEIGHT</span><strong>${money(packingTotals.grossKg)} KG</strong></div>
+    <div class="strategy">Paletləmə: ${options.packingStrategy === "splitTen" ? "20 rulo kimi hallar 10/10 bölünə bilər." : options.packingStrategy === "keepPartial" ? "Parçalı palet olduğu kimi saxlanır." : "Tam paletlər parçalanmır, eyni bəyannamə ruloları birlikdə saxlanır."}</div>` : ""}
+    ${printTemplateHasSlot(form, "PACKING_SUMMARY") ? `<div class="packing-summary"><span>TOTAL PALLET</span><strong>${packingTotals.pallets.size}</strong><span>TOTAL NET WEIGHT</span><strong>${money(packingTotals.netKg)} KG</strong><span>TOTAL GROSS WEIGHT</span><strong>${money(packingTotals.grossKg)} KG</strong></div>` : ""}
   ` : `
-    <table class="sales">
+    ${printTemplateHasSlot(form, "PRODUCT_TABLE") ? `<table class="sales">
       <thead><tr><th>No</th><th>PRODUCTS</th><th>CODE</th><th>ROLL</th><th>LM</th><th>SQM</th><th>UNIT PRICE<br/>(${currency}/SQM)</th><th>AMOUNT<br/>${currency}</th>${showVat ? "<th>KDV 20%</th><th>Toplam KDV dahil</th>" : ""}</tr></thead>
       <tbody>${productRows.map((item) => `<tr><td class="center">${item.index}</td><td>${escapeHtml(item.product.name)}</td><td class="center">${escapeHtml(item.product.sku || item.product.barcode)}</td><td class="center">${Math.max(1, Math.round(item.qty / 100))}</td><td class="right">${money(item.qty)}</td><td class="right">${money(item.sqm)}</td><td class="right">${currency}${money(item.product.price)}</td><td class="right">${currency}${money(item.amount)}</td>${showVat ? `<td class="right">${currency}${money(item.vat)}</td><td class="right">${currency}${money(item.total)}</td>` : ""}</tr>`).join("")}</tbody>
       <tfoot><tr><td colspan="3" class="right">TOTAL</td><td class="center">${totals.roll}</td><td class="right">${money(totals.qty)}</td><td class="right">${money(totals.sqm)}</td><td></td><td class="right">${currency}${money(totals.amount)}</td>${showVat ? `<td class="right">${currency}${money(totals.vat)}</td><td class="right">${currency}${money(totals.total)}</td>` : ""}</tr></tfoot>
-    </table>
-    <div class="terms"><span>PACKAGE</span><strong>STANDART EXPORT PACKAGE</strong><span>DESCRIPTION</span><strong>PVC FOIL</strong><span>PAYMENT</span><strong>BANK PAYMENT</strong><span>DELIVERY TERM</span><strong>FCA. ISTANBUL</strong><span>SHIPMENT PORT</span><strong>ISTANBUL / TURKEY</strong><span>DESTINATION</span><strong>${escapeHtml(row.recipient)}</strong><span>ORIGIN</span><strong>GOODS OF CHINA</strong></div>
+    </table>` : ""}
+    ${printTemplateHasSlot(form, "TERMS") ? `<div class="terms"><span>PACKAGE</span><strong>STANDART EXPORT PACKAGE</strong><span>DESCRIPTION</span><strong>PVC FOIL</strong><span>PAYMENT</span><strong>BANK PAYMENT</strong><span>DELIVERY TERM</span><strong>FCA. ISTANBUL</strong><span>SHIPMENT PORT</span><strong>ISTANBUL / TURKEY</strong><span>DESTINATION</span><strong>${escapeHtml(row.recipient)}</strong><span>ORIGIN</span><strong>GOODS OF CHINA</strong></div>` : ""}
     ${options.formMode === "orderConfirmation" ? `<div class="note">Faturadakı döviz kuru, bir önceki iş gününün TCMB kapanış satış kuru olacak şekilde alınacaktır.</div>` : ""}
-    ${isExport ? `<div class="bank"><div><span>BANK</span><span>SWIFT CODE</span><span>BRANCH CODE</span><span>ACCOUNT NO</span><span>${currency === "€" ? "EUR" : "USD"} IBAN</span></div><div><span>ALBARAKA TURK PARTICIPATION BANK</span><span>BTFHTRISXXX</span><span>26-MERTER</span><span>26-9987324-2</span><span>TR56 0020 3000 0998 7324 0000 02</span></div></div>` : ""}
+    ${isExport && printTemplateHasSlot(form, "BANK") ? `<div class="bank"><div><span>BANK</span><span>SWIFT CODE</span><span>BRANCH CODE</span><span>ACCOUNT NO</span><span>${currency === "€" ? "EUR" : "USD"} IBAN</span></div><div><span>ALBARAKA TURK PARTICIPATION BANK</span><span>BTFHTRISXXX</span><span>26-MERTER</span><span>26-9987324-2</span><span>TR56 0020 3000 0998 7324 0000 02</span></div></div>` : ""}
   `}
-  ${renderArixPrintFooter(docNo, printSettings, form)}
+  ${printTemplateHasSlot(form, "FOOTER") ? renderArixPrintFooter(docNo, printSettings, form) : ""}
   <script>window.addEventListener("load", () => setTimeout(() => window.print(), 250));</script>
 </body>
 </html>`;
@@ -1106,7 +1106,7 @@ const buildDocumentPrintHtml = (
   </style>
 </head>
 <body>
-  ${renderArixPrintHeader({
+  ${printTemplateHasSlot(form, "HEADER") ? renderArixPrintHeader({
     title: form.title,
     subtitle: form.subtitle,
     documentNo: String(row.documentId || row.id),
@@ -1115,24 +1115,24 @@ const buildDocumentPrintHtml = (
     source: row.sender,
     settings: printSettings,
     form,
-  })}
-  <div class="arix-info-grid">
+  }) : ""}
+  ${printTemplateHasSlot(form, "PARTIES") ? `<div class="arix-info-grid">
     <div class="arix-info"><span>${row.kind === "purchase" ? "Təchizatçı" : "Göndərən"}</span><strong>${escapeHtml(row.sender)}</strong></div>
     <div class="arix-info"><span>${row.kind === "purchase" ? "Qəbul edən mağaza" : "Qəbul edən"}</span><strong>${escapeHtml(row.recipient)}</strong></div>
     <div class="arix-info"><span>Müəllif</span><strong>${escapeHtml(row.author)}</strong></div>
-  </div>
-  <div class="arix-summary">
+  </div>` : ""}
+  ${printTemplateHasSlot(form, "SUMMARY") ? `<div class="arix-summary">
     <div class="arix-summary-item"><span>Məbləğ</span><strong>${money(row.total)} ₼</strong></div>
     <div class="arix-summary-item"><span>Ödənilib</span><strong>${money(row.paid)} ₼</strong></div>
     <div class="arix-summary-item"><span>Qalıq</span><strong>${money(Math.max(row.total - row.paid, 0))} ₼</strong></div>
     <div class="arix-summary-item"><span>Fiscal</span><strong>${escapeHtml(fiscalValue(row))}</strong></div>
-  </div>
-  <section class="block">
+  </div>` : ""}
+  ${printTemplateHasSlot(form, "PRODUCT_TABLE") ? `<section class="block">
     <h2>Məhsullar</h2>
     ${renderPrintTable(["Ad", "Variasiya", "Bar-kod", "Artikul", "Miqdar", "Qiymət", "Endirim", "Ümumi"], productRows)}
-  </section>
-  ${options.palletMode === "withPallets" ? renderPalletPrintHtml(containers, products, options.detailMode) : ""}
-  ${renderArixPrintFooter(row.order, printSettings, form)}
+  </section>` : ""}
+  ${options.palletMode === "withPallets" && printTemplateHasSlot(form, "PALLET_DETAILS") ? renderPalletPrintHtml(containers, products, options.detailMode) : ""}
+  ${printTemplateHasSlot(form, "FOOTER") ? renderArixPrintFooter(row.order, printSettings, form) : ""}
   <script>
     window.addEventListener("load", () => setTimeout(() => window.print(), 250));
   </script>

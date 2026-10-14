@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import { requestJson } from "../api";
 import AriXLogo from "../components/AriXLogo";
-import { defaultPrintSettings, mergePrintSettings, type PrintCompanyDetails, type PrintFormKey, type PrintSettings } from "../print/printSettings";
+import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type PrintCompanyDetails, type PrintFormKey, type PrintSettings } from "../print/printSettings";
 import EDocumentsSettings from "../components/EDocumentsSettings";
 
 export type CompanySection = "settings" | "employees" | "stores" | "accounts" | "loyalty" | "printForms" | "eDocuments";
@@ -242,7 +242,15 @@ const requiredXmlSlots: Record<"invoice" | "despatch", string[]> = {
 };
 
 const validateXmlTemplate = (key: PrintFormKey, template: string) => {
-  if (!isEDocumentPrintKey(key)) return { ok: true, message: "" };
+  if (!template.trim()) return { ok: false, message: "XML şablonu boş ola bilməz." };
+  if (!isEDocumentPrintKey(key)) {
+    const parsed = new DOMParser().parseFromString(template, "application/xml");
+    if (parsed.querySelector("parsererror")) return { ok: false, message: "XML quruluşu düzgün deyil. Açılan və bağlanan teqləri yoxlayın." };
+    if (parsed.documentElement.localName !== "ArixPrintForm") return { ok: false, message: "Kök element ArixPrintForm olmalıdır." };
+    if (parsed.documentElement.getAttribute("key") !== key) return { ok: false, message: `Forma key dəyəri ${key} olmalıdır.` };
+    if (!/\{\{[A-Z_]+\}\}/.test(template)) return { ok: false, message: "XML formasında ən azı bir çap bloku qalmalıdır." };
+    return { ok: true, message: "Forma XML quruluşu düzgündür və önizləməyə tətbiq olunur." };
+  }
   const kind = key === "eDespatch" ? "despatch" : "invoice";
   const missing = requiredXmlSlots[kind].filter((slot) => !template.includes(`{{${slot}}}`));
   if (missing.length > 0) return { ok: false, message: `Məcburi XML sahələri əskikdir: ${missing.join(", ")}` };
@@ -1080,7 +1088,7 @@ function PrintFormsView({
   };
 
   const save = async () => {
-    const invalidXml = eDocumentPrintKeys
+    const invalidXml = (Object.keys(settings.forms) as PrintFormKey[])
       .map((key) => ({ key, validation: validateXmlTemplate(key, settings.forms[key].xmlTemplate) }))
       .find((item) => !item.validation.ok);
     if (invalidXml) {
@@ -1173,7 +1181,6 @@ function PrintFormsView({
                         type="button"
                         onClick={() => {
                           setSelected(form.key);
-                          if (!isEDocumentPrintKey(form.key)) setEditorMode("visual");
                         }}
                         className={cx(
                           "flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition",
@@ -1320,17 +1327,17 @@ function PrintFormsView({
                     <h3 className="text-base font-semibold">{printGroups.flatMap((group) => group.forms).find((form) => form.key === selected)?.label}</h3>
                     <p className={cx("mt-1 text-sm", subtle)}>Bu sahələr yalnız seçilmiş sənəd növünə tətbiq olunur.</p>
                   </div>
-                  {isEDocumentPrintKey(selected) && (
-                    <div className={cx("grid shrink-0 grid-cols-2 rounded-xl border p-1", border, soft)}>
-                      <button type="button" onClick={() => setEditorMode("visual")} className={cx("h-8 rounded-lg px-3 text-xs font-semibold", editorMode === "visual" && "bg-white text-indigo-700 shadow-sm")}>Vizual A4</button>
-                      <button type="button" onClick={() => setEditorMode("xml")} className={cx("h-8 rounded-lg px-3 text-xs font-semibold", editorMode === "xml" && "bg-white text-indigo-700 shadow-sm")}>UBL-TR XML</button>
-                    </div>
-                  )}
+                  <div className={cx("grid shrink-0 grid-cols-2 rounded-xl border p-1", border, soft)}>
+                    <button type="button" onClick={() => setEditorMode("visual")} className={cx("h-8 rounded-lg px-3 text-xs font-semibold", editorMode === "visual" && "bg-white text-indigo-700 shadow-sm")}>Vizual A4</button>
+                    <button type="button" onClick={() => setEditorMode("xml")} className={cx("h-8 rounded-lg px-3 text-xs font-semibold", editorMode === "xml" && "bg-white text-indigo-700 shadow-sm")}>{isEDocumentPrintKey(selected) ? "UBL-TR XML" : "Forma XML"}</button>
+                  </div>
                 </div>
-                {editorMode === "xml" && isEDocumentPrintKey(selected) ? (
+                {editorMode === "xml" ? (
                   <div className="space-y-3">
                     <div className={cx("rounded-xl border p-3 text-xs leading-5", border, soft)}>
-                      Mötərizə içindəki UBL blokları real sənəd məlumatları ilə avtomatik doldurulur. Məcburi blokları silmədən əlavə XML teqləri və sıralamanı dəyişə bilərsiniz.
+                      {isEDocumentPrintKey(selected)
+                        ? "Mötərizə içindəki UBL blokları real sənəd məlumatları ilə avtomatik doldurulur. Məcburi blokları silmədən əlavə XML teqləri və sıralamanı dəyişə bilərsiniz."
+                        : "Mötərizə içindəki bloklar real çap hissələridir. Bloku sildikdə həmin hissə önizləmədən və real çapdan çıxır; XML sırasını və səhifə xüsusiyyətlərini dəyişə bilərsiniz."}
                     </div>
                     <Field label="XML şablonu">
                       <textarea
@@ -1425,8 +1432,8 @@ function PrintToggle({ label, checked, onChange, border, soft }: { label: string
 }
 
 function PrintFormPreview({ settings, formKey, form, subtle, editorMode }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey]; subtle: string; editorMode: "visual" | "xml" }) {
+  if (editorMode === "xml") return <XmlTemplatePreview formKey={formKey} template={form.xmlTemplate} subtle={subtle} />;
   if (isEDocumentPrintKey(formKey)) {
-    if (editorMode === "xml") return <XmlTemplatePreview formKey={formKey} template={form.xmlTemplate} subtle={subtle} />;
     return <GibPrintFormPreview settings={settings} formKey={formKey} form={form} subtle={subtle} />;
   }
   return <StandardPrintFormPreview settings={settings} formKey={formKey} form={form} subtle={subtle} />;
@@ -1488,13 +1495,13 @@ function StandardPrintPage({ settings, formKey, form }: { settings: PrintSetting
   const landscape = formKey === "customs";
   return (
     <article className={cx("bg-white text-[9px] leading-tight text-slate-900", landscape ? "min-h-[210mm] w-[297mm] p-[9mm]" : "min-h-[297mm] w-[210mm] p-[11mm]") }>
-      <ArixPreviewHeader settings={settings} form={form} />
-      {formKey === "label" ? <ProductLabelPreview settings={settings} />
+      {printTemplateHasSlot(form, "HEADER") && <ArixPreviewHeader settings={settings} form={form} />}
+      {formKey === "label" ? <ProductLabelPreview settings={settings} form={form} />
         : formKey === "receipt" ? <ReceiptPreview form={form} />
           : formKey === "customs" ? <CustomsPreview form={form} />
             : isExport ? <ExportDocumentPreview formKey={formKey} form={form} />
-              : <OperationDocumentPreview formKey={formKey} />}
-      <ArixPreviewFooter settings={settings} form={form} />
+              : <OperationDocumentPreview formKey={formKey} form={form} />}
+      {printTemplateHasSlot(form, "FOOTER") && <ArixPreviewFooter settings={settings} form={form} />}
     </article>
   );
 }
@@ -1514,16 +1521,15 @@ function PreviewCell({ label, value }: { label: string; value: string }) {
   return <div className="border-r border-slate-200 px-2 py-1.5 last:border-r-0"><span className="block text-[7px] text-slate-500">{label}</span><strong className="mt-0.5 block truncate text-[9px]">{value}</strong></div>;
 }
 
-function OperationDocumentPreview({ formKey }: { formKey: PrintFormKey }) {
+function OperationDocumentPreview({ formKey, form }: { formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey] }) {
   const senderLabel = formKey === "purchase" ? "Təchizatçı" : "Göndərən";
   const recipientLabel = formKey === "purchase" ? "Qəbul edən mağaza" : "Qəbul edən";
   const totals = sampleProducts.reduce((sum, item) => sum + item.total, 0);
   return <>
-    <div className="mb-2 grid grid-cols-3 gap-2"><PreviewInfo label={senderLabel} value={formKey === "purchase" ? "ARIX TEST TƏCHİZATÇI" : "ERSA DEPO"} /><PreviewInfo label={recipientLabel} value={formKey === "sale" ? "Nümunə müştəri" : "ERSA ANTREPO"} /><PreviewInfo label="Müəllif" value="Arif Mahmud" /></div>
-    <div className="mb-4 grid grid-cols-4 gap-2"><PreviewInfo label="Məbləğ" value={`${totals.toFixed(2)} ₼`} align /><PreviewInfo label="Ödənilib" value="500.00 ₼" align /><PreviewInfo label="Qalıq" value={`${(totals - 500).toFixed(2)} ₼`} align /><PreviewInfo label="Fiscal" value="Gözləyir" align /></div>
-    <SectionTitle title={formKey === "inventory" ? "Faktiki və sistem qalığı" : formKey === "writeOff" ? "Silinən məhsullar" : "Məhsullar"} />
-    <table className="w-full border-collapse text-[8px]"><thead><tr className="bg-slate-100">{["Ad", "Variasiya", "Bar-kod", "Artikul", "Miqdar", "Qiymət", "Endirim", "Ümumi"].map((head) => <th key={head} className="border border-slate-300 p-1 text-left">{head}</th>)}</tr></thead><tbody>{sampleProducts.map((item) => <tr key={item.sku}>{[item.name, item.variant, item.barcode, item.sku, `${item.qty} mt`, item.price.toFixed(2), item.discount.toFixed(2), item.total.toFixed(2)].map((value, index) => <td key={index} className={cx("whitespace-nowrap border border-slate-300 p-1", index >= 4 && "text-right")}>{value}</td>)}</tr>)}</tbody><tfoot><tr className="bg-slate-50 font-bold"><td colSpan={4} className="border border-slate-300 p-1 text-right">Ümumi nəticə</td><td className="border border-slate-300 p-1 text-right">640 mt</td><td colSpan={2} className="border border-slate-300 p-1" /><td className="border border-slate-300 p-1 text-right">{totals.toFixed(2)}</td></tr></tfoot></table>
-    {formKey === "movement" && <><SectionTitle title="Konteyner və palet məlumatları" /><div className="rounded border border-slate-300"><div className="flex justify-between bg-slate-100 p-2"><strong>HIST-CONT-1-006779</strong><span>2 palet · 6 rulo · 640 mt</span></div><div className="grid grid-cols-4 border-t border-slate-200 p-2"><span>Palet P-001</span><span>3 rulo</span><span>320 mt</span><span className="text-right">Bəyannamə: IM-2026-14</span></div></div></>}
+    {printTemplateHasSlot(form, "PARTIES") && <div className="mb-2 grid grid-cols-3 gap-2"><PreviewInfo label={senderLabel} value={formKey === "purchase" ? "ARIX TEST TƏCHİZATÇI" : "ERSA DEPO"} /><PreviewInfo label={recipientLabel} value={formKey === "sale" ? "Nümunə müştəri" : "ERSA ANTREPO"} /><PreviewInfo label="Müəllif" value="Arif Mahmud" /></div>}
+    {printTemplateHasSlot(form, "SUMMARY") && <div className="mb-4 grid grid-cols-4 gap-2"><PreviewInfo label="Məbləğ" value={`${totals.toFixed(2)} ₼`} align /><PreviewInfo label="Ödənilib" value="500.00 ₼" align /><PreviewInfo label="Qalıq" value={`${(totals - 500).toFixed(2)} ₼`} align /><PreviewInfo label="Fiscal" value="Gözləyir" align /></div>}
+    {printTemplateHasSlot(form, "PRODUCT_TABLE") && <><SectionTitle title={formKey === "inventory" ? "Faktiki və sistem qalığı" : formKey === "writeOff" ? "Silinən məhsullar" : "Məhsullar"} /><table className="w-full border-collapse text-[8px]"><thead><tr className="bg-slate-100">{["Ad", "Variasiya", "Bar-kod", "Artikul", "Miqdar", "Qiymət", "Endirim", "Ümumi"].map((head) => <th key={head} className="border border-slate-300 p-1 text-left">{head}</th>)}</tr></thead><tbody>{sampleProducts.map((item) => <tr key={item.sku}>{[item.name, item.variant, item.barcode, item.sku, `${item.qty} mt`, item.price.toFixed(2), item.discount.toFixed(2), item.total.toFixed(2)].map((value, index) => <td key={index} className={cx("whitespace-nowrap border border-slate-300 p-1", index >= 4 && "text-right")}>{value}</td>)}</tr>)}</tbody><tfoot><tr className="bg-slate-50 font-bold"><td colSpan={4} className="border border-slate-300 p-1 text-right">Ümumi nəticə</td><td className="border border-slate-300 p-1 text-right">640 mt</td><td colSpan={2} className="border border-slate-300 p-1" /><td className="border border-slate-300 p-1 text-right">{totals.toFixed(2)}</td></tr></tfoot></table></>}
+    {printTemplateHasSlot(form, "PALLET_DETAILS") && <><SectionTitle title="Konteyner və palet məlumatları" /><div className="rounded border border-slate-300"><div className="flex justify-between bg-slate-100 p-2"><strong>HIST-CONT-1-006779</strong><span>2 palet · 6 rulo · 640 mt</span></div><div className="grid grid-cols-4 border-t border-slate-200 p-2"><span>Palet P-001</span><span>3 rulo</span><span>320 mt</span><span className="text-right">Bəyannamə: IM-2026-14</span></div></div></>}
   </>;
 }
 
@@ -1539,10 +1545,10 @@ function ExportDocumentPreview({ formKey, form }: { formKey: PrintFormKey; form:
   const packing = formKey === "packingList";
   const title = packing ? ["PACKING", "LIST"] : formKey === "orderConfirmation" ? ["ORDER", "CONFIRMATION"] : formKey === "proforma" ? ["PROFORMA", "INVOICE"] : ["COMMERCIAL", "INVOICE"];
   return <>
-    <div className="my-[13mm] text-center text-[#2f6973]"><div className="text-[48px] font-light leading-none">{title[0]}</div><div className="text-[24px] font-bold leading-none text-[#a8c4c8]">{title[1]}</div></div>
-    <div className="mb-[12mm] grid grid-cols-2 gap-8"><div><span className="text-slate-500">TO</span><strong className="mt-1 block text-[16px] text-[#2f6973]">SAMPLE IMPORT GmbH</strong><div className="mt-2">Phone: +49 30 000 00 00</div><div>Address: Berlin / Germany</div></div><div className="ml-auto min-w-64 space-y-1"><div className="flex justify-between"><span>DATE:</span><b>14.10.2026</b></div><div className="flex justify-between"><span>DOCUMENT NO:</span><b>ARX-2026-001</b></div></div></div>
-    {packing ? <PackingTable /> : <SalesExportTable />}
-    {packing ? <div className="mt-8 grid grid-cols-[220px_1fr] gap-2 text-[10px]"><span>TOTAL PALLET</span><b>2</b><span>TOTAL NET WEIGHT</span><b>1,022.40 KG</b><span>TOTAL GROSS WEIGHT</span><b>1,089.00 KG</b></div> : <><div className="mt-10 grid grid-cols-[190px_1fr] gap-1.5 text-[9px]"><span>PACKAGE</span><b>STANDARD EXPORT PACKAGE</b><span>DESCRIPTION</span><b>PVC FOIL</b><span>PAYMENT</span><b>BANK PAYMENT</b><span>DELIVERY TERM</span><b>FCA. ISTANBUL</b><span>DESTINATION</span><b>BERLIN / GERMANY</b></div><div className="mt-8 border border-[#d7e4e7]"><div className="grid grid-cols-[1.2fr_.9fr_.9fr_1.1fr_2fr] bg-slate-50">{["BANK", "SWIFT CODE", "BRANCH", "ACCOUNT NO", "EUR IBAN"].map((x) => <span key={x} className="border-r border-slate-200 p-1.5 font-bold">{x}</span>)}</div><div className="grid grid-cols-[1.2fr_.9fr_.9fr_1.1fr_2fr]">{["ALBARAKA TURK", "BTFHTRISXXX", "26-MERTER", "9987324", "TR56 0020 3000 0998 7324 0000 02"].map((x) => <span key={x} className="border-r border-slate-200 p-1.5">{x}</span>)}</div></div></>}
+    {printTemplateHasSlot(form, "DOCUMENT_TITLE") && <div className="my-[13mm] text-center text-[#2f6973]"><div className="text-[48px] font-light leading-none">{title[0]}</div><div className="text-[24px] font-bold leading-none text-[#a8c4c8]">{title[1]}</div></div>}
+    {printTemplateHasSlot(form, "PARTIES") && <div className="mb-[12mm] grid grid-cols-2 gap-8"><div><span className="text-slate-500">TO</span><strong className="mt-1 block text-[16px] text-[#2f6973]">SAMPLE IMPORT GmbH</strong><div className="mt-2">Phone: +49 30 000 00 00</div><div>Address: Berlin / Germany</div></div><div className="ml-auto min-w-64 space-y-1"><div className="flex justify-between"><span>DATE:</span><b>14.10.2026</b></div><div className="flex justify-between"><span>DOCUMENT NO:</span><b>ARX-2026-001</b></div></div></div>}
+    {packing ? printTemplateHasSlot(form, "PACKING_TABLE") && <PackingTable /> : printTemplateHasSlot(form, "PRODUCT_TABLE") && <SalesExportTable />}
+    {packing ? printTemplateHasSlot(form, "PACKING_SUMMARY") && <div className="mt-8 grid grid-cols-[220px_1fr] gap-2 text-[10px]"><span>TOTAL PALLET</span><b>2</b><span>TOTAL NET WEIGHT</span><b>1,022.40 KG</b><span>TOTAL GROSS WEIGHT</span><b>1,089.00 KG</b></div> : <>{printTemplateHasSlot(form, "TERMS") && <div className="mt-10 grid grid-cols-[190px_1fr] gap-1.5 text-[9px]"><span>PACKAGE</span><b>STANDARD EXPORT PACKAGE</b><span>DESCRIPTION</span><b>PVC FOIL</b><span>PAYMENT</span><b>BANK PAYMENT</b><span>DELIVERY TERM</span><b>FCA. ISTANBUL</b><span>DESTINATION</span><b>BERLIN / GERMANY</b></div>}{printTemplateHasSlot(form, "BANK") && <div className="mt-8 border border-[#d7e4e7]"><div className="grid grid-cols-[1.2fr_.9fr_.9fr_1.1fr_2fr] bg-slate-50">{["BANK", "SWIFT CODE", "BRANCH", "ACCOUNT NO", "EUR IBAN"].map((x) => <span key={x} className="border-r border-slate-200 p-1.5 font-bold">{x}</span>)}</div><div className="grid grid-cols-[1.2fr_.9fr_.9fr_1.1fr_2fr]">{["ALBARAKA TURK", "BTFHTRISXXX", "26-MERTER", "9987324", "TR56 0020 3000 0998 7324 0000 02"].map((x) => <span key={x} className="border-r border-slate-200 p-1.5">{x}</span>)}</div></div>}</>}
     {form.footerNote && <div className="mt-6 whitespace-pre-line text-slate-500">{form.footerNote}</div>}
   </>;
 }
@@ -1556,14 +1562,15 @@ function PackingTable() {
 }
 
 function CustomsPreview({ form }: { form: PrintSettings["forms"][PrintFormKey] }) {
-  return <><div className="mb-2 border border-slate-300 border-l-[3px] border-l-indigo-600 bg-slate-50 p-2 font-semibold">Bəyannamə · IM-2026-000143 · Konteyner HIST-CONT-1-006779</div><table className="w-full border-collapse text-[8px]"><thead><tr className="bg-slate-100">{["No", "Ürün", "Kod", "Kap", "MT", "Birim Fiyat", "Toplam Fiyat", "Net Weight", "Gross Weight", "Palet", "Rulo"].map((x) => <th key={x} className="border border-slate-300 p-1.5">{x}</th>)}</tr></thead><tbody>{sampleProducts.map((item, i) => <tr key={item.sku}>{[i + 1, item.name, item.sku, `${i + 2} kap`, `${item.qty} mt`, `$${item.price.toFixed(2)}`, `$${item.total.toFixed(2)}`, `${(item.qty * 1.55).toFixed(2)} kg`, `${(item.qty * 1.65).toFixed(2)} kg`, `P-${i + 1}`, i === 0 ? "full" : `${i + 1}-${i + 3}`].map((x, j) => <td key={j} className={cx("whitespace-nowrap border border-slate-300 p-1.5", j >= 3 && j <= 8 && "text-right")}>{x}</td>)}</tr>)}</tbody><tfoot><tr className="bg-slate-100 font-bold"><td colSpan={3} className="border p-1.5 text-right">TOPLAM</td><td className="border p-1.5">9 kap</td><td className="border p-1.5 text-right">640 mt</td><td /><td className="border p-1.5 text-right">$2,378.40</td><td className="border p-1.5 text-right">992 kg</td><td className="border p-1.5 text-right">1,056 kg</td><td colSpan={2} /></tr></tfoot></table>{form.footerNote && <div className="mt-4 text-slate-500">{form.footerNote}</div>}</>;
+  return <>{printTemplateHasSlot(form, "DECLARATION") && <div className="mb-2 border border-slate-300 border-l-[3px] border-l-indigo-600 bg-slate-50 p-2 font-semibold">Bəyannamə · IM-2026-000143 · Konteyner HIST-CONT-1-006779</div>}{printTemplateHasSlot(form, "CUSTOMS_TABLE") && <table className="w-full border-collapse text-[8px]"><thead><tr className="bg-slate-100">{["No", "Ürün", "Kod", "Kap", "MT", "Birim Fiyat", "Toplam Fiyat", "Net Weight", "Gross Weight", "Palet", "Rulo"].map((x) => <th key={x} className="border border-slate-300 p-1.5">{x}</th>)}</tr></thead><tbody>{sampleProducts.map((item, i) => <tr key={item.sku}>{[i + 1, item.name, item.sku, `${i + 2} kap`, `${item.qty} mt`, `$${item.price.toFixed(2)}`, `$${item.total.toFixed(2)}`, `${(item.qty * 1.55).toFixed(2)} kg`, `${(item.qty * 1.65).toFixed(2)} kg`, `P-${i + 1}`, i === 0 ? "full" : `${i + 1}-${i + 3}`].map((x, j) => <td key={j} className={cx("whitespace-nowrap border border-slate-300 p-1.5", j >= 3 && j <= 8 && "text-right")}>{x}</td>)}</tr>)}</tbody><tfoot><tr className="bg-slate-100 font-bold"><td colSpan={3} className="border p-1.5 text-right">TOPLAM</td><td className="border p-1.5">9 kap</td><td className="border p-1.5 text-right">640 mt</td><td /><td className="border p-1.5 text-right">$2,378.40</td><td className="border p-1.5 text-right">992 kg</td><td className="border p-1.5 text-right">1,056 kg</td><td colSpan={2} /></tr></tfoot></table>}{form.footerNote && <div className="mt-4 text-slate-500">{form.footerNote}</div>}</>;
 }
 
 function ReceiptPreview({ form }: { form: PrintSettings["forms"][PrintFormKey] }) {
-  return <div className="mx-auto mt-8 max-w-[145mm] rounded border border-slate-300 p-5"><div className="grid grid-cols-2 gap-y-4"><PreviewInfo label="Qəbz №" value="PAY-2026-00418" /><PreviewInfo label="Tarix / saat" value="14.10.2026 · 12:47" /><PreviewInfo label="Kontragent" value="Nümunə müştəri" /><PreviewInfo label="Hesab" value="Kassa №1" /><PreviewInfo label="Ödəniş növü" value="Bank köçürməsi" /><PreviewInfo label="Məbləğ" value="2,378.40 ₼" align /></div><div className="mt-8 border-t border-slate-300 pt-3"><b>Açıqlama</b><div className="mt-2 text-slate-500">{form.footerNote || "Satış sənədi üzrə ödəniş."}</div></div><div className="mt-16 grid grid-cols-2 gap-20 text-center"><span className="border-t pt-2">Təhvil verən</span><span className="border-t pt-2">Təhvil alan</span></div></div>;
+  return <div className="mx-auto mt-8 max-w-[145mm] rounded border border-slate-300 p-5">{printTemplateHasSlot(form, "RECEIPT_DETAILS") && <><div className="grid grid-cols-2 gap-y-4"><PreviewInfo label="Qəbz №" value="PAY-2026-00418" /><PreviewInfo label="Tarix / saat" value="14.10.2026 · 12:47" /><PreviewInfo label="Kontragent" value="Nümunə müştəri" /><PreviewInfo label="Hesab" value="Kassa №1" /><PreviewInfo label="Ödəniş növü" value="Bank köçürməsi" /><PreviewInfo label="Məbləğ" value="2,378.40 ₼" align /></div><div className="mt-8 border-t border-slate-300 pt-3"><b>Açıqlama</b><div className="mt-2 text-slate-500">{form.footerNote || "Satış sənədi üzrə ödəniş."}</div></div></>}{printTemplateHasSlot(form, "SIGNATURES") && <div className="mt-16 grid grid-cols-2 gap-20 text-center"><span className="border-t pt-2">Təhvil verən</span><span className="border-t pt-2">Təhvil alan</span></div>}</div>;
 }
 
-function ProductLabelPreview({ settings }: { settings: PrintSettings }) {
+function ProductLabelPreview({ settings, form }: { settings: PrintSettings; form: PrintSettings["forms"][PrintFormKey] }) {
+  if (!printTemplateHasSlot(form, "LABEL")) return null;
   return <div className="mx-auto mt-12 grid max-w-[160mm] grid-cols-2 gap-5">{[1, 2, 3, 4].map((item) => <div key={item} className="flex h-[55mm] flex-col justify-between border-2 border-slate-900 p-4"><div className="flex items-start justify-between"><div><div className="text-[16px] font-bold">HG Beyaz Parlaq</div><div className="mt-1 text-[11px]">ERSA 510 · TEST-001</div></div><strong>{settings.companyName}</strong></div><div className="text-center font-mono text-[22px] tracking-[4px]">|||| ||| ||||</div><div className="flex justify-between text-[10px]"><span>00001000001</span><span>100 mt</span></div></div>)}</div>;
 }
 

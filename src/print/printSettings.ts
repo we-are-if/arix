@@ -123,6 +123,29 @@ export const despatchXmlTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   {{LINES}}
 </DespatchAdvice>`;
 
+const arixPrintXmlTemplate = (key: PrintFormKey, orientation: "portrait" | "landscape", slots: string[]) => `<?xml version="1.0" encoding="UTF-8"?>
+<ArixPrintForm key="${key}" paper="A4" orientation="${orientation}">
+  ${slots.map((slot) => `{{${slot}}}`).join("\n  ")}
+</ArixPrintForm>`;
+
+export const standardPrintXmlTemplates: Record<Exclude<PrintFormKey, "eInvoice" | "eArchive" | "eDespatch" | "exportInvoice">, string> = {
+  sale: arixPrintXmlTemplate("sale", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "FOOTER"]),
+  orderConfirmation: arixPrintXmlTemplate("orderConfirmation", "portrait", ["HEADER", "DOCUMENT_TITLE", "PARTIES", "PRODUCT_TABLE", "TERMS", "FOOTER"]),
+  proforma: arixPrintXmlTemplate("proforma", "portrait", ["HEADER", "DOCUMENT_TITLE", "PARTIES", "PRODUCT_TABLE", "TERMS", "BANK", "FOOTER"]),
+  commercial: arixPrintXmlTemplate("commercial", "portrait", ["HEADER", "DOCUMENT_TITLE", "PARTIES", "PRODUCT_TABLE", "TERMS", "BANK", "FOOTER"]),
+  packingList: arixPrintXmlTemplate("packingList", "portrait", ["HEADER", "DOCUMENT_TITLE", "PARTIES", "PACKING_TABLE", "PACKING_SUMMARY", "FOOTER"]),
+  purchase: arixPrintXmlTemplate("purchase", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "PALLET_DETAILS", "FOOTER"]),
+  movement: arixPrintXmlTemplate("movement", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "PALLET_DETAILS", "FOOTER"]),
+  customs: arixPrintXmlTemplate("customs", "landscape", ["HEADER", "DECLARATION", "CUSTOMS_TABLE", "FOOTER"]),
+  inventory: arixPrintXmlTemplate("inventory", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "FOOTER"]),
+  writeOff: arixPrintXmlTemplate("writeOff", "portrait", ["HEADER", "PARTIES", "SUMMARY", "PRODUCT_TABLE", "FOOTER"]),
+  receipt: arixPrintXmlTemplate("receipt", "portrait", ["HEADER", "RECEIPT_DETAILS", "SIGNATURES", "FOOTER"]),
+  label: arixPrintXmlTemplate("label", "portrait", ["LABEL"]),
+};
+
+export const printTemplateHasSlot = (form: Pick<PrintFormConfig, "xmlTemplate">, slot: string) =>
+  !form.xmlTemplate.trim() || form.xmlTemplate.includes(`{{${slot}}}`);
+
 const form = (title: string, subtitle: string, xmlTemplate = ""): PrintFormConfig => ({
   title,
   subtitle,
@@ -145,18 +168,18 @@ export const defaultPrintSettings: PrintSettings = {
   companyStamp: "",
   companyDetails: defaultPrintCompanyDetails,
   forms: {
-    sale: form("Satış sənədi", "Məhsul və ödəniş məlumatları"),
-    orderConfirmation: form("Sipariş onay formu", "Adi satışlar üçün müştəri təsdiq forması"),
-    proforma: form("Proforma invoice", "İxracat satışları üçün ilkin invoice"),
-    commercial: form("Commercial invoice", "Rəsmi ixrac invoice forması"),
-    packingList: form("Packing list", "Palet, rulo və çəki siyahısı"),
-    purchase: form("Alış sənədi", "Təchizatçıdan alınan məhsullar"),
-    movement: form("Yerdəyişmə sənədi", "Mağazalar arasında stok hərəkəti"),
-    customs: form("Antrepo düşüm", "Bəyannamə üzrə kap, MT, çəki, palet və rulo forması"),
-    inventory: form("İnventar siyahısı", "Faktiki və sistem qalığının müqayisəsi"),
-    writeOff: form("Silinmə aktı", "Stokdan silinən məhsullar"),
-    receipt: form("Ödəniş qəbzi", "Ödəniş və kontragent məlumatları"),
-    label: form("Məhsul etiketi", "Məhsul və barkod məlumatları"),
+    sale: form("Satış sənədi", "Məhsul və ödəniş məlumatları", standardPrintXmlTemplates.sale),
+    orderConfirmation: form("Sipariş onay formu", "Adi satışlar üçün müştəri təsdiq forması", standardPrintXmlTemplates.orderConfirmation),
+    proforma: form("Proforma invoice", "İxracat satışları üçün ilkin invoice", standardPrintXmlTemplates.proforma),
+    commercial: form("Commercial invoice", "Rəsmi ixrac invoice forması", standardPrintXmlTemplates.commercial),
+    packingList: form("Packing list", "Palet, rulo və çəki siyahısı", standardPrintXmlTemplates.packingList),
+    purchase: form("Alış sənədi", "Təchizatçıdan alınan məhsullar", standardPrintXmlTemplates.purchase),
+    movement: form("Yerdəyişmə sənədi", "Mağazalar arasında stok hərəkəti", standardPrintXmlTemplates.movement),
+    customs: form("Antrepo düşüm", "Bəyannamə üzrə kap, MT, çəki, palet və rulo forması", standardPrintXmlTemplates.customs),
+    inventory: form("İnventar siyahısı", "Faktiki və sistem qalığının müqayisəsi", standardPrintXmlTemplates.inventory),
+    writeOff: form("Silinmə aktı", "Stokdan silinən məhsullar", standardPrintXmlTemplates.writeOff),
+    receipt: form("Ödəniş qəbzi", "Ödəniş və kontragent məlumatları", standardPrintXmlTemplates.receipt),
+    label: form("Məhsul etiketi", "Məhsul və barkod məlumatları", standardPrintXmlTemplates.label),
     eInvoice: form("e-FATURA", "TEMELFATURA ssenarisi", invoiceXmlTemplate),
     eArchive: form("e-ARŞİV FATURA", "EARSIVFATURA ssenarisi", invoiceXmlTemplate),
     eDespatch: form("e-İRSALİYE", "TEMELIRSALIYE ssenarisi", despatchXmlTemplate),
@@ -181,6 +204,7 @@ export const mergePrintSettings = (
       {
         ...defaultPrintSettings.forms[key],
         ...(value?.forms?.[key] ?? {}),
+        xmlTemplate: value?.forms?.[key]?.xmlTemplate?.trim() || defaultPrintSettings.forms[key].xmlTemplate,
       },
     ])
   ) as Record<PrintFormKey, PrintFormConfig>,
