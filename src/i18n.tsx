@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { staticPhraseTranslationsExtra, staticUiTranslationsExtra } from "./i18nStatic";
 
 export type AppLanguage = "az" | "tr" | "en" | "ru";
 export type Translate = (key: string, fallback?: string) => string;
@@ -726,6 +727,8 @@ const staticUiTranslations: Record<string, StaticTranslation> = {
   "Satış qiyməti": { az: "Satış qiyməti", tr: "Satış fiyatı", en: "Sale price", ru: "Цена продажи" },
 };
 
+Object.assign(staticUiTranslations, staticUiTranslationsExtra);
+
 const staticPhraseTranslations: Array<{ source: string; values: StaticTranslation }> = [
   { source: "Tahsilat", values: { az: "Ödəniş", tr: "Tahsilat", en: "Collection", ru: "Платеж" } },
   { source: "tahsilatı", values: { az: "ödənişi", tr: "tahsilatı", en: "collection", ru: "платеж" } },
@@ -756,11 +759,12 @@ const staticPhraseTranslations: Array<{ source: string; values: StaticTranslatio
   { source: "palet", values: { az: "palet", tr: "palet", en: "pallets", ru: "палет" } },
   { source: "rulo", values: { az: "rulo", tr: "rulo", en: "rolls", ru: "рулонов" } },
   { source: "miqdar", values: { az: "miqdar", tr: "miktar", en: "quantity", ru: "количество" } },
+  ...staticPhraseTranslationsExtra,
 ].sort((a, b) => b.source.length - a.source.length);
 
 const staticTextSources = new WeakMap<Text, string>();
 const staticAttributeSources = new WeakMap<Element, Map<string, string>>();
-const ignoredStaticTags = new Set(["SCRIPT", "STYLE", "SVG", "TEXTAREA", "INPUT", "SELECT", "OPTION", "CANVAS"]);
+const ignoredStaticTextTags = new Set(["SCRIPT", "STYLE", "SVG", "TEXTAREA", "CANVAS"]);
 let lastStaticLanguage: AppLanguage | null = null;
 
 export function translateStaticText(input: string, language: AppLanguage) {
@@ -776,14 +780,19 @@ export function translateStaticText(input: string, language: AppLanguage) {
   let translated = normalized;
   for (const phrase of staticPhraseTranslations) {
     const value = phrase.values[language];
-    if (value && translated.includes(phrase.source)) translated = translated.split(phrase.source).join(value);
+    if (!value || !translated.includes(phrase.source)) continue;
+    const escaped = phrase.source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const startsWithWord = /^[\p{L}\p{N}]/u.test(phrase.source);
+    const endsWithWord = /[\p{L}\p{N}]$/u.test(phrase.source);
+    const pattern = `${startsWithWord ? "(?<![\\p{L}\\p{N}])" : ""}${escaped}${endsWithWord ? "(?![\\p{L}\\p{N}])" : ""}`;
+    translated = translated.replace(new RegExp(pattern, "gu"), value);
   }
   return translated === normalized ? input : `${leading}${translated}${trailing}`;
 }
 
-function shouldSkipStaticElement(element: Element | null) {
+function shouldSkipStaticElement(element: Element | null, translatingAttribute = false) {
   if (!element) return true;
-  if (ignoredStaticTags.has(element.tagName)) return true;
+  if (!translatingAttribute && ignoredStaticTextTags.has(element.tagName)) return true;
   return Boolean(element.closest("[data-no-i18n], [contenteditable='true']"));
 }
 
@@ -803,8 +812,8 @@ function translateTextNode(node: Text, language: AppLanguage, languageChanged: b
 }
 
 function translateElementAttributes(element: Element, language: AppLanguage, languageChanged: boolean) {
-  if (shouldSkipStaticElement(element)) return;
-  const attributes = ["placeholder", "title", "aria-label"];
+  if (shouldSkipStaticElement(element, true)) return;
+  const attributes = ["placeholder", "title", "aria-label", "alt"];
   let sourceMap = staticAttributeSources.get(element);
   for (const attr of attributes) {
     const current = element.getAttribute(attr);
