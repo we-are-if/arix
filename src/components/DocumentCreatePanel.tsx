@@ -3982,10 +3982,16 @@ function InvoiceDetailsTab({
                   </select>
                   <select
                     value={isExport ? "301" : product.taxExemptionCode ?? ""}
-                    disabled={isExport || Number(product.taxRate) > 0}
+                    disabled={isExport}
                     onChange={(event) => {
                       const selected = codes.taxExemptions.find((item) => item.code === event.target.value);
-                      onProductChange(product.id, { taxRate: 0, taxExemptionCode: selected?.code ?? "", taxExemptionReason: selected?.name ?? "" });
+                      onProductChange(product.id, {
+                        taxRate: selected ? 0 : product.taxRate,
+                        taxExemptionCode: selected?.code ?? "",
+                        taxExemptionReason: selected?.name ?? "",
+                        withholdingCode: selected ? "" : product.withholdingCode,
+                        withholdingRate: selected ? 0 : product.withholdingRate,
+                      });
                     }}
                     className={input}
                   >
