@@ -246,7 +246,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   const card = isDark ? "glass-panel-dark text-slate-100" : "glass-panel text-slate-900";
   const soft = isDark ? "bg-white/5" : "bg-white/55";
   const subtle = isDark ? "text-slate-400" : "text-slate-500";
-  const input = cx("h-11 w-full rounded-xl border px-3 outline-none", border, isDark ? "bg-white/5 text-slate-100" : "bg-white/75 text-slate-800");
+  const input = cx("h-11 min-w-0 w-full rounded-xl border px-3 outline-none", border, isDark ? "bg-white/5 text-slate-100" : "bg-white/75 text-slate-800");
   const [companyStores, setCompanyStores] = useState<CompanyStore[]>([]);
 
   const loadStores = async () => {
@@ -292,7 +292,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   ];
 
   return (
-    <div className={cx("space-y-4", section === "settings" && "flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden")} data-stock-mode-count={stockModes.length}>
+    <div className={cx("min-w-0 space-y-4", section === "settings" && "flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden")} data-stock-mode-count={stockModes.length}>
       <div className={cx("rounded-2xl border p-4", border, card)}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -1098,7 +1098,7 @@ function PrintFormsView({
   };
 
   return (
-    <div className={cx("overflow-hidden rounded-2xl border", border, card)}>
+    <div className={cx("min-w-0 overflow-hidden rounded-2xl border", border, card)}>
       <div className={cx("flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between", border)}>
         <div>
           <h2 className="text-lg font-semibold">Vahid çap dizaynı</h2>
@@ -1143,8 +1143,8 @@ function PrintFormsView({
         </aside>
 
         <div className="min-w-0 p-4 lg:p-5">
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-            <div className="space-y-5">
+          <div className="grid min-w-0 gap-5 min-[1800px]:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="min-w-0 space-y-5">
               <section>
                 <div className="mb-3">
                   <h3 className="text-base font-semibold">Brend məlumatları</h3>
@@ -1330,7 +1330,7 @@ function PrintToggle({ label, checked, onChange, border, soft }: { label: string
 
 function PrintFormPreview({ settings, form, subtle }: { settings: PrintSettings; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
   return (
-    <aside className="xl:sticky xl:top-4 xl:self-start">
+    <aside className="min-w-0 max-w-full min-[1800px]:sticky min-[1800px]:top-4 min-[1800px]:self-start">
       <div className={cx("mb-2 text-xs font-semibold", subtle)}>Canlı önizləmə</div>
       <div className="flex aspect-[1/1.414] flex-col overflow-hidden rounded-xl border bg-white p-5 text-slate-800 shadow-sm">
         <div className="grid grid-cols-3 items-start gap-3 border-b border-slate-200 pb-3">
@@ -1438,7 +1438,7 @@ function CreateTile({ border, soft, label, onClick }: { border: string; soft: st
 
 function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
   return (
-    <label className={cx("block", className)}>
+    <label className={cx("block min-w-0", className)}>
       <span className="mb-1 block text-sm font-semibold text-slate-600">{label}</span>
       {children}
     </label>
