@@ -292,7 +292,13 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   ];
 
   return (
-    <div className={cx("min-w-0 space-y-4", section === "settings" && "flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden")} data-stock-mode-count={stockModes.length}>
+    <div
+      className={cx(
+        "min-w-0 space-y-4",
+        (section === "settings" || section === "printForms") && "flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden"
+      )}
+      data-stock-mode-count={stockModes.length}
+    >
       <div className={cx("rounded-2xl border p-4", border, card)}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -1098,7 +1104,7 @@ function PrintFormsView({
   };
 
   return (
-    <div className={cx("min-w-0 overflow-hidden rounded-2xl border", border, card)}>
+    <div className={cx("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border", border, card)}>
       <div className={cx("flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between", border)}>
         <div>
           <h2 className="text-lg font-semibold">Vahid çap dizaynı</h2>
@@ -1109,8 +1115,8 @@ function PrintFormsView({
         </button>
       </div>
 
-      <div className="grid min-h-[680px] lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className={cx("border-b p-3 lg:border-b-0 lg:border-r", border)}>
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className={cx("min-h-0 overflow-y-auto border-b p-3 [scrollbar-gutter:stable] lg:border-b-0 lg:border-r", border)}>
           <div className="space-y-5">
             {printGroups.map((group) => (
               <div key={group.title}>
@@ -1142,8 +1148,8 @@ function PrintFormsView({
           </div>
         </aside>
 
-        <div className="min-w-0 p-4 lg:p-5">
-          <div className="grid min-w-0 gap-5 min-[1800px]:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="min-h-0 min-w-0 overflow-y-auto p-4 [scrollbar-gutter:stable] lg:p-5">
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="min-w-0 space-y-5">
               <section>
                 <div className="mb-3">
@@ -1330,7 +1336,7 @@ function PrintToggle({ label, checked, onChange, border, soft }: { label: string
 
 function PrintFormPreview({ settings, form, subtle }: { settings: PrintSettings; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
   return (
-    <aside className="min-w-0 max-w-full min-[1800px]:sticky min-[1800px]:top-4 min-[1800px]:self-start">
+    <aside className="min-w-0 max-w-full xl:sticky xl:top-4 xl:self-start">
       <div className={cx("mb-2 text-xs font-semibold", subtle)}>Canlı önizləmə</div>
       <div className="flex aspect-[1/1.414] flex-col overflow-hidden rounded-xl border bg-white p-5 text-slate-800 shadow-sm">
         <div className="grid grid-cols-3 items-start gap-3 border-b border-slate-200 pb-3">
