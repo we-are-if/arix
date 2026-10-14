@@ -324,7 +324,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
       {section === "settings" && <SettingsView border={border} card={card} subtle={subtle} input={input} />}
       {section === "printForms" && <PrintFormsView border={border} card={card} soft={soft} subtle={subtle} input={input} isDark={isDark} />}
       {section !== "settings" && section !== "printForms" && (
-        <div className="company-section-scroll min-h-0 flex-1 overflow-y-auto pb-4 [scrollbar-gutter:stable]">
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl pb-4 [scrollbar-gutter:stable]">
           {section === "employees" && <EmployeesView border={border} card={card} soft={soft} subtle={subtle} isDark={isDark} />}
           {section === "stores" && <StoresView stores={companyStores} onChanged={loadStores} border={border} card={card} soft={soft} subtle={subtle} input={input} />}
           {section === "accounts" && <AccountsView border={border} card={card} soft={soft} subtle={subtle} />}
@@ -495,7 +495,7 @@ function SettingsView({ border, card, subtle, input }: { border: string; card: s
   ];
   const tabs = ["Əsaslar", "Rekvizitlər", "Vergilər", "Email hesabı", "Məlumatlar"];
   return (
-    <div className={cx("company-section-scroll min-h-0 flex-1 overflow-y-auto rounded-2xl border p-5 [scrollbar-gutter:stable]", border, card)}>
+    <div className={cx("min-h-0 flex-1 overflow-y-auto rounded-2xl border p-5 [scrollbar-gutter:stable]", border, card)}>
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-3xl font-semibold">AriX</h2>
@@ -1114,7 +1114,7 @@ function PrintFormsView({
       </div>
 
       <div className="grid min-h-0 flex-1 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className={cx("company-section-scroll min-h-0 overflow-y-auto border-b p-3 [scrollbar-gutter:stable] lg:border-b-0 lg:border-r", border)}>
+        <aside className={cx("min-h-0 overflow-y-auto border-b p-3 [scrollbar-gutter:stable] lg:border-b-0 lg:border-r", border)}>
           <div className="space-y-5">
             {printGroups.map((group) => (
               <div key={group.title}>
@@ -1146,7 +1146,7 @@ function PrintFormsView({
           </div>
         </aside>
 
-        <div className="company-section-scroll min-h-0 min-w-0 overflow-y-auto p-4 [scrollbar-gutter:stable] lg:p-5">
+        <div className="min-h-0 min-w-0 overflow-y-auto p-4 [scrollbar-gutter:stable] lg:p-5">
           <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="min-w-0 space-y-5">
               <section>
