@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { XMLValidator } from "fast-xml-parser";
 import { resolveDocumentInvoiceType } from "./documentTotals.js";
 import { findTaxExemption } from "./gibCodes.js";
 
@@ -856,7 +857,43 @@ function despatchShipmentXml(model) {
   return `<cac:Shipment><cbc:ID>${xmlEscape(model.uuid)}</cbc:ID><cac:ShipmentStage><cac:TransportMeans><cac:RoadTransport><cbc:LicensePlateID schemeID="PLAKA">${xmlEscape(shipment.plate)}</cbc:LicensePlateID></cac:RoadTransport></cac:TransportMeans>${driver}</cac:ShipmentStage><cac:Delivery>${shipment.deliveryAddress ? deliveryAddressXml({ ...model.buyer, address: shipment.deliveryAddress }) : ""}${carrier}<cac:Despatch><cbc:ActualDespatchDate>${xmlEscape(shipment.actualDespatchDate || model.issueDate)}</cbc:ActualDespatchDate><cbc:ActualDespatchTime>${xmlEscape(shipment.actualDespatchTime || model.issueTime)}</cbc:ActualDespatchTime></cac:Despatch></cac:Delivery></cac:Shipment>`;
 }
 
-export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
+const invoiceTemplateSlots = ["EXTENSIONS", "COMMON", "TYPE_CODE", "NOTE", "CURRENCY", "LINE_COUNT", "RELATED_DOCUMENTS", "XSLT", "SIGNATURE", "SUPPLIER", "CUSTOMER", "PAYMENT_MEANS", "EXCHANGE_RATE", "TAX_TOTAL", "WITHHOLDING_TOTAL", "MONETARY_TOTAL", "LINES"];
+const despatchTemplateSlots = ["EXTENSIONS", "COMMON", "TYPE_CODE", "NOTE", "LINE_COUNT", "RELATED_DOCUMENTS", "XSLT", "SIGNATURE", "SUPPLIER", "CUSTOMER", "SHIPMENT", "LINES"];
+const requiredInvoiceTemplateSlots = ["EXTENSIONS", "COMMON", "TYPE_CODE", "CURRENCY", "LINE_COUNT", "XSLT", "SIGNATURE", "SUPPLIER", "CUSTOMER", "TAX_TOTAL", "MONETARY_TOTAL", "LINES"];
+const requiredDespatchTemplateSlots = ["EXTENSIONS", "COMMON", "TYPE_CODE", "LINE_COUNT", "XSLT", "SIGNATURE", "SUPPLIER", "CUSTOMER", "SHIPMENT", "LINES"];
+
+export function validateUblTrTemplate(template, documentType) {
+  const source = typeof template === "string" ? template.trim() : "";
+  if (!source) return { ok: false, error: "UBL-TR XML şablonu boş ola bilməz." };
+  const despatch = documentType === "eDespatch";
+  const requiredSlots = despatch ? requiredDespatchTemplateSlots : requiredInvoiceTemplateSlots;
+  const knownSlots = new Set(despatch ? despatchTemplateSlots : invoiceTemplateSlots);
+  const missing = requiredSlots.filter((slot) => !source.includes(`{{${slot}}}`));
+  if (missing.length > 0) return { ok: false, error: `UBL-TR XML şablonunda məcburi sahələr əskikdir: ${missing.join(", ")}.` };
+  const unknown = Array.from(source.matchAll(/\{\{([A-Z_]+)\}\}/g), (match) => match[1]).filter((slot) => !knownSlots.has(slot));
+  if (unknown.length > 0) return { ok: false, error: `UBL-TR XML şablonunda tanınmayan sahələr var: ${Array.from(new Set(unknown)).join(", ")}.` };
+  const validation = XMLValidator.validate(source);
+  if (validation !== true) return { ok: false, error: `UBL-TR XML şablonu düzgün XML deyil: ${validation.err.msg}.` };
+  const root = despatch ? "DespatchAdvice" : "Invoice";
+  if (!new RegExp(`<${root}(?:\\s|>)`).test(source) || !source.includes(`</${root}>`)) return { ok: false, error: `UBL-TR XML kök elementi ${root} olmalıdır.` };
+  return { ok: true, error: "" };
+}
+
+const renderXmlTemplate = (template, slots, requiredSlots, fallback, documentType) => {
+  const source = typeof template === "string" ? template.trim() : "";
+  if (!source) return fallback;
+  const templateValidation = validateUblTrTemplate(source, documentType);
+  if (!templateValidation.ok) throw new Error(templateValidation.error);
+  const xml = Object.entries(slots).reduce(
+    (result, [slot, value]) => result.replaceAll(`{{${slot}}}`, value ?? ""),
+    source,
+  );
+  const validation = XMLValidator.validate(xml);
+  if (validation !== true) throw new Error(`UBL-TR XML şablonu düzgün XML yaratmadı: ${validation.err.msg}.`);
+  return xml;
+};
+
+export function buildUblTrXml(document, settings = defaultEDocumentSettings, xmlTemplate = "") {
   const model = buildGibDocumentModel(document, settings);
   const namespace = document.documentType === "eDespatch"
     ? "urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2"
@@ -868,7 +905,22 @@ export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
   if (document.documentType === "eDespatch") {
     const lines = model.lines.map((line) => `<cac:DespatchLine><cbc:ID>${line.id}</cbc:ID><cbc:DeliveredQuantity unitCode="${line.unitCode}">${line.quantity}</cbc:DeliveredQuantity><cac:OrderLineReference><cbc:LineID>${line.id}</cbc:LineID></cac:OrderLineReference><cac:Item><cbc:Name>${xmlEscape(line.name)}</cbc:Name><cac:SellersItemIdentification><cbc:ID>${xmlEscape(line.code)}</cbc:ID></cac:SellersItemIdentification></cac:Item><cac:Shipment><cbc:ID></cbc:ID></cac:Shipment></cac:DespatchLine>`).join("");
     const note = model.note ? `<cbc:Note>${xmlEscape(model.note)}</cbc:Note>` : "";
-    return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:DespatchAdviceTypeCode>${model.typeCode}</cbc:DespatchAdviceTypeCode>${note}<cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("DespatchSupplierParty", model.supplier)}${partyXml("DeliveryCustomerParty", { ...model.buyer, title: model.buyer.name })}${despatchShipmentXml(model)}${lines}</DespatchAdvice>`;
+    const slots = {
+      EXTENSIONS: unsignedExtensionXml(),
+      COMMON: commonXml(model),
+      TYPE_CODE: `<cbc:DespatchAdviceTypeCode>${model.typeCode}</cbc:DespatchAdviceTypeCode>`,
+      NOTE: note,
+      LINE_COUNT: `<cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>`,
+      RELATED_DOCUMENTS: relatedDocumentsXml(model),
+      XSLT: xsltReferenceXml(model),
+      SIGNATURE: signatureReferenceXml(model),
+      SUPPLIER: partyXml("DespatchSupplierParty", model.supplier),
+      CUSTOMER: partyXml("DeliveryCustomerParty", { ...model.buyer, title: model.buyer.name }),
+      SHIPMENT: despatchShipmentXml(model),
+      LINES: lines,
+    };
+    const fallback = `${opening}${Object.values(slots).join("")}</DespatchAdvice>`;
+    return renderXmlTemplate(xmlTemplate, slots, requiredDespatchTemplateSlots, fallback, document.documentType);
   }
 
   const taxSubtotals = model.taxBreakdown.map((tax) => taxSubtotalXml(model, tax.taxableAmount, tax.taxAmount, tax.rate, tax.taxExemption)).join("");
@@ -881,7 +933,27 @@ export function buildUblTrXml(document, settings = defaultEDocumentSettings) {
   const lines = model.lines.map((line) => invoiceLineXml(model, line)).join("");
   const note = model.note ? `<cbc:Note>${xmlEscape(model.note)}</cbc:Note>` : "";
   const withholdingTotal = withholdingTaxTotalXml(model, model.totals.withholdingTotal, model.withholdingBreakdown);
-  return `${opening}${unsignedExtensionXml()}${commonXml(model)}<cbc:InvoiceTypeCode>${model.typeCode}</cbc:InvoiceTypeCode>${note}<cbc:DocumentCurrencyCode>${model.currency}</cbc:DocumentCurrencyCode><cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>${relatedDocumentsXml(model)}${xsltReferenceXml(model)}${signatureReferenceXml(model)}${partyXml("AccountingSupplierParty", model.supplier)}${customerXml}${paymentMeansXml(model)}${exchangeRate}<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(model.totals.taxTotal)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal>${withholdingTotal}<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.taxInclusive)}</cbc:TaxInclusiveAmount><cbc:AllowanceTotalAmount currencyID="${model.currency}">${decimalText(model.totals.discountTotal)}</cbc:AllowanceTotalAmount><cbc:PayableAmount currencyID="${model.currency}">${decimalText(model.totals.payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</Invoice>`;
+  const slots = {
+    EXTENSIONS: unsignedExtensionXml(),
+    COMMON: commonXml(model),
+    TYPE_CODE: `<cbc:InvoiceTypeCode>${model.typeCode}</cbc:InvoiceTypeCode>`,
+    NOTE: note,
+    CURRENCY: `<cbc:DocumentCurrencyCode>${model.currency}</cbc:DocumentCurrencyCode>`,
+    LINE_COUNT: `<cbc:LineCountNumeric>${model.lines.length}</cbc:LineCountNumeric>`,
+    RELATED_DOCUMENTS: relatedDocumentsXml(model),
+    XSLT: xsltReferenceXml(model),
+    SIGNATURE: signatureReferenceXml(model),
+    SUPPLIER: partyXml("AccountingSupplierParty", model.supplier),
+    CUSTOMER: customerXml,
+    PAYMENT_MEANS: paymentMeansXml(model),
+    EXCHANGE_RATE: exchangeRate,
+    TAX_TOTAL: `<cac:TaxTotal><cbc:TaxAmount currencyID="${model.currency}">${decimalText(model.totals.taxTotal)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal>`,
+    WITHHOLDING_TOTAL: withholdingTotal,
+    MONETARY_TOTAL: `<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.goodsTotal)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${model.currency}">${decimalText(model.totals.taxInclusive)}</cbc:TaxInclusiveAmount><cbc:AllowanceTotalAmount currencyID="${model.currency}">${decimalText(model.totals.discountTotal)}</cbc:AllowanceTotalAmount><cbc:PayableAmount currencyID="${model.currency}">${decimalText(model.totals.payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>`,
+    LINES: lines,
+  };
+  const fallback = `${opening}${Object.values(slots).join("")}</Invoice>`;
+  return renderXmlTemplate(xmlTemplate, slots, requiredInvoiceTemplateSlots, fallback, document.documentType);
 }
 
 export function buildGibComplianceReport(document, settings = defaultEDocumentSettings) {

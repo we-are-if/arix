@@ -39,6 +39,7 @@ import {
   testEDocumentConnection,
   syncMockEDocumentStatuses,
   validateEDocumentForSending,
+  validateUblTrTemplate,
 } from "./eDocuments.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -58,7 +59,17 @@ const printForm = (title, subtitle) => ({
   showBankAccounts: true,
   showNotes: true,
   showStamp: true,
+  xmlTemplate: "",
 });
+
+const invoiceXmlTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2 UBLTR-Invoice-2.1.xsd">
+{{EXTENSIONS}}{{COMMON}}{{TYPE_CODE}}{{NOTE}}{{CURRENCY}}{{LINE_COUNT}}{{RELATED_DOCUMENTS}}{{XSLT}}{{SIGNATURE}}{{SUPPLIER}}{{CUSTOMER}}{{PAYMENT_MEANS}}{{EXCHANGE_RATE}}{{TAX_TOTAL}}{{WITHHOLDING_TOTAL}}{{MONETARY_TOTAL}}{{LINES}}
+</Invoice>`;
+const despatchXmlTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<DespatchAdvice xmlns="urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2 UBLTR-DespatchAdvice-2.1.xsd">
+{{EXTENSIONS}}{{COMMON}}{{TYPE_CODE}}{{NOTE}}{{LINE_COUNT}}{{RELATED_DOCUMENTS}}{{XSLT}}{{SIGNATURE}}{{SUPPLIER}}{{CUSTOMER}}{{SHIPMENT}}{{LINES}}
+</DespatchAdvice>`;
 
 const defaultPrintSettings = {
   companyName: "AriX",
@@ -78,10 +89,10 @@ const defaultPrintSettings = {
     writeOff: printForm("Silinmə aktı", "Stokdan silinən məhsullar"),
     receipt: printForm("Ödəniş qəbzi", "Ödəniş və kontragent məlumatları"),
     label: printForm("Məhsul etiketi", "Məhsul və barkod məlumatları"),
-    eInvoice: printForm("e-FATURA", "TEMELFATURA ssenarisi"),
-    eArchive: printForm("e-ARŞİV FATURA", "EARSIVFATURA ssenarisi"),
-    eDespatch: printForm("e-İRSALİYE", "TEMELIRSALIYE ssenarisi"),
-    exportInvoice: printForm("e-FATURA", "IHRACAT ssenarisi"),
+    eInvoice: { ...printForm("e-FATURA", "TEMELFATURA ssenarisi"), xmlTemplate: invoiceXmlTemplate },
+    eArchive: { ...printForm("e-ARŞİV FATURA", "EARSIVFATURA ssenarisi"), xmlTemplate: invoiceXmlTemplate },
+    eDespatch: { ...printForm("e-İRSALİYE", "TEMELIRSALIYE ssenarisi"), xmlTemplate: despatchXmlTemplate },
+    exportInvoice: { ...printForm("e-FATURA", "IHRACAT ssenarisi"), xmlTemplate: invoiceXmlTemplate },
   },
 };
 
@@ -826,6 +837,10 @@ async function handleCompanySettings(req, res) {
           },
         }
       : db.companySettings.printSettings;
+    for (const documentType of ["eInvoice", "eArchive", "eDespatch", "exportInvoice"]) {
+      const validation = validateUblTrTemplate(nextPrintSettings.forms?.[documentType]?.xmlTemplate, documentType);
+      if (!validation.ok) return send(res, 400, { error: validation.error, documentType });
+    }
     const nextExchangeSettings = body.exchangeSettings
       ? {
           ...db.companySettings.exchangeSettings,
@@ -1021,7 +1036,8 @@ async function handleEDocuments(req, res, url, parts) {
       const artifactDocument = { ...document, relatedDocuments };
       const model = buildGibDocumentModel(artifactDocument, db.companySettings.eDocumentSettings);
       const qrPayload = buildGibQrPayload(artifactDocument, db.companySettings.eDocumentSettings);
-      const xml = buildUblTrXml(artifactDocument, db.companySettings.eDocumentSettings);
+      const xmlTemplate = db.companySettings?.printSettings?.forms?.[document.documentType]?.xmlTemplate ?? "";
+      const xml = buildUblTrXml(artifactDocument, db.companySettings.eDocumentSettings, xmlTemplate);
       const compliance = buildGibComplianceReport(artifactDocument, db.companySettings.eDocumentSettings);
       return send(res, 200, {
         data: {

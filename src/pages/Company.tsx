@@ -236,6 +236,23 @@ const printGroups: Array<{ title: string; forms: Array<{ key: PrintFormKey; labe
 const eDocumentPrintKeys: PrintFormKey[] = ["eInvoice", "eArchive", "eDespatch", "exportInvoice"];
 const isEDocumentPrintKey = (key: PrintFormKey) => eDocumentPrintKeys.includes(key);
 
+const requiredXmlSlots: Record<"invoice" | "despatch", string[]> = {
+  invoice: ["EXTENSIONS", "COMMON", "TYPE_CODE", "CURRENCY", "LINE_COUNT", "XSLT", "SIGNATURE", "SUPPLIER", "CUSTOMER", "TAX_TOTAL", "MONETARY_TOTAL", "LINES"],
+  despatch: ["EXTENSIONS", "COMMON", "TYPE_CODE", "LINE_COUNT", "XSLT", "SIGNATURE", "SUPPLIER", "CUSTOMER", "SHIPMENT", "LINES"],
+};
+
+const validateXmlTemplate = (key: PrintFormKey, template: string) => {
+  if (!isEDocumentPrintKey(key)) return { ok: true, message: "" };
+  const kind = key === "eDespatch" ? "despatch" : "invoice";
+  const missing = requiredXmlSlots[kind].filter((slot) => !template.includes(`{{${slot}}}`));
+  if (missing.length > 0) return { ok: false, message: `Məcburi XML sahələri əskikdir: ${missing.join(", ")}` };
+  const parsed = new DOMParser().parseFromString(template, "application/xml");
+  if (parsed.querySelector("parsererror")) return { ok: false, message: "XML quruluşu düzgün deyil. Açılan və bağlanan teqləri yoxlayın." };
+  const expectedRoot = kind === "despatch" ? "DespatchAdvice" : "Invoice";
+  if (parsed.documentElement.localName !== expectedRoot) return { ok: false, message: `Kök element ${expectedRoot} olmalıdır.` };
+  return { ok: true, message: "XML quruluşu və məcburi UBL-TR sahələri düzgündür." };
+};
+
 const toneClass = (tone: string, isDark: boolean) => {
   const dark: Record<string, string> = {
     amber: "bg-amber-400/12 text-amber-200",
@@ -1023,9 +1040,11 @@ function PrintFormsView({
 }) {
   const [settings, setSettings] = useState<PrintSettings>(defaultPrintSettings);
   const [selected, setSelected] = useState<PrintFormKey>("eInvoice");
+  const [editorMode, setEditorMode] = useState<"visual" | "xml">("visual");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const activeForm = settings.forms[selected];
+  const xmlValidation = validateXmlTemplate(selected, activeForm.xmlTemplate);
 
   useEffect(() => {
     let alive = true;
@@ -1061,6 +1080,15 @@ function PrintFormsView({
   };
 
   const save = async () => {
+    const invalidXml = eDocumentPrintKeys
+      .map((key) => ({ key, validation: validateXmlTemplate(key, settings.forms[key].xmlTemplate) }))
+      .find((item) => !item.validation.ok);
+    if (invalidXml) {
+      setSelected(invalidXml.key);
+      setEditorMode("xml");
+      setMessage(invalidXml.validation.message);
+      return;
+    }
     setSaving(true);
     setMessage("");
     try {
@@ -1143,7 +1171,10 @@ function PrintFormsView({
                       <button
                         key={form.key}
                         type="button"
-                        onClick={() => setSelected(form.key)}
+                        onClick={() => {
+                          setSelected(form.key);
+                          if (!isEDocumentPrintKey(form.key)) setEditorMode("visual");
+                        }}
                         className={cx(
                           "flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition",
                           active ? "surface-nav-active text-indigo-700" : isDark ? "hover:bg-white/5" : "hover:bg-slate-50"
@@ -1284,11 +1315,37 @@ function PrintFormsView({
               </section>
 
               <section className={cx("border-t pt-5", border)}>
-                <div className="mb-3">
-                  <h3 className="text-base font-semibold">{printGroups.flatMap((group) => group.forms).find((form) => form.key === selected)?.label}</h3>
-                  <p className={cx("mt-1 text-sm", subtle)}>Bu sahələr yalnız seçilmiş sənəd növünə tətbiq olunur.</p>
+                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold">{printGroups.flatMap((group) => group.forms).find((form) => form.key === selected)?.label}</h3>
+                    <p className={cx("mt-1 text-sm", subtle)}>Bu sahələr yalnız seçilmiş sənəd növünə tətbiq olunur.</p>
+                  </div>
+                  {isEDocumentPrintKey(selected) && (
+                    <div className={cx("grid shrink-0 grid-cols-2 rounded-xl border p-1", border, soft)}>
+                      <button type="button" onClick={() => setEditorMode("visual")} className={cx("h-8 rounded-lg px-3 text-xs font-semibold", editorMode === "visual" && "bg-white text-indigo-700 shadow-sm")}>Vizual A4</button>
+                      <button type="button" onClick={() => setEditorMode("xml")} className={cx("h-8 rounded-lg px-3 text-xs font-semibold", editorMode === "xml" && "bg-white text-indigo-700 shadow-sm")}>UBL-TR XML</button>
+                    </div>
+                  )}
                 </div>
-                <div className="grid gap-3">
+                {editorMode === "xml" && isEDocumentPrintKey(selected) ? (
+                  <div className="space-y-3">
+                    <div className={cx("rounded-xl border p-3 text-xs leading-5", border, soft)}>
+                      Mötərizə içindəki UBL blokları real sənəd məlumatları ilə avtomatik doldurulur. Məcburi blokları silmədən əlavə XML teqləri və sıralamanı dəyişə bilərsiniz.
+                    </div>
+                    <Field label="XML şablonu">
+                      <textarea
+                        value={activeForm.xmlTemplate}
+                        onChange={(event) => updateForm({ xmlTemplate: event.target.value })}
+                        spellCheck={false}
+                        className={cx(input, "min-h-[520px] resize-y whitespace-pre font-mono text-xs leading-5")}
+                      />
+                    </Field>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <span className={cx("text-xs font-semibold", xmlValidation.ok ? "text-emerald-600" : "text-rose-600")}>{xmlValidation.message}</span>
+                      <button type="button" onClick={() => updateForm({ xmlTemplate: defaultPrintSettings.forms[selected].xmlTemplate })} className="h-9 shrink-0 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700">Standart XML-ə qaytar</button>
+                    </div>
+                  </div>
+                ) : <div className="grid gap-3">
                   <Field label="Sənəd başlığı">
                     <input value={activeForm.title} onChange={(event) => updateForm({ title: event.target.value })} className={input} />
                   </Field>
@@ -1306,7 +1363,7 @@ function PrintFormsView({
                       placeholder="Şərtlər, hüquqi qeyd, çatdırılma məlumatı və ya imza qeydi..."
                     />
                   </Field>
-                </div>
+                </div>}
               </section>
 
               <section className={cx("border-t pt-5", border)}>
@@ -1348,7 +1405,7 @@ function PrintFormsView({
               </div>
             </div>
 
-            <PrintFormPreview settings={settings} formKey={selected} form={activeForm} subtle={subtle} />
+            <PrintFormPreview settings={settings} formKey={selected} form={activeForm} subtle={subtle} editorMode={editorMode} />
           </div>
         </div>
       </div>
@@ -1367,77 +1424,152 @@ function PrintToggle({ label, checked, onChange, border, soft }: { label: string
   );
 }
 
-function PrintFormPreview({ settings, formKey, form, subtle }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
+function PrintFormPreview({ settings, formKey, form, subtle, editorMode }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey]; subtle: string; editorMode: "visual" | "xml" }) {
   if (isEDocumentPrintKey(formKey)) {
+    if (editorMode === "xml") return <XmlTemplatePreview formKey={formKey} template={form.xmlTemplate} subtle={subtle} />;
     return <GibPrintFormPreview settings={settings} formKey={formKey} form={form} subtle={subtle} />;
   }
-  return <StandardPrintFormPreview settings={settings} form={form} subtle={subtle} />;
+  return <StandardPrintFormPreview settings={settings} formKey={formKey} form={form} subtle={subtle} />;
 }
 
-function StandardPrintFormPreview({ settings, form, subtle }: { settings: PrintSettings; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
+function XmlTemplatePreview({ formKey, template, subtle }: { formKey: PrintFormKey; template: string; subtle: string }) {
+  const validation = validateXmlTemplate(formKey, template);
   return (
     <aside className="min-w-0 max-w-full xl:sticky xl:top-4 xl:self-start">
-      <div className={cx("mb-2 text-xs font-semibold", subtle)}>Canlı önizləmə</div>
-      <div className="flex aspect-[1/1.414] flex-col overflow-hidden rounded-xl border bg-white p-5 text-slate-800 shadow-sm">
-        <div className="grid grid-cols-3 items-start gap-3 border-b border-slate-200 pb-3">
-          <div className="flex items-center gap-2">
-            <AriXLogo className="h-9 w-9" />
-            <div>
-              <div className="text-sm font-medium text-slate-700">AriX</div>
-              <div className="text-[8px] text-slate-500">Sənəd sistemi</div>
-            </div>
-          </div>
-          <div className="flex min-h-9 items-center justify-center">
-            {form.showLogo && settings.companyLogo && <img src={settings.companyLogo} alt="" className="h-9 max-w-24 object-contain" />}
-          </div>
-          <div className="text-right">
-            <div className="text-[8px] font-semibold text-indigo-600">AriX sənəd sistemi</div>
-            <div className="mt-1 text-sm font-semibold">{form.title || "Sənəd başlığı"}</div>
-            <div className="mt-1 text-[8px] text-slate-500">{form.subtitle}</div>
-          </div>
-        </div>
-        {[settings.companyDetails.title, settings.companyDetails.address, settings.companyDetails.phone, settings.companyDetails.fax, settings.companyDetails.email, settings.companyDetails.website, settings.companyDetails.taxNumber].some(Boolean) && (
-          <div className="grid grid-cols-[1.2fr_1fr] gap-3 border-b border-slate-200 py-2 text-[7px] leading-3 text-slate-500">
-            <div>
-              {settings.companyDetails.title && <strong className="block text-[8px] text-slate-800">{settings.companyDetails.title}</strong>}
-              {[settings.companyDetails.address, settings.companyDetails.district, settings.companyDetails.city, settings.companyDetails.postalCode].filter(Boolean).length > 0 && (
-                <span className="block">{[settings.companyDetails.address, settings.companyDetails.district, settings.companyDetails.city, settings.companyDetails.postalCode].filter(Boolean).join(" · ")}</span>
-              )}
-            </div>
-            <div className="text-right">
-              {[settings.companyDetails.phone && `Tel: ${settings.companyDetails.phone}`, settings.companyDetails.fax && `Faks: ${settings.companyDetails.fax}`, settings.companyDetails.email, settings.companyDetails.website].filter(Boolean).length > 0 && (
-                <span className="block">{[settings.companyDetails.phone && `Tel: ${settings.companyDetails.phone}`, settings.companyDetails.fax && `Faks: ${settings.companyDetails.fax}`, settings.companyDetails.email, settings.companyDetails.website].filter(Boolean).join(" · ")}</span>
-              )}
-              {[settings.companyDetails.taxOffice && `Vergi dairəsi: ${settings.companyDetails.taxOffice}`, settings.companyDetails.taxNumber && `VKN/TCKN: ${settings.companyDetails.taxNumber}`].filter(Boolean).length > 0 && (
-                <span className="block">{[settings.companyDetails.taxOffice && `Vergi dairəsi: ${settings.companyDetails.taxOffice}`, settings.companyDetails.taxNumber && `VKN/TCKN: ${settings.companyDetails.taxNumber}`].filter(Boolean).join(" · ")}</span>
-              )}
-            </div>
-          </div>
-        )}
-        {form.showMeta && (
-          <div className="mt-3 grid grid-cols-4 overflow-hidden rounded-md border border-slate-200 bg-slate-50 text-[7px]">
-            {["Sənəd", "Tarix", "Status", "Mənbə"].map((label) => <div key={label} className="border-r border-slate-200 px-2 py-2 last:border-r-0"><span className="text-slate-400">{label}</span><strong className="mt-1 block font-semibold">Məlumat</strong></div>)}
-          </div>
-        )}
-        <div className="mt-5 flex items-center gap-2 text-[8px] font-semibold"><span>Məhsullar</span><span className="h-px flex-1 bg-slate-200" /></div>
-        <div className="mt-2 overflow-hidden border border-slate-200 text-[7px]">
-          <div className="grid grid-cols-[1.6fr_.6fr_.6fr_.7fr] bg-slate-50 font-semibold text-slate-500"><span className="border-r border-slate-200 p-2">Ad</span><span className="border-r border-slate-200 p-2">Miqdar</span><span className="border-r border-slate-200 p-2">Qiymət</span><span className="p-2">Ümumi</span></div>
-          {[1, 2, 3, 4].map((row) => <div key={row} className="grid grid-cols-[1.6fr_.6fr_.6fr_.7fr] border-t border-slate-200"><span className="border-r border-slate-200 p-2">Məhsul {row}</span><span className="border-r border-slate-200 p-2 text-right">100</span><span className="border-r border-slate-200 p-2 text-right">2.50</span><span className="p-2 text-right">250.00</span></div>)}
-        </div>
-        <div className="mt-auto pt-8">
-          {form.showFooter && (
-            <>
-              <div className="flex justify-between border-t border-slate-200 pt-2 text-[7px] text-slate-500">
-                <span><strong className="text-indigo-600">{settings.companyName || "AriX"}</strong>{form.footerInfo ? ` · ${form.footerInfo}` : ""}</span>
-                <span>Sənəd №</span>
-              </div>
-              {form.footerNote && <div className="mt-1 whitespace-pre-line text-[7px] leading-3 text-slate-500">{form.footerNote}</div>}
-            </>
-          )}
-        </div>
+      <div className={cx("mb-2 text-xs font-semibold", subtle)}>XML forma önizləməsi</div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-[#0b1020] shadow-sm">
+        <div className={cx("border-b border-white/10 px-3 py-2 text-xs font-semibold", validation.ok ? "text-emerald-300" : "text-rose-300")}>{validation.message}</div>
+        <pre className="h-[650px] overflow-auto whitespace-pre p-4 text-[10px] leading-4 text-slate-200">{template}</pre>
       </div>
     </aside>
   );
+}
+
+function StandardPrintFormPreview({ settings, formKey, form, subtle }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
+  const [fullSize, setFullSize] = useState(false);
+  const landscape = formKey === "customs";
+  const pageWidth = landscape ? "297mm" : "210mm";
+  const scale = landscape ? 0.35 : 0.5;
+  return (
+    <aside className="min-w-0 max-w-full xl:sticky xl:top-4 xl:self-start">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className={cx("text-xs font-semibold", subtle)}>Real {landscape ? "A4 üfüqi" : "A4"} önizləmə</div>
+        <button type="button" onClick={() => setFullSize(true)} className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Tam ölçüdə bax</button>
+      </div>
+      <div className={cx("max-w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm", landscape ? "h-[105mm]" : "h-[148.5mm]") }>
+        <div className="origin-top-left" style={{ width: pageWidth, transform: `scale(${scale})` }}>
+          <StandardPrintPage settings={settings} formKey={formKey} form={form} />
+        </div>
+      </div>
+      {fullSize && createPortal(
+        <div className="fixed inset-0 z-[180] flex flex-col bg-slate-950/70" role="dialog" aria-modal="true" aria-label={`${form.title} A4 önizləmə`}>
+          <div className="flex items-center justify-between border-b border-white/10 bg-slate-950 px-4 py-3 text-white">
+            <div><div className="text-xs text-slate-400">Çap forması · real {landscape ? "A4 üfüqi" : "A4"}</div><div className="mt-0.5 font-semibold">{form.title}</div></div>
+            <button type="button" onClick={() => setFullSize(false)} className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 text-xl" aria-label="Bağla">×</button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
+            <div className="mx-auto min-w-max shadow-2xl" style={{ width: pageWidth }}><StandardPrintPage settings={settings} formKey={formKey} form={form} /></div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </aside>
+  );
+}
+
+const sampleProducts = [
+  { name: "HG Beyaz Parlaq", variant: "Standart", barcode: "00001000001", sku: "ERSA 510", qty: 300, price: 2.9, discount: 0, total: 870 },
+  { name: "Folyo Satin İnci", variant: "Standart", barcode: "00011000011", sku: "ERSA 011", qty: 240, price: 4.26, discount: 0, total: 1022.4 },
+  { name: "Soft Touch Kaya Gri", variant: "Standart", barcode: "00007000007", sku: "ERSA 513", qty: 100, price: 5.11, discount: 25, total: 486 },
+];
+
+function StandardPrintPage({ settings, formKey, form }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey] }) {
+  const isExport = ["orderConfirmation", "proforma", "commercial", "packingList"].includes(formKey);
+  const landscape = formKey === "customs";
+  return (
+    <article className={cx("bg-white text-[9px] leading-tight text-slate-900", landscape ? "min-h-[210mm] w-[297mm] p-[9mm]" : "min-h-[297mm] w-[210mm] p-[11mm]") }>
+      <ArixPreviewHeader settings={settings} form={form} />
+      {formKey === "label" ? <ProductLabelPreview settings={settings} />
+        : formKey === "receipt" ? <ReceiptPreview form={form} />
+          : formKey === "customs" ? <CustomsPreview form={form} />
+            : isExport ? <ExportDocumentPreview formKey={formKey} form={form} />
+              : <OperationDocumentPreview formKey={formKey} />}
+      <ArixPreviewFooter settings={settings} form={form} />
+    </article>
+  );
+}
+
+function ArixPreviewHeader({ settings, form }: { settings: PrintSettings; form: PrintSettings["forms"][PrintFormKey] }) {
+  return (
+    <header className="mb-3 grid grid-cols-[1fr_auto_1fr] items-start gap-4 border-b border-slate-300 pb-3">
+      <div className="flex items-center gap-2"><AriXLogo className="h-10 w-10" /><div><div className="text-[14px] font-semibold">AriX</div><div className="text-[8px] text-slate-500">Sənəd sistemi</div></div></div>
+      <div className="flex h-12 min-w-28 items-center justify-center">{form.showLogo && settings.companyLogo && <img src={settings.companyLogo} alt="Şirkət loqosu" className="max-h-12 max-w-32 object-contain" />}</div>
+      <div className="text-right"><div className="text-[15px] font-semibold">{form.title}</div><div className="mt-1 text-[9px] text-slate-500">{form.subtitle}</div></div>
+      {form.showMeta && <div className="col-span-3 grid grid-cols-4 overflow-hidden rounded border border-slate-200 bg-slate-50"><PreviewCell label="Sənəd" value="#6253536" /><PreviewCell label="Tarix" value="14.10.2026, 12:47" /><PreviewCell label="Status" value="Gözləyir" /><PreviewCell label="Mənbə" value="ERSA DEPO" /></div>}
+    </header>
+  );
+}
+
+function PreviewCell({ label, value }: { label: string; value: string }) {
+  return <div className="border-r border-slate-200 px-2 py-1.5 last:border-r-0"><span className="block text-[7px] text-slate-500">{label}</span><strong className="mt-0.5 block truncate text-[9px]">{value}</strong></div>;
+}
+
+function OperationDocumentPreview({ formKey }: { formKey: PrintFormKey }) {
+  const senderLabel = formKey === "purchase" ? "Təchizatçı" : "Göndərən";
+  const recipientLabel = formKey === "purchase" ? "Qəbul edən mağaza" : "Qəbul edən";
+  const totals = sampleProducts.reduce((sum, item) => sum + item.total, 0);
+  return <>
+    <div className="mb-2 grid grid-cols-3 gap-2"><PreviewInfo label={senderLabel} value={formKey === "purchase" ? "ARIX TEST TƏCHİZATÇI" : "ERSA DEPO"} /><PreviewInfo label={recipientLabel} value={formKey === "sale" ? "Nümunə müştəri" : "ERSA ANTREPO"} /><PreviewInfo label="Müəllif" value="Arif Mahmud" /></div>
+    <div className="mb-4 grid grid-cols-4 gap-2"><PreviewInfo label="Məbləğ" value={`${totals.toFixed(2)} ₼`} align /><PreviewInfo label="Ödənilib" value="500.00 ₼" align /><PreviewInfo label="Qalıq" value={`${(totals - 500).toFixed(2)} ₼`} align /><PreviewInfo label="Fiscal" value="Gözləyir" align /></div>
+    <SectionTitle title={formKey === "inventory" ? "Faktiki və sistem qalığı" : formKey === "writeOff" ? "Silinən məhsullar" : "Məhsullar"} />
+    <table className="w-full border-collapse text-[8px]"><thead><tr className="bg-slate-100">{["Ad", "Variasiya", "Bar-kod", "Artikul", "Miqdar", "Qiymət", "Endirim", "Ümumi"].map((head) => <th key={head} className="border border-slate-300 p-1 text-left">{head}</th>)}</tr></thead><tbody>{sampleProducts.map((item) => <tr key={item.sku}>{[item.name, item.variant, item.barcode, item.sku, `${item.qty} mt`, item.price.toFixed(2), item.discount.toFixed(2), item.total.toFixed(2)].map((value, index) => <td key={index} className={cx("whitespace-nowrap border border-slate-300 p-1", index >= 4 && "text-right")}>{value}</td>)}</tr>)}</tbody><tfoot><tr className="bg-slate-50 font-bold"><td colSpan={4} className="border border-slate-300 p-1 text-right">Ümumi nəticə</td><td className="border border-slate-300 p-1 text-right">640 mt</td><td colSpan={2} className="border border-slate-300 p-1" /><td className="border border-slate-300 p-1 text-right">{totals.toFixed(2)}</td></tr></tfoot></table>
+    {formKey === "movement" && <><SectionTitle title="Konteyner və palet məlumatları" /><div className="rounded border border-slate-300"><div className="flex justify-between bg-slate-100 p-2"><strong>HIST-CONT-1-006779</strong><span>2 palet · 6 rulo · 640 mt</span></div><div className="grid grid-cols-4 border-t border-slate-200 p-2"><span>Palet P-001</span><span>3 rulo</span><span>320 mt</span><span className="text-right">Bəyannamə: IM-2026-14</span></div></div></>}
+  </>;
+}
+
+function PreviewInfo({ label, value, align = false }: { label: string; value: string; align?: boolean }) {
+  return <div className="rounded border border-slate-200 bg-white px-2.5 py-2"><span className="block text-[7px] text-slate-500">{label}</span><strong className={cx("mt-1 block truncate text-[9px]", align && "text-right text-[11px]")}>{value}</strong></div>;
+}
+
+function SectionTitle({ title }: { title: string }) {
+  return <div className="my-3 flex items-center gap-2 text-[10px] font-semibold"><span>{title}</span><span className="h-px flex-1 bg-slate-300" /></div>;
+}
+
+function ExportDocumentPreview({ formKey, form }: { formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey] }) {
+  const packing = formKey === "packingList";
+  const title = packing ? ["PACKING", "LIST"] : formKey === "orderConfirmation" ? ["ORDER", "CONFIRMATION"] : formKey === "proforma" ? ["PROFORMA", "INVOICE"] : ["COMMERCIAL", "INVOICE"];
+  return <>
+    <div className="my-[13mm] text-center text-[#2f6973]"><div className="text-[48px] font-light leading-none">{title[0]}</div><div className="text-[24px] font-bold leading-none text-[#a8c4c8]">{title[1]}</div></div>
+    <div className="mb-[12mm] grid grid-cols-2 gap-8"><div><span className="text-slate-500">TO</span><strong className="mt-1 block text-[16px] text-[#2f6973]">SAMPLE IMPORT GmbH</strong><div className="mt-2">Phone: +49 30 000 00 00</div><div>Address: Berlin / Germany</div></div><div className="ml-auto min-w-64 space-y-1"><div className="flex justify-between"><span>DATE:</span><b>14.10.2026</b></div><div className="flex justify-between"><span>DOCUMENT NO:</span><b>ARX-2026-001</b></div></div></div>
+    {packing ? <PackingTable /> : <SalesExportTable />}
+    {packing ? <div className="mt-8 grid grid-cols-[220px_1fr] gap-2 text-[10px]"><span>TOTAL PALLET</span><b>2</b><span>TOTAL NET WEIGHT</span><b>1,022.40 KG</b><span>TOTAL GROSS WEIGHT</span><b>1,089.00 KG</b></div> : <><div className="mt-10 grid grid-cols-[190px_1fr] gap-1.5 text-[9px]"><span>PACKAGE</span><b>STANDARD EXPORT PACKAGE</b><span>DESCRIPTION</span><b>PVC FOIL</b><span>PAYMENT</span><b>BANK PAYMENT</b><span>DELIVERY TERM</span><b>FCA. ISTANBUL</b><span>DESTINATION</span><b>BERLIN / GERMANY</b></div><div className="mt-8 border border-[#d7e4e7]"><div className="grid grid-cols-[1.2fr_.9fr_.9fr_1.1fr_2fr] bg-slate-50">{["BANK", "SWIFT CODE", "BRANCH", "ACCOUNT NO", "EUR IBAN"].map((x) => <span key={x} className="border-r border-slate-200 p-1.5 font-bold">{x}</span>)}</div><div className="grid grid-cols-[1.2fr_.9fr_.9fr_1.1fr_2fr]">{["ALBARAKA TURK", "BTFHTRISXXX", "26-MERTER", "9987324", "TR56 0020 3000 0998 7324 0000 02"].map((x) => <span key={x} className="border-r border-slate-200 p-1.5">{x}</span>)}</div></div></>}
+    {form.footerNote && <div className="mt-6 whitespace-pre-line text-slate-500">{form.footerNote}</div>}
+  </>;
+}
+
+function SalesExportTable() {
+  return <table className="w-full border-collapse text-[8px]"><thead><tr className="bg-[#eef5f6] text-[#2f6973]">{["No", "PRODUCTS", "CODE", "ROLL", "LM", "SQM", "UNIT PRICE", "AMOUNT EUR"].map((x) => <th key={x} className="border border-[#d7e4e7] p-1.5">{x}</th>)}</tr></thead><tbody>{sampleProducts.map((item, i) => <tr key={item.sku}><td className="border p-1 text-center">{i + 1}</td><td className="border p-1">{item.name}</td><td className="border p-1 text-center">{item.sku}</td><td className="border p-1 text-center">{i + 2}</td><td className="border p-1 text-right">{item.qty}</td><td className="border p-1 text-right">{(item.qty * 1.22).toFixed(2)}</td><td className="border p-1 text-right">€{item.price.toFixed(2)}</td><td className="border p-1 text-right">€{item.total.toFixed(2)}</td></tr>)}</tbody></table>;
+}
+
+function PackingTable() {
+  return <table className="w-full border-collapse text-[8px]"><thead><tr className="bg-[#eef5f6] text-[#2f6973]">{["No", "PALLET", "PRODUCTS", "CODE", "ROLL", "LM", "SQM", "NET KG", "GROSS KG", "QEYD"].map((x) => <th key={x} className="border border-[#d7e4e7] p-1.5">{x}</th>)}</tr></thead><tbody>{sampleProducts.map((item, i) => <tr key={item.sku}>{[i + 1, `P-${i + 1}`, item.name, item.sku, i + 2, item.qty, (item.qty * 1.22).toFixed(2), (item.qty * 1.55).toFixed(2), (item.qty * 1.65).toFixed(2), i === 0 ? "FULL PALET" : `RULO ${i + 1}-${i + 3}`].map((x, j) => <td key={j} className="whitespace-nowrap border p-1 text-center">{x}</td>)}</tr>)}</tbody></table>;
+}
+
+function CustomsPreview({ form }: { form: PrintSettings["forms"][PrintFormKey] }) {
+  return <><div className="mb-2 border border-slate-300 border-l-[3px] border-l-indigo-600 bg-slate-50 p-2 font-semibold">Bəyannamə · IM-2026-000143 · Konteyner HIST-CONT-1-006779</div><table className="w-full border-collapse text-[8px]"><thead><tr className="bg-slate-100">{["No", "Ürün", "Kod", "Kap", "MT", "Birim Fiyat", "Toplam Fiyat", "Net Weight", "Gross Weight", "Palet", "Rulo"].map((x) => <th key={x} className="border border-slate-300 p-1.5">{x}</th>)}</tr></thead><tbody>{sampleProducts.map((item, i) => <tr key={item.sku}>{[i + 1, item.name, item.sku, `${i + 2} kap`, `${item.qty} mt`, `$${item.price.toFixed(2)}`, `$${item.total.toFixed(2)}`, `${(item.qty * 1.55).toFixed(2)} kg`, `${(item.qty * 1.65).toFixed(2)} kg`, `P-${i + 1}`, i === 0 ? "full" : `${i + 1}-${i + 3}`].map((x, j) => <td key={j} className={cx("whitespace-nowrap border border-slate-300 p-1.5", j >= 3 && j <= 8 && "text-right")}>{x}</td>)}</tr>)}</tbody><tfoot><tr className="bg-slate-100 font-bold"><td colSpan={3} className="border p-1.5 text-right">TOPLAM</td><td className="border p-1.5">9 kap</td><td className="border p-1.5 text-right">640 mt</td><td /><td className="border p-1.5 text-right">$2,378.40</td><td className="border p-1.5 text-right">992 kg</td><td className="border p-1.5 text-right">1,056 kg</td><td colSpan={2} /></tr></tfoot></table>{form.footerNote && <div className="mt-4 text-slate-500">{form.footerNote}</div>}</>;
+}
+
+function ReceiptPreview({ form }: { form: PrintSettings["forms"][PrintFormKey] }) {
+  return <div className="mx-auto mt-8 max-w-[145mm] rounded border border-slate-300 p-5"><div className="grid grid-cols-2 gap-y-4"><PreviewInfo label="Qəbz №" value="PAY-2026-00418" /><PreviewInfo label="Tarix / saat" value="14.10.2026 · 12:47" /><PreviewInfo label="Kontragent" value="Nümunə müştəri" /><PreviewInfo label="Hesab" value="Kassa №1" /><PreviewInfo label="Ödəniş növü" value="Bank köçürməsi" /><PreviewInfo label="Məbləğ" value="2,378.40 ₼" align /></div><div className="mt-8 border-t border-slate-300 pt-3"><b>Açıqlama</b><div className="mt-2 text-slate-500">{form.footerNote || "Satış sənədi üzrə ödəniş."}</div></div><div className="mt-16 grid grid-cols-2 gap-20 text-center"><span className="border-t pt-2">Təhvil verən</span><span className="border-t pt-2">Təhvil alan</span></div></div>;
+}
+
+function ProductLabelPreview({ settings }: { settings: PrintSettings }) {
+  return <div className="mx-auto mt-12 grid max-w-[160mm] grid-cols-2 gap-5">{[1, 2, 3, 4].map((item) => <div key={item} className="flex h-[55mm] flex-col justify-between border-2 border-slate-900 p-4"><div className="flex items-start justify-between"><div><div className="text-[16px] font-bold">HG Beyaz Parlaq</div><div className="mt-1 text-[11px]">ERSA 510 · TEST-001</div></div><strong>{settings.companyName}</strong></div><div className="text-center font-mono text-[22px] tracking-[4px]">|||| ||| ||||</div><div className="flex justify-between text-[10px]"><span>00001000001</span><span>100 mt</span></div></div>)}</div>;
+}
+
+function ArixPreviewFooter({ settings, form }: { settings: PrintSettings; form: PrintSettings["forms"][PrintFormKey] }) {
+  if (!form.showFooter) return null;
+  return <footer className="mt-8 flex items-end justify-between border-t border-slate-300 pt-2 text-[8px] text-slate-500"><div><strong className="text-indigo-600">{settings.companyName || "AriX"}</strong>{form.footerInfo && <span> · {form.footerInfo}</span>}{form.footerNote && <div className="mt-1 max-w-[130mm] whitespace-pre-line">{form.footerNote}</div>}</div><span>Sənəd № ARX-2026-001</span></footer>;
 }
 
 function GibPrintFormPreview({ settings, formKey, form, subtle }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey]; subtle: string }) {
