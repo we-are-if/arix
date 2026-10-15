@@ -851,7 +851,9 @@ export function useStaticDomTranslation() {
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const root = document.getElementById("root");
+    // Dialogs and drawers are rendered through portals next to #root.
+    // Observe the body so the same translation pass also covers those surfaces.
+    const root = document.body ?? document.getElementById("root");
     if (!root) return;
 
     let runAsLanguageChange = lastStaticLanguage !== null && lastStaticLanguage !== language;
