@@ -1455,12 +1455,21 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
 
   const deleteProducts = async (ids: number[]) => {
     if (ids.length === 0) return;
-    await Promise.allSettled(ids.map((id) => requestJson(`/api/products/${id}`, { method: "DELETE" })));
-    setRows((prev) => prev.filter((row) => !ids.includes(row.id)));
-    setVariants((prev) => prev.filter((variant) => !ids.includes(variant.productId)));
-    setBundleItems((prev) => prev.filter((item) => !ids.includes(item.bundleId) && !ids.includes(item.productId)));
-    setSelected(new Set());
-    if (detailProductId != null && ids.includes(detailProductId)) setDetailProductId(null);
+    const results = await Promise.allSettled(ids.map((id) => requestJson(`/api/products/${id}`, { method: "DELETE" })));
+    const deletedIds = ids.filter((_, index) => results[index]?.status === "fulfilled");
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (deletedIds.length) {
+      setRows((prev) => prev.filter((row) => !deletedIds.includes(row.id)));
+      setVariants((prev) => prev.filter((variant) => !deletedIds.includes(variant.productId)));
+      setBundleItems((prev) => prev.filter((item) => !deletedIds.includes(item.bundleId) && !deletedIds.includes(item.productId)));
+      setSelected((current) => new Set(Array.from(current).filter((id) => !deletedIds.includes(id))));
+      if (detailProductId != null && deletedIds.includes(detailProductId)) setDetailProductId(null);
+      window.dispatchEvent(new CustomEvent("arix:trash-updated"));
+    }
+    if (failures.length) {
+      const reason = failures[0].reason instanceof Error ? failures[0].reason.message : "Məhsul silinmədi.";
+      window.alert(reason);
+    }
   };
 
   const applyMovement = (input: Omit<StockMovement, "id" | "at">) => {

@@ -66,6 +66,14 @@ test("reposting the same source replaces its previous journal", () => {
   assert.equal(db.accounting.journals[0].debit, 125);
 });
 
+test("posts a financial bank account movement to Tekduzen bank account 102", () => {
+  const db = dbFixture();
+  db.financialAccounts = [{ id: "bank-1", type: "bank", name: "Garanti TL" }];
+  normalizeAccountingStore(db);
+  const journal = upsertDocumentJournal(db, { id: "bank-in-1", type: "cashIn", status: "posted", posted: true, amount: 500, financialAccountId: "bank-1", account: "Garanti TL" });
+  assert.ok(journal.lines.some((line) => line.accountCode === "102" && line.debit === 500));
+});
+
 test("posts KDV and withholding separately from sale revenue", () => {
   const db = dbFixture();
   normalizeAccountingStore(db);

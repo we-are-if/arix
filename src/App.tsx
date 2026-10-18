@@ -1,17 +1,20 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { Routes, Route, NavLink, useLocation } from "react-router-dom";
+import { Navigate, Routes, Route, NavLink, useLocation } from "react-router-dom";
+import { createPortal } from "react-dom";
 import AriXLogo from "./components/AriXLogo";
 import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
 import ProductActivity from "./pages/ProductActivity";
 import Counterparties from "./pages/Counterparties";
 import MoneyActivity from "./pages/MoneyActivity";
-import OnlineCollections, { type OnlineCollectionSection } from "./pages/OnlineCollections";
 import Company, { type CompanySection } from "./pages/Company";
 import Reports from "./pages/Reports";
 import Accounting from "./pages/Accounting";
+import Trash from "./pages/Trash";
 import DocumentCreatePanel, { DocumentCreateMenu, type DocumentCreateKind } from "./components/DocumentCreatePanel";
 import { languageOptions, useI18n, useStaticDomTranslation } from "./i18n";
+import GoogleSignIn, { type AuthUser } from "./components/GoogleSignIn";
+import { requestJson } from "./api";
 
 type Colors = {
   page: string;
@@ -28,6 +31,8 @@ type CurrentEmployee = {
   name: string;
   role: string;
   email: string;
+  picture?: string;
+  companyId?: string;
 };
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -89,6 +94,11 @@ const I = {
   Reports: (p: React.SVGProps<SVGSVGElement>) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
       <path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h8M8 16h5" />
+    </svg>
+  ),
+  Trash: (p: React.SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="m18 7-1 13H7L6 7" /><path d="M10 11v5M14 11v5" />
     </svg>
   ),
   Contacts: (p: React.SVGProps<SVGSVGElement>) => (
@@ -171,25 +181,16 @@ export default function App() {
       /* ignore */
     }
   }, [sidebarCollapsed]);
-  const [currentEmployee, setCurrentEmployee] = useState<CurrentEmployee | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const saved = localStorage.getItem("arix-current-employee");
-      if (!saved) return null;
-      const parsed = JSON.parse(saved) as CurrentEmployee;
-      return employees.find((employee) => employee.id === parsed.id) ?? null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentEmployee, setCurrentEmployee] = useState<CurrentEmployee | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   useEffect(() => {
-    try {
-      if (currentEmployee) localStorage.setItem("arix-current-employee", JSON.stringify(currentEmployee));
-      else localStorage.removeItem("arix-current-employee");
-    } catch {
-      /* ignore */
-    }
-  }, [currentEmployee]);
+    let cancelled = false;
+    requestJson<{ data: AuthUser | null }>("/api/auth/session")
+      .then((payload) => { if (!cancelled) setCurrentEmployee(payload.data); })
+      .catch(() => { if (!cancelled) setCurrentEmployee(null); })
+      .finally(() => { if (!cancelled) setAuthLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   const [contactsOpen, setContactsOpen] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -219,20 +220,6 @@ export default function App() {
       /* ignore */
     }
   }, [companyOpen]);
-  const [collectionsOpen, setCollectionsOpen] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("arix-collections-open") === "1";
-  });
-  useEffect(() => {
-    if (location.pathname.startsWith("/online-collections")) setCollectionsOpen(true);
-  }, [location.pathname]);
-  useEffect(() => {
-    try {
-      localStorage.setItem("arix-collections-open", collectionsOpen ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  }, [collectionsOpen]);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [createKind, setCreateKind] = useState<DocumentCreateKind | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -241,6 +228,14 @@ export default function App() {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileMenuOpen]);
 
   const isDark = theme === "dark";
   const colors: Colors = useMemo(
@@ -291,7 +286,6 @@ export default function App() {
 
   const contactsActive = location.pathname.startsWith("/contacts");
   const companyActive = location.pathname.startsWith("/company");
-  const collectionsActive = location.pathname.startsWith("/online-collections");
   const companySections: Array<{ to: string; label: string; section: CompanySection }> = [
     { to: "/company/settings", label: t("nav.settings"), section: "settings" },
     { to: "/company/employees", label: t("nav.employees"), section: "employees" },
@@ -300,82 +294,8 @@ export default function App() {
     { to: "/company/loyalty", label: t("nav.loyalty"), section: "loyalty" },
     { to: "/company/print-forms", label: t("nav.printForms"), section: "printForms" },
     { to: "/company/e-documents", label: t("nav.eDocuments"), section: "eDocuments" },
+    { to: "/company/payment-integrations", label: t("nav.paymentIntegrations"), section: "paymentIntegrations" },
   ];
-  const collectionMenuGroups: Array<{
-    title: string;
-    icon: React.ReactNode;
-    items: Array<{ to: string; label: string; section: OnlineCollectionSection }>;
-  }> = [
-    {
-      title: t("nav.onlineCollections"),
-      icon: <I.OnlinePay className="h-full w-full" />,
-      items: [
-        { to: "/online-collections/new", label: t("collections.newCollection"), section: "new" },
-        { to: "/online-collections", label: t("collections.operations"), section: "payments" },
-        { to: "/online-collections/pos", label: t("collections.allPos"), section: "pos" },
-        { to: "/online-collections/commissions", label: t("collections.commissions"), section: "commissions" },
-        { to: "/online-collections/payment-settings", label: t("collections.payment"), section: "paymentSettings" },
-      ],
-    },
-  ];
-  const hiddenCollectionSections: Array<{ to: string; label: string; section: OnlineCollectionSection }> = [
-    { to: "/online-collections/param-pos", label: t("collections.paramPos"), section: "paramPos" },
-    { to: "/online-collections/payment-ai", label: t("collections.paymentAi"), section: "paymentAi" },
-    { to: "/online-collections/transaction-detail", label: t("collections.operationDetails"), section: "transactionDetail" },
-    { to: "/online-collections/payment-links", label: t("collections.paymentLinks"), section: "paymentLinks" },
-    { to: "/online-collections/mail-sms", label: t("collections.mailSms"), section: "mailSmsTracking" },
-    { to: "/online-collections/notifications", label: t("collections.notifications"), section: "notifications" },
-    { to: "/online-collections/cards", label: t("collections.cards"), section: "cardList" },
-    { to: "/online-collections/dealer-pos", label: t("collections.dealerPos"), section: "dealerPos" },
-    { to: "/online-collections/customers-dealers", label: t("collections.customersDealers"), section: "customersDealers" },
-    { to: "/online-collections/graphic-reports", label: t("collections.graphicReports"), section: "graphicReports" },
-    { to: "/online-collections/general-reports", label: t("collections.generalReports"), section: "generalReports" },
-    { to: "/online-collections/account-debt", label: t("collections.accountDebt"), section: "accountDebt" },
-    { to: "/online-collections/account-movements", label: t("collections.accountMovements"), section: "accountMovements" },
-    { to: "/online-collections/contracts", label: t("collections.contracts"), section: "contracts" },
-    { to: "/online-collections/current-accounts", label: t("collections.currentAccounts"), section: "currentAccounts" },
-    { to: "/online-collections/general-settings", label: t("collections.general"), section: "generalSettings" },
-    { to: "/online-collections/nt-login", label: t("collections.ntLogin"), section: "ntLogin" },
-    { to: "/online-collections/card-settings", label: t("collections.cardSettings"), section: "cardSettings" },
-    { to: "/online-collections/dynamic-fields", label: t("collections.dynamicFields"), section: "dynamicFields" },
-    { to: "/online-collections/payment-items", label: t("collections.paymentItems"), section: "paymentItems" },
-    { to: "/online-collections/bin-filters", label: t("collections.binFilters"), section: "binFilters" },
-    { to: "/online-collections/bins", label: t("collections.binTable"), section: "bins" },
-    { to: "/online-collections/pages", label: t("collections.paymentPages"), section: "pages" },
-    { to: "/online-collections/reconciliation", label: t("collections.reconciliation"), section: "reconciliation" },
-    { to: "/online-collections/logs", label: t("collections.webhookLogs"), section: "logs" },
-  ];
-  const collectionSections = [...collectionMenuGroups.flatMap((group) => group.items), ...hiddenCollectionSections];
-  const activeCollectionGroup = collectionMenuGroups.find((group) =>
-    group.items.some((item) => item.to === location.pathname)
-  )?.title;
-  const [openCollectionGroups, setOpenCollectionGroups] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem("arix-collection-groups-open");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  useEffect(() => {
-    if (!activeCollectionGroup) return;
-    setOpenCollectionGroups((current) =>
-      current.includes(activeCollectionGroup) ? current : [...current, activeCollectionGroup]
-    );
-  }, [activeCollectionGroup]);
-  useEffect(() => {
-    try {
-      localStorage.setItem("arix-collection-groups-open", JSON.stringify(openCollectionGroups));
-    } catch {
-      /* ignore */
-    }
-  }, [openCollectionGroups]);
-  const toggleCollectionGroup = (title: string) => {
-    setOpenCollectionGroups((current) =>
-      current.includes(title) ? current.filter((item) => item !== title) : [...current, title]
-    );
-  };
   const SubNavItem = ({ to, label, icon }: { to: string; label: string; icon: React.ReactNode }) => (
     <NavLink
       to={to}
@@ -425,7 +345,42 @@ export default function App() {
       <span className="w-full truncate text-center">{label}</span>
     </NavLink>
   );
+  const MobileDrawerLink = ({ to, label, icon, nested = false }: { to: string; label: string; icon: React.ReactNode; nested?: boolean }) => (
+    <NavLink
+      to={to}
+      onClick={() => setMobileMenuOpen(false)}
+      className={({ isActive }) => cx(
+        "flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium",
+        nested && "ml-6",
+        isActive
+          ? isDark ? "bg-white/10 text-indigo-100" : "bg-indigo-50 text-indigo-700"
+          : isDark ? "text-slate-300" : "text-slate-700"
+      )}
+    >
+      <span className="h-5 w-5 shrink-0">{icon}</span>
+      <span className="min-w-0 truncate">{label}</span>
+    </NavLink>
+  );
 
+  const openMobileMenu = () => {
+    setSidebarCollapsed(false);
+    setCreateMenuOpen(false);
+    setMobileMenuOpen(true);
+  };
+
+  const logout = async () => {
+    try {
+      await requestJson("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.google?.accounts?.id.disableAutoSelect();
+      setProfileMenuOpen(false);
+      setCurrentEmployee(null);
+    }
+  };
+
+  if (authLoading) {
+    return <div className={cx("flex min-h-screen items-center justify-center", colors.page)}><div className="flex flex-col items-center gap-3"><AriXLogo className="h-20 w-20" /><span className={colors.kpiLabel}>{t("login.checking")}</span></div></div>;
+  }
   if (!currentEmployee) {
     return <LoginScreen isDark={isDark} onLogin={setCurrentEmployee} onThemeToggle={() => setTheme(isDark ? "light" : "dark")} />;
   }
@@ -434,17 +389,9 @@ export default function App() {
   return (
     <div className={cx("min-h-screen", colors.page)}>
       {/* Header */}
-      <header className={cx("sticky top-0 z-20 backdrop-blur border-b", colors.header)}>
+      <header className={cx("sticky top-0 z-40 backdrop-blur border-b", colors.header)}>
         <div className="flex w-full items-center justify-between px-3 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              className={cx("flex h-10 w-10 items-center justify-center rounded-xl border md:hidden", isDark ? "glass-control-dark border-white/10" : "glass-control border-white/70")}
-              aria-label={t("action.openMenu")}
-            >
-              <I.Menu className="h-5 w-5" />
-            </button>
             <AriXLogo className="glass-logo h-11 w-11" />
             <div className="hidden text-lg font-semibold tracking-tight sm:block">AriX Panel</div>
           </div>
@@ -538,10 +485,7 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setProfileMenuOpen(false);
-                      setCurrentEmployee(null);
-                    }}
+                    onClick={() => void logout()}
                     className={cx("mt-2 flex h-10 w-full items-center justify-center rounded-xl text-sm font-semibold", isDark ? "text-rose-200 hover:bg-rose-400/10" : "text-rose-600 hover:bg-rose-50")}
                   >
                     {t("action.logout")}
@@ -553,13 +497,65 @@ export default function App() {
         </div>
       </header>
 
-      {mobileMenuOpen && (
-        <button
-          type="button"
-          aria-label={t("action.closeMenu")}
-          onClick={() => setMobileMenuOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-sm md:hidden"
-        />
+      {mobileMenuOpen && createPortal(
+        <div className="fixed inset-0 z-[9999] md:hidden">
+          <button
+            type="button"
+            aria-label={t("action.closeMenu")}
+            onClick={() => setMobileMenuOpen(false)}
+            className="absolute inset-0 bg-slate-950/35 backdrop-blur-sm"
+          />
+          <aside className={cx(
+            "absolute bottom-3 left-3 top-3 flex w-[min(86vw,340px)] flex-col overflow-hidden rounded-2xl border shadow-2xl",
+            isDark ? "border-white/10 bg-slate-950 text-slate-100" : "border-white/80 bg-white text-slate-900"
+          )}>
+            <div className={cx("flex h-14 shrink-0 items-center justify-between border-b px-3", isDark ? "border-white/10" : "border-slate-200/70")}>
+              <div className="flex min-w-0 items-center gap-2">
+                <AriXLogo className="h-8 w-8 shrink-0" />
+                <span className="truncate text-sm font-semibold">AriX Panel</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                className={cx("flex h-9 w-9 items-center justify-center rounded-lg border text-xl", isDark ? "border-white/10 text-slate-200" : "border-slate-200 text-slate-600")}
+                aria-label={t("action.closeMenu")}
+              >
+                ×
+              </button>
+            </div>
+            <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setCreateMenuOpen(true);
+                }}
+                className="surface-primary mb-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold"
+              >
+                <I.FilePlus className="h-5 w-5" />
+                <span>{t("action.createDocument")}</span>
+              </button>
+              <div className="space-y-1">
+                <MobileDrawerLink to="/" label={t("nav.home")} icon={<I.Home className="h-full w-full" />} />
+                <MobileDrawerLink to="/products" label={t("nav.products")} icon={<I.Package className="h-full w-full" />} />
+                <MobileDrawerLink to="/product-activity" label={t("nav.productActivity")} icon={<I.Activity className="h-full w-full" />} />
+                <MobileDrawerLink to="/money-activity" label={t("nav.moneyActivity")} icon={<I.Wallet className="h-full w-full" />} />
+                <div className={cx("px-3 pb-1 pt-3 text-xs font-semibold uppercase", isDark ? "text-slate-500" : "text-slate-400")}>{t("nav.counterparties")}</div>
+                <MobileDrawerLink nested to="/contacts/suppliers" label={t("nav.suppliers")} icon={<I.Supplier className="h-full w-full" />} />
+                <MobileDrawerLink nested to="/contacts/customers" label={t("nav.customers")} icon={<I.Customer className="h-full w-full" />} />
+                <div className={cx("px-3 pb-1 pt-3 text-xs font-semibold uppercase", isDark ? "text-slate-500" : "text-slate-400")}>{t("nav.company")}</div>
+                {companySections.map((item) => (
+                  <MobileDrawerLink key={item.to} nested to={item.to} label={item.label} icon={<I.Company className="h-full w-full" />} />
+                ))}
+                <div className={cx("my-2 border-t", isDark ? "border-white/10" : "border-slate-200")} />
+                <MobileDrawerLink to="/accounting" label={t("nav.financeActivity")} icon={<I.Chart className="h-full w-full" />} />
+                <MobileDrawerLink to="/reports" label={t("nav.reports")} icon={<I.Reports className="h-full w-full" />} />
+                <MobileDrawerLink to="/trash" label={t("nav.trash")} icon={<I.Trash className="h-full w-full" />} />
+              </div>
+            </nav>
+          </aside>
+        </div>,
+        document.body
       )}
 
       <div className={cx(
@@ -568,10 +564,7 @@ export default function App() {
       )}>
         {/* Sidebar */}
         <aside
-          className={cx(
-            "fixed bottom-3 left-3 top-3 z-50 w-[min(86vw,320px)] self-start transition-transform duration-200 md:sticky md:top-24 md:z-auto md:w-auto md:translate-x-0",
-            mobileMenuOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
-          )}
+          className="hidden self-start md:sticky md:top-24 md:block"
         >
           <div className={cx("flex h-full max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden rounded-2xl border md:max-h-[calc(100vh-8rem)] md:min-h-[calc(100vh-8rem)]", colors.card)}>
             <nav className="flex flex-1 flex-col overflow-y-auto p-3">
@@ -602,74 +595,6 @@ export default function App() {
                 </li>
                 <li>
                   <NavItem to="/money-activity" label={t("nav.moneyActivity")} icon={<I.Wallet className="h-full w-full" />} />
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setCollectionsOpen((value) => !value)}
-                    title={sidebarCollapsed ? t("nav.onlineCollections") : undefined}
-                    className={cx(
-                      "flex h-10 w-full items-center rounded-lg transition",
-                      sidebarCollapsed ? "justify-center px-0" : "gap-3 px-3",
-                      collectionsActive
-                        ? (isDark ? "surface-nav-active text-slate-100" : "surface-nav-active text-indigo-700")
-                        : isDark ? "text-slate-300 hover:bg-white/7" : "text-slate-600 hover:bg-white/45"
-                    )}
-                    aria-expanded={collectionsOpen}
-                  >
-                    <span className={cx("shrink-0", sidebarCollapsed ? "h-6 w-6" : "h-5 w-5")}>
-                      <I.OnlinePay className="h-full w-full" />
-                    </span>
-                    {!sidebarCollapsed && (
-                      <>
-                        <span className="min-w-0 flex-1 text-left">{t("nav.onlineCollections")}</span>
-                        <I.ChevronDown className={cx("h-4 w-4 shrink-0 transition-transform", collectionsOpen && "rotate-180")} />
-                      </>
-                    )}
-                  </button>
-                  {collectionsOpen && (
-                    sidebarCollapsed ? (
-                      <div className="mt-1 space-y-1 px-1">
-                        {collectionSections.map((item) => (
-                          <CollapsedSubNavItem key={item.to} to={item.to} label={item.label} icon={<I.OnlinePay className="h-full w-full" />} />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="ml-4 mt-1 space-y-2">
-                        {collectionMenuGroups.map((group) => (
-                          <div key={group.title} className="space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => toggleCollectionGroup(group.title)}
-                              aria-expanded={openCollectionGroups.includes(group.title)}
-                              className={cx(
-                                "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition",
-                                group.items.some((item) => item.to === location.pathname)
-                                  ? isDark ? "bg-orange-400/15 text-orange-100" : "bg-orange-50 text-orange-600"
-                                  : isDark ? "bg-white/5 text-slate-300 hover:bg-white/10" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-                              )}
-                            >
-                              <span className="h-4 w-4 shrink-0">{group.icon}</span>
-                              <span className="min-w-0 truncate">{group.title}</span>
-                              <I.ChevronDown
-                                className={cx(
-                                  "ml-auto h-3.5 w-3.5 shrink-0 transition-transform",
-                                  openCollectionGroups.includes(group.title) && "rotate-180"
-                                )}
-                              />
-                            </button>
-                            {openCollectionGroups.includes(group.title) && (
-                              <div className="ml-4 space-y-1">
-                                {group.items.map((item) => (
-                                  <SubNavItem key={item.to} to={item.to} label={item.label} icon={<I.OnlinePay className="h-full w-full" />} />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  )}
                 </li>
                 <li>
                   <button
@@ -758,6 +683,9 @@ export default function App() {
                 <li>
                   <NavItem to="/reports" label={t("nav.reports")} icon={<I.Reports className="h-full w-full" />} />
                 </li>
+                <li>
+                  <NavItem to="/trash" label={t("nav.trash")} icon={<I.Trash className="h-full w-full" />} />
+                </li>
               </ul>
               <button
                 type="button"
@@ -783,13 +711,7 @@ export default function App() {
             <Route path="/products" element={<Products isDark={isDark} />} />
             <Route path="/product-activity" element={<ProductActivity isDark={isDark} />} />
             <Route path="/money-activity" element={<MoneyActivity isDark={isDark} />} />
-            {collectionSections.map((item) => (
-              <Route
-                key={item.to}
-                path={item.to}
-                element={<OnlineCollections isDark={isDark} section={item.section} />}
-              />
-            ))}
+            <Route path="/online-collections/*" element={<Navigate to="/company/payment-integrations" replace />} />
             {companySections.map((item) => (
               <Route
                 key={item.to}
@@ -799,6 +721,7 @@ export default function App() {
             ))}
             <Route path="/reports" element={<Reports isDark={isDark} />} />
             <Route path="/accounting" element={<Accounting isDark={isDark} />} />
+            <Route path="/trash" element={<Trash isDark={isDark} />} />
             <Route path="/contacts/suppliers" element={<Counterparties isDark={isDark} kind="suppliers" />} />
             <Route path="/contacts/customers" element={<Counterparties isDark={isDark} kind="customers" />} />
           </Routes>
@@ -831,11 +754,17 @@ export default function App() {
         <BottomNavItem to="/money-activity" label={t("nav.money")} icon={<I.Wallet className="h-full w-full" />} />
         <button
           type="button"
-          onClick={() => setCreateMenuOpen(true)}
-          className="surface-primary flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-semibold"
+          onClick={openMobileMenu}
+          aria-expanded={mobileMenuOpen}
+          className={cx(
+            "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-semibold transition",
+            mobileMenuOpen
+              ? isDark ? "bg-indigo-400/15 text-indigo-100" : "bg-indigo-50 text-indigo-700"
+              : isDark ? "text-slate-400" : "text-slate-500"
+          )}
         >
-          <I.FilePlus className="h-5 w-5" />
-          <span>{t("action.create")}</span>
+          <I.Menu className="h-5 w-5" />
+          <span>{t("nav.menu")}</span>
         </button>
       </nav>
 
@@ -890,26 +819,8 @@ function LoginScreen({
             <div className="text-3xl font-semibold tracking-tight">AriX Panel</div>
             <div className={cx("mt-2 text-sm", subtle)}>{t("login.employee")}</div>
           </div>
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (selected) onLogin(selected);
-            }}
-          >
-            <label className="block">
-              <span className="mb-1 block text-sm font-semibold">{t("login.email")}</span>
-              <input className={cx("h-12 w-full rounded-xl border px-3 outline-none", control)} defaultValue={selected?.email ?? ""} placeholder="mail@arix.az" />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-semibold">{t("login.password")}</span>
-              <input className={cx("h-12 w-full rounded-xl border px-3 outline-none", control)} type="password" placeholder={t("login.passwordPlaceholder")} />
-            </label>
-            <button type="submit" className="surface-primary h-12 w-full rounded-xl px-5 text-sm font-semibold">
-              {t("login.submit")}
-            </button>
-            <div className={cx("text-center text-xs", subtle)}>{t("login.demo")}</div>
-          </form>
+          <GoogleSignIn isDark={isDark} demoEmail={selected.email} onAuthenticated={onLogin} />
+          <div className={cx("mt-4 text-center text-xs", subtle)}>{t("login.googleNotice")}</div>
         </div>
       </div>
 

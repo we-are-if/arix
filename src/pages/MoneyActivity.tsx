@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState, type Dispatch, type SetStateAction, type SVGProps } from "react";
 import { requestJson } from "../api";
+import BankStatementImportDialog from "../components/BankStatementImportDialog";
 import { formatAppDate, useI18n, type AppLanguage, type Translate } from "../i18n";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
@@ -64,6 +65,36 @@ type ApiDocument = {
   relationshipType?: "debtPayment" | "landedCost";
   costAllocations?: LandedCostAllocation[];
 };
+type ExternalPayment = {
+  id: string;
+  providerName: string;
+  externalId: string;
+  amount: number;
+  currency: string;
+  paidAt: string;
+  rawCustomerName?: string;
+  processingStatus: "unmatched" | "matched" | "posted";
+  counterpartyId?: string | number | null;
+  counterpartyName?: string;
+};
+type ExternalPaymentOverview = { total: number; posted: number; unmatched: number; pending: number };
+type BankTransaction = {
+  id: string;
+  financialAccountName: string;
+  direction: "in" | "out";
+  amount: number;
+  currency: string;
+  bookedAt: string;
+  counterpartyName: string;
+  counterpartyIban: string;
+  description: string;
+  status: "unmatched" | "matched" | "settlement_matched" | "ignored";
+  matchedDocumentTitle?: string;
+  suggestions?: Array<{ documentId: string; documentType: string; title: string; counterpartyName: string; amount: number; documentDate: string; confidence: string; score: number; reason: string }>;
+};
+type PaymentSettlement = { id: string; providerName: string; batchReference: string; netAmount: number; currency: string; expectedSettlementAt: string; financialAccountName: string; status: "expected" | "account_unmatched" | "settled" };
+type ReconciliationOverview = { accounts: number; bankTransactions: number; bankUnmatched: number; settlementsExpected: number; settlementsAccountUnmatched: number; settlementsCompleted: number };
+type BankImportBatch = { id: string; sourceName: string; sourceType: string; financialAccountName: string; rowCount: number; createdCount: number; duplicateCount: number; matchedCount: number; unmatchedCount: number; createdAt: string };
 
 const makeUI = (isDark: boolean) => ({
   card: `rounded-2xl border ${isDark ? "glass-panel-dark" : "glass-panel"}`,
@@ -265,12 +296,22 @@ export default function MoneyActivity({ isDark = false }: { isDark?: boolean }) 
   const [selectedDoc, setSelectedDoc] = useState<LinkedDoc | null>(null);
   const [moneyRows, setMoneyRows] = useState<MoneyRow[]>([]);
   const [rowDocuments, setRowDocuments] = useState<Record<number, LinkedDoc[]>>({});
+  const [externalPayments, setExternalPayments] = useState<ExternalPayment[]>([]);
+  const [externalOverview, setExternalOverview] = useState<ExternalPaymentOverview>({ total: 0, posted: 0, unmatched: 0, pending: 0 });
+  const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>([]);
+  const [settlements, setSettlements] = useState<PaymentSettlement[]>([]);
+  const [reconciliationOverview, setReconciliationOverview] = useState<ReconciliationOverview>({ accounts: 0, bankTransactions: 0, bankUnmatched: 0, settlementsExpected: 0, settlementsAccountUnmatched: 0, settlementsCompleted: 0 });
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   useEffect(() => {
     let cancelled = false;
     const loadMoneyActivity = async () => {
-      const payload = await requestJson<{ data: ApiDocument[] }>("/api/documents");
+      const [payload, externalPayload, bankPayload, settlementPayload] = await Promise.all([
+        requestJson<{ data: ApiDocument[] }>("/api/documents"),
+        requestJson<{ data: ExternalPayment[]; overview?: ExternalPaymentOverview }>("/api/payment-integrations/payments"),
+        requestJson<{ data: BankTransaction[]; overview?: ReconciliationOverview }>("/api/payment-integrations/bank-transactions"),
+        requestJson<{ data: PaymentSettlement[]; overview?: ReconciliationOverview }>("/api/payment-integrations/settlements"),
+      ]);
       if (cancelled || !Array.isArray(payload.data)) return;
       const nextRows: MoneyRow[] = [];
       const nextDocs: Record<number, LinkedDoc[]> = {};
@@ -284,11 +325,19 @@ export default function MoneyActivity({ isDark = false }: { isDark?: boolean }) 
       });
       setMoneyRows(nextRows);
       setRowDocuments(nextDocs);
+      setExternalPayments(Array.isArray(externalPayload.data) ? externalPayload.data : []);
+      setExternalOverview(externalPayload.overview ?? { total: 0, posted: 0, unmatched: 0, pending: 0 });
+      setBankTransactions(Array.isArray(bankPayload.data) ? bankPayload.data : []);
+      setSettlements(Array.isArray(settlementPayload.data) ? settlementPayload.data : []);
+      setReconciliationOverview(bankPayload.overview ?? settlementPayload.overview ?? { accounts: 0, bankTransactions: 0, bankUnmatched: 0, settlementsExpected: 0, settlementsAccountUnmatched: 0, settlementsCompleted: 0 });
     };
     void loadMoneyActivity().catch(() => {
       if (!cancelled) {
         setMoneyRows([]);
         setRowDocuments({});
+        setExternalPayments([]);
+        setBankTransactions([]);
+        setSettlements([]);
       }
     });
     window.addEventListener("arix:documents-updated", loadMoneyActivity);
@@ -394,6 +443,23 @@ export default function MoneyActivity({ isDark = false }: { isDark?: boolean }) 
           </div>
         </div>
 
+        {externalPayments.length > 0 && (
+          <ExternalPaymentsPanel
+            payments={externalPayments}
+            overview={externalOverview}
+            isDark={isDark}
+            onChanged={() => window.dispatchEvent(new Event("arix:documents-updated"))}
+          />
+        )}
+
+        <BankReconciliationPanel
+          transactions={bankTransactions}
+          settlements={settlements}
+          overview={reconciliationOverview}
+          isDark={isDark}
+          onChanged={() => window.dispatchEvent(new Event("arix:documents-updated"))}
+        />
+
         <div className={cx("flex min-h-0 flex-1 flex-col overflow-hidden", ui.card, ui.ring)}>
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="space-y-3 p-3 md:hidden">
@@ -481,6 +547,238 @@ export default function MoneyActivity({ isDark = false }: { isDark?: boolean }) 
       )}
       {selectedDoc && <LinkedDocumentPreview doc={selectedDoc} isDark={isDark} onClose={() => setSelectedDoc(null)} />}
     </>
+  );
+}
+
+function BankReconciliationPanel({
+  transactions,
+  settlements,
+  overview,
+  isDark,
+  onChanged,
+}: {
+  transactions: BankTransaction[];
+  settlements: PaymentSettlement[];
+  overview: ReconciliationOverview;
+  isDark: boolean;
+  onChanged: () => void;
+}) {
+  const unmatched = transactions.filter((item) => item.status === "unmatched");
+  const pendingSettlements = settlements.filter((item) => item.status !== "settled");
+  const [expanded, setExpanded] = useState(true);
+  const [counterparties, setCounterparties] = useState<Array<{ id: string | number; name: string; kind: "customer" | "supplier" }>>([]);
+  const [accounts, setAccounts] = useState<Array<{ id: string; name: string; currency?: string }>>([]);
+  const [choices, setChoices] = useState<Record<string, { matchType: string; value: string; remember: boolean }>>({});
+  const [message, setMessage] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [statementImportOpen, setStatementImportOpen] = useState(false);
+  const [importBatches, setImportBatches] = useState<BankImportBatch[]>([]);
+  const [importForm, setImportForm] = useState({ financialAccountId: "", direction: "in", amount: "", counterpartyName: "", counterpartyIban: "", description: "" });
+  const [settlementChoices, setSettlementChoices] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!expanded) return;
+    Promise.all([
+      requestJson<{ data: Array<{ id: string | number; name: string; kind: "customer" | "supplier" }> }>("/api/counterparties"),
+      requestJson<{ data: Array<{ id: string; name: string; currency?: string }> }>("/api/payment-integrations/accounts"),
+      requestJson<{ data: BankImportBatch[] }>("/api/payment-integrations/bank-imports"),
+    ]).then(([counterpartyPayload, accountPayload, batchPayload]) => {
+      setCounterparties(counterpartyPayload.data ?? []);
+      setAccounts(accountPayload.data ?? []);
+      setImportBatches(batchPayload.data ?? []);
+    }).catch(() => undefined);
+  }, [expanded]);
+  const updateChoice = (id: string, patch: Partial<{ matchType: string; value: string; remember: boolean }>) => setChoices((current) => ({ ...current, [id]: { matchType: current[id]?.matchType ?? "counterparty", value: current[id]?.value ?? "", remember: current[id]?.remember ?? true, ...patch } }));
+  const match = async (transaction: BankTransaction) => {
+    const suggestedDocumentId = transaction.suggestions?.[0]?.documentId ?? "";
+    const choice = choices[transaction.id] ?? { matchType: suggestedDocumentId ? "document" : "counterparty", value: suggestedDocumentId, remember: true };
+    setMessage("");
+    try {
+      const body = choice.matchType === "document"
+        ? { matchType: "document", documentId: choice.value }
+        : choice.matchType === "counterparty"
+        ? { matchType: "counterparty", counterpartyId: choice.value, remember: choice.remember }
+        : choice.matchType === "transfer"
+          ? { matchType: "transfer", targetAccountId: choice.value }
+          : choice.matchType === "expense"
+            ? { matchType: "expense", category: choice.value || "Diğer gider" }
+            : { matchType: "ignore" };
+      await requestJson(`/api/payment-integrations/bank-transactions/${transaction.id}/match`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Hareket eşleştirilemedi.");
+    }
+  };
+  const importMovement = async () => {
+    setMessage("");
+    try {
+      const account = accounts.find((item) => item.id === importForm.financialAccountId);
+      await requestJson("/api/payment-integrations/bank-transactions/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          financialAccountId: importForm.financialAccountId,
+          transactions: [{
+            transactionId: `MAN-${Date.now()}`,
+            amount: (importForm.direction === "out" ? -1 : 1) * Math.abs(Number(importForm.amount) || 0),
+            currency: account?.currency || "TRY",
+            date: new Date().toISOString(),
+            counterpartyName: importForm.counterpartyName,
+            counterpartyIban: importForm.counterpartyIban,
+            description: importForm.description,
+          }],
+        }),
+      });
+      setImportForm({ financialAccountId: "", direction: "in", amount: "", counterpartyName: "", counterpartyIban: "", description: "" });
+      setImportOpen(false);
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Banka hareketi içe aktarılamadı.");
+    }
+  };
+  const matchSettlementAccount = async (settlement: PaymentSettlement) => {
+    const financialAccountId = settlementChoices[settlement.id];
+    if (!financialAccountId) return;
+    setMessage("");
+    try {
+      await requestJson(`/api/payment-integrations/settlements/${settlement.id}/match`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ financialAccountId, remember: true }) });
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Hakediş hesabı eşleştirilemedi.");
+    }
+  };
+  const statementImported = () => {
+    onChanged();
+    requestJson<{ data: BankImportBatch[] }>("/api/payment-integrations/bank-imports")
+      .then((payload) => setImportBatches(payload.data ?? []))
+      .catch(() => undefined);
+  };
+  return (
+    <>
+    <section className={cx("shrink-0 overflow-hidden rounded-2xl border", isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/65")}>
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
+        <button type="button" onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-left">
+        <span className="font-semibold">Banka ve hakediş mutabakatı</span>
+        <span className="rounded-full bg-rose-500/12 px-2.5 py-1 text-xs font-semibold text-rose-700">Eşleşmeyen {overview.bankUnmatched}</span>
+        <span className="rounded-full bg-amber-500/12 px-2.5 py-1 text-xs font-semibold text-amber-700">Hakediş bekleyen {overview.settlementsExpected}</span>
+        <span className="rounded-full bg-indigo-500/12 px-2.5 py-1 text-xs font-semibold text-indigo-700">Hesabı bulunamayan {overview.settlementsAccountUnmatched}</span>
+        <span className="rounded-full bg-emerald-500/12 px-2.5 py-1 text-xs font-semibold text-emerald-700">Tamamlanan {overview.settlementsCompleted}</span>
+        <span className="ml-auto text-xs text-slate-500">{expanded ? "Daralt" : "Aç"}</span>
+        </button>
+        <button type="button" onClick={() => { setExpanded(true); setImportOpen((value) => !value); }} className={cx("h-9 rounded-lg border px-3 text-xs font-semibold", isDark ? "border-white/10 hover:bg-white/10" : "border-slate-200 hover:bg-white")}>Tek hareket ekle</button>
+        <button type="button" onClick={() => setStatementImportOpen(true)} className="surface-primary h-9 rounded-lg px-3 text-xs font-semibold">Ekstre içe aktar</button>
+      </div>
+      {expanded && (
+        <div className={cx("grid gap-4 border-t p-4 xl:grid-cols-2", isDark ? "border-white/10" : "border-slate-200/70")}>
+          {importOpen && <div className={cx("grid gap-2 rounded-xl border p-3 sm:grid-cols-2 xl:col-span-2 xl:grid-cols-4", isDark ? "border-white/10" : "border-slate-200")}><select value={importForm.financialAccountId} onChange={(event) => setImportForm({ ...importForm, financialAccountId: event.target.value })} className={cx("h-9 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")}><option value="">Şirket hesabı</option>{accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><div className="grid grid-cols-[100px_1fr] gap-2"><select value={importForm.direction} onChange={(event) => setImportForm({ ...importForm, direction: event.target.value })} className={cx("h-9 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")}><option value="in">Gelen</option><option value="out">Giden</option></select><input type="number" value={importForm.amount} onChange={(event) => setImportForm({ ...importForm, amount: event.target.value })} placeholder="Tutar" className={cx("h-9 min-w-0 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")} /></div><input value={importForm.counterpartyName} onChange={(event) => setImportForm({ ...importForm, counterpartyName: event.target.value })} placeholder="Gönderen / alıcı" className={cx("h-9 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")} /><input value={importForm.counterpartyIban} onChange={(event) => setImportForm({ ...importForm, counterpartyIban: event.target.value.toUpperCase() })} placeholder="Karşı taraf IBAN" className={cx("h-9 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")} /><input value={importForm.description} onChange={(event) => setImportForm({ ...importForm, description: event.target.value })} placeholder="Banka açıklaması" className={cx("h-9 rounded-lg border px-2 text-sm xl:col-span-3", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")} /><button type="button" onClick={() => void importMovement()} disabled={!importForm.financialAccountId || !Number(importForm.amount)} className="surface-primary h-9 rounded-lg px-3 text-xs font-semibold disabled:opacity-50">İçe aktar</button></div>}
+          <div>
+            <h3 className="text-sm font-semibold">Eşleşmeyen banka hareketleri</h3>
+            <p className="mt-1 text-xs text-slate-500">Bir defa eşleştirilen IBAN sonraki hareketlerde otomatik tanınır.</p>
+            <div className="mt-3 space-y-2">
+              {unmatched.slice(0, 6).map((transaction) => {
+                const suggestedDocumentId = transaction.suggestions?.[0]?.documentId ?? "";
+                const choice = choices[transaction.id] ?? { matchType: suggestedDocumentId ? "document" : "counterparty", value: suggestedDocumentId, remember: true };
+                const validCounterparties = counterparties.filter((item) => item.kind === (transaction.direction === "in" ? "customer" : "supplier"));
+                return (
+                  <div key={transaction.id} className={cx("rounded-xl border p-3", isDark ? "border-white/10" : "border-slate-200")}>
+                    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-semibold">{transaction.counterpartyName || transaction.description || "İsimsiz hareket"}</div><div className="mt-1 truncate text-xs text-slate-500">{transaction.financialAccountName} · {transaction.counterpartyIban || "IBAN yok"}</div></div><div className={cx("shrink-0 text-sm font-semibold", transaction.direction === "in" ? "text-emerald-600" : "text-rose-600")}>{transaction.direction === "in" ? "+" : "-"}{transaction.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} {transaction.currency}</div></div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)_auto]">
+                      <select value={choice.matchType} onChange={(event) => updateChoice(transaction.id, { matchType: event.target.value, value: event.target.value === "document" ? suggestedDocumentId : "" })} className={cx("h-9 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")}>{transaction.suggestions?.length ? <option value="document">Önerilen belge</option> : null}<option value="counterparty">{transaction.direction === "in" ? "Müşteri" : "Tedarikçi"}</option>{transaction.direction === "out" && <option value="expense">Gider</option>}<option value="transfer">Hesap transferi</option><option value="ignore">Yok say</option></select>
+                      {choice.matchType === "document" ? <select value={choice.value} onChange={(event) => updateChoice(transaction.id, { value: event.target.value })} className={cx("h-9 min-w-0 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")}><option value="">Belge seçin</option>{transaction.suggestions?.map((suggestion) => <option key={suggestion.documentId} value={suggestion.documentId}>{suggestion.title} · %{Math.min(100, suggestion.score)} · {suggestion.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</option>)}</select> : choice.matchType === "counterparty" ? <select value={choice.value} onChange={(event) => updateChoice(transaction.id, { value: event.target.value })} className={cx("h-9 min-w-0 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")}><option value="">Seçin</option>{validCounterparties.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : choice.matchType === "transfer" ? <select value={choice.value} onChange={(event) => updateChoice(transaction.id, { value: event.target.value })} className={cx("h-9 min-w-0 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")}><option value="">Hedef hesap</option>{accounts.filter((item) => item.name !== transaction.financialAccountName).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : choice.matchType === "expense" ? <input value={choice.value} onChange={(event) => updateChoice(transaction.id, { value: event.target.value })} placeholder="Gider kategorisi" className={cx("h-9 min-w-0 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")} /> : <div />}
+                      <button type="button" onClick={() => void match(transaction)} disabled={choice.matchType !== "ignore" && !choice.value} className="surface-primary h-9 rounded-lg px-3 text-xs font-semibold disabled:opacity-50">{choice.matchType === "document" ? "Kabul et" : "İşle"}</button>
+                    </div>
+                    {choice.matchType === "document" && transaction.suggestions?.find((item) => item.documentId === choice.value) && <div className="mt-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">{transaction.suggestions.find((item) => item.documentId === choice.value)?.reason}</div>}
+                    {choice.matchType === "counterparty" && transaction.counterpartyIban && <label className="mt-2 flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" checked={choice.remember} onChange={(event) => updateChoice(transaction.id, { remember: event.target.checked })} />Bu IBAN eşleştirmesini hatırla</label>}
+                  </div>
+                );
+              })}
+              {!unmatched.length && <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">Eşleşmeyen banka hareketi yok.</div>}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold">Bekleyen POS hakedişleri</h3>
+            <p className="mt-1 text-xs text-slate-500">Banka hareketi geldiğinde batch veya net tutar/valör ile otomatik kapanır.</p>
+            <div className="mt-3 space-y-2">{pendingSettlements.slice(0, 8).map((item) => <div key={item.id} className={cx("rounded-xl border p-3", isDark ? "border-white/10" : "border-slate-200")}><div className="flex items-center justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-semibold">{item.providerName} · {item.batchReference}</div><div className="mt-1 text-xs text-slate-500">{item.financialAccountName || "Hedef hesap eşleşmedi"} · {new Date(item.expectedSettlementAt).toLocaleDateString("tr-TR")}</div></div><div className="text-right"><div className="text-sm font-semibold">{item.netAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} {item.currency}</div><div className={cx("mt-1 text-xs font-semibold", item.status === "account_unmatched" ? "text-rose-600" : "text-amber-600")}>{item.status === "account_unmatched" ? "Hesap gerekli" : "Bankaya geçmesi bekleniyor"}</div></div></div>{item.status === "account_unmatched" && <div className="mt-3 flex gap-2"><select value={settlementChoices[item.id] ?? ""} onChange={(event) => setSettlementChoices((current) => ({ ...current, [item.id]: event.target.value }))} className={cx("h-9 min-w-0 flex-1 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")}><option value="">Hakediş hesabı seçin</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select><button type="button" onClick={() => void matchSettlementAccount(item)} disabled={!settlementChoices[item.id]} className="surface-primary h-9 rounded-lg px-3 text-xs font-semibold disabled:opacity-50">Eşleştir ve hatırla</button></div>}</div>)}{!pendingSettlements.length && <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">Bekleyen hakediş yok.</div>}</div>
+          </div>
+          {importBatches.length > 0 && <div className="xl:col-span-2"><h3 className="text-sm font-semibold">Son ekstre yüklemeleri</h3><div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{importBatches.slice(0, 6).map((batch) => <div key={batch.id} className={cx("rounded-xl border p-3", isDark ? "border-white/10" : "border-slate-200")}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-semibold">{batch.sourceName}</div><div className="mt-1 text-xs text-slate-500">{batch.financialAccountName} · {new Date(batch.createdAt).toLocaleString("tr-TR")}</div></div><span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold uppercase text-slate-600">{batch.sourceType}</span></div><div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500"><span>{batch.createdCount} yeni</span><span>{batch.duplicateCount} mükerrer</span><span>{batch.matchedCount} eşleşen</span><span>{batch.unmatchedCount} bekleyen</span></div></div>)}</div></div>}
+          {message && <div className="text-sm text-rose-600 xl:col-span-2">{message}</div>}
+        </div>
+      )}
+    </section>
+    {statementImportOpen && <BankStatementImportDialog accounts={accounts} isDark={isDark} onClose={() => setStatementImportOpen(false)} onImported={statementImported} />}
+    </>
+  );
+}
+
+function ExternalPaymentsPanel({
+  payments,
+  overview,
+  isDark,
+  onChanged,
+}: {
+  payments: ExternalPayment[];
+  overview: ExternalPaymentOverview;
+  isDark: boolean;
+  onChanged: () => void;
+}) {
+  const unmatched = payments.filter((item) => item.processingStatus === "unmatched");
+  const [customers, setCustomers] = useState<Array<{ id: string | number; name: string }>>([]);
+  const [selection, setSelection] = useState<Record<string, string>>( {} );
+  const [savingId, setSavingId] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!unmatched.length) return;
+    requestJson<{ data: Array<{ id: string | number; name: string; kind?: string }> }>("/api/counterparties?kind=customer")
+      .then((payload) => setCustomers((payload.data ?? []).filter((item) => item.kind !== "supplier")))
+      .catch(() => setCustomers([]));
+  }, [unmatched.length]);
+  const match = async (payment: ExternalPayment) => {
+    const counterpartyId = selection[payment.id];
+    if (!counterpartyId) return;
+    setSavingId(payment.id);
+    setError("");
+    try {
+      await requestJson(`/api/payment-integrations/payments/${payment.id}/match`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ counterpartyId }),
+      });
+      onChanged();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Ödeme eşleştirilemedi.");
+    } finally {
+      setSavingId("");
+    }
+  };
+  return (
+    <section className={cx("shrink-0 overflow-hidden rounded-2xl border", isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/65")}>
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
+        <span className="font-semibold">Harici tahsilatlar</span>
+        <span className="rounded-full bg-emerald-500/12 px-2.5 py-1 text-xs font-semibold text-emerald-700">İşlenen {overview.posted}</span>
+        <span className="rounded-full bg-amber-500/12 px-2.5 py-1 text-xs font-semibold text-amber-700">Eşleşmeyen {overview.unmatched}</span>
+        <span className="rounded-full bg-sky-500/12 px-2.5 py-1 text-xs font-semibold text-sky-700">Bekleyen {overview.pending}</span>
+      </div>
+      {unmatched.length > 0 && (
+        <div className={cx("border-t px-4 py-3", isDark ? "border-white/10" : "border-slate-200/70")}>
+          <div className="mb-2 text-xs text-amber-700">Bu ödemeler müşteri kesinleşmeden cari hesaba işlenmez.</div>
+          <div className="grid gap-2 xl:grid-cols-2">
+            {unmatched.slice(0, 4).map((payment) => (
+              <div key={payment.id} className={cx("flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center", isDark ? "border-white/10" : "border-slate-200")}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{payment.rawCustomerName || payment.externalId}</div>
+                  <div className="text-xs text-slate-500">{payment.providerName} · {payment.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} {payment.currency}</div>
+                </div>
+                <select value={selection[payment.id] ?? ""} onChange={(event) => setSelection((current) => ({ ...current, [payment.id]: event.target.value }))} className={cx("h-9 min-w-48 rounded-lg border px-2 text-sm", isDark ? "border-white/10 bg-slate-900" : "border-slate-200 bg-white")}>
+                  <option value="">Müşteri seç</option>
+                  {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+                </select>
+                <button type="button" disabled={!selection[payment.id] || savingId === payment.id} onClick={() => match(payment)} className="surface-primary h-9 rounded-lg px-3 text-xs font-semibold disabled:opacity-50">Eşleştir</button>
+              </div>
+            ))}
+          </div>
+          {error && <div className="mt-2 text-xs text-rose-600">{error}</div>}
+        </div>
+      )}
+    </section>
   );
 }
 

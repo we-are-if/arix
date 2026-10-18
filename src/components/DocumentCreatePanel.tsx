@@ -143,6 +143,9 @@ export type ApiDocumentDraft = {
   documentDate?: string;
   createdAt?: string;
   account?: string;
+  financialAccountId?: string;
+  bankMatchStatus?: "pending" | "matched";
+  bankTransactionId?: string;
   fromAccount?: string;
   toAccount?: string;
   counterpartyId?: string | number | null;
@@ -216,6 +219,14 @@ export type ApiDocumentDraft = {
 };
 
 type ApiDocument = ApiDocumentDraft;
+
+type FinancialAccountOption = {
+  id: string;
+  name: string;
+  type: "bank" | "cash" | "store";
+  currency: string;
+  status: "active" | "inactive";
+};
 
 type DocumentLinkType = "debtPayment" | "landedCost" | "movementCost";
 
@@ -1124,6 +1135,8 @@ export default function DocumentCreatePanel({
   const [countRequest, setCountRequest] = useState<CountRequest | null>(null);
   const [countInput, setCountInput] = useState("1");
   const [moneyAccount, setMoneyAccount] = useState(editingDocument?.account ?? accounts[0]);
+  const [moneyFinancialAccountId, setMoneyFinancialAccountId] = useState(editingDocument?.financialAccountId ?? "");
+  const [financialAccounts, setFinancialAccounts] = useState<FinancialAccountOption[]>([]);
   const [moneyTarget, setMoneyTarget] = useState(editingDocument?.counterpartyName ?? "");
   const [moneyCategory, setMoneyCategory] = useState(editingDocument?.category ?? "");
   const [moneyMethod, setMoneyMethod] = useState(editingDocument?.method ?? "Bank");
@@ -1682,6 +1695,11 @@ export default function DocumentCreatePanel({
   }, [editingDocument?.id, landedCosts]);
   const purchaseCostTotal = purchaseLandedCosts.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
   const purchaseUnitCostTotal = purchaseLandedCosts.reduce((sum, item) => sum + Number(item.unitCost ?? 0), 0);
+  const moneyAccountOptions = useMemo<FinancialAccountOption[]>(() => {
+    const active = financialAccounts.filter((item) => item.status === "active");
+    if (active.length) return active;
+    return accounts.map((name) => ({ id: "", name, type: "cash", currency: "TRY", status: "active" }));
+  }, [financialAccounts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1701,6 +1719,28 @@ export default function DocumentCreatePanel({
       window.removeEventListener("arix:stores-updated", loadStores);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMoney) return;
+    let cancelled = false;
+    requestJson<{ data: FinancialAccountOption[] }>("/api/payment-integrations/accounts")
+      .then((payload) => {
+        if (cancelled) return;
+        const next = Array.isArray(payload.data) ? payload.data : [];
+        setFinancialAccounts(next);
+        if (!moneyFinancialAccountId && next[0]) {
+          setMoneyFinancialAccountId(next[0].id);
+          setMoneyAccount(next[0].name);
+          setMoneyMethod(next[0].type === "bank" ? "Bank" : "Nağd");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFinancialAccounts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMoney, moneyFinancialAccountId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2118,6 +2158,8 @@ export default function DocumentCreatePanel({
         status: posted ? "posted" : "draft",
         documentDate,
         account: isMoney ? moneyAccount : kind === "movement" ? movementFromAccount : documentAccount,
+        financialAccountId: isMoney ? moneyFinancialAccountId || undefined : undefined,
+        bankMatchStatus: isMoney && moneyFinancialAccountId && ["cashIn", "cashOut"].includes(kind) ? "pending" : undefined,
         fromAccount: kind === "cashTransfer" ? moneyAccount : kind === "movement" ? movementFromAccount : undefined,
         toAccount: kind === "cashTransfer" ? moneyTarget : kind === "movement" ? movementToAccount : undefined,
         counterpartyId: counterpartyId ? Number(counterpartyId) : null,
@@ -2417,6 +2459,8 @@ export default function DocumentCreatePanel({
                 kind={kind}
                 isDark={isDark}
                 account={moneyAccount}
+                financialAccountId={moneyFinancialAccountId}
+                accountOptions={moneyAccountOptions}
                 target={moneyTarget}
                 category={moneyCategory}
                 method={moneyMethod}
@@ -2430,7 +2474,7 @@ export default function DocumentCreatePanel({
                 costContainerKeys={costContainerKeys}
                 costContainerOptions={costContainerOptions}
                 costPreview={costPreview}
-                onAccountChange={setMoneyAccount}
+                onAccountChange={(option) => { setMoneyAccount(option.name); setMoneyFinancialAccountId(option.id); setMoneyMethod(option.type === "bank" ? "Bank" : "Nağd"); }}
                 onTargetChange={setMoneyTarget}
                 onCategoryChange={setMoneyCategory}
                 onMethodChange={setMoneyMethod}
@@ -4341,6 +4385,8 @@ function MoneyForm({
   kind,
   isDark,
   account,
+  financialAccountId,
+  accountOptions,
   target,
   category,
   method,
@@ -4369,6 +4415,8 @@ function MoneyForm({
   kind: DocumentCreateKind;
   isDark: boolean;
   account: string;
+  financialAccountId: string;
+  accountOptions: FinancialAccountOption[];
   target: string;
   category: string;
   method: string;
@@ -4382,7 +4430,7 @@ function MoneyForm({
   costContainerKeys: string[];
   costContainerOptions: CostContainerOption[];
   costPreview: { amount: number; qty: number; unit: number };
-  onAccountChange: (value: string) => void;
+  onAccountChange: (value: FinancialAccountOption) => void;
   onTargetChange: (value: string) => void;
   onCategoryChange: (value: string) => void;
   onMethodChange: (value: string) => void;
@@ -4416,9 +4464,17 @@ function MoneyForm({
       <div className="grid gap-4 lg:grid-cols-2">
         <label className="block">
           <span className="mb-2 block text-sm font-semibold text-slate-500">{fromTo ? "Hesabdan" : "Hesab"} <span className="text-rose-500">*</span></span>
-          <select value={account} onChange={(event) => onAccountChange(event.target.value)} className={input}>
-            {accounts.map((item) => <option key={item} value={item}>{item}</option>)}
+          <select
+            value={financialAccountId || `legacy:${account}`}
+            onChange={(event) => {
+              const selected = accountOptions.find((item) => (item.id || `legacy:${item.name}`) === event.target.value);
+              if (selected) onAccountChange(selected);
+            }}
+            className={input}
+          >
+            {accountOptions.map((item) => <option key={item.id || item.name} value={item.id || `legacy:${item.name}`}>{item.name}{item.type === "bank" ? ` · ${item.currency}` : ""}</option>)}
           </select>
+          {financialAccountId && <span className={cx("mt-2 block text-xs", subtle)}>Bu ödeme bankadan geldiğinde mevcut belgeyle eşleştirilecek; ikinci gider oluşturulmayacak.</span>}
         </label>
         <label className="block">
           <span className="mb-2 block text-sm font-semibold text-slate-500">{fromTo ? "Hesaba" : "Kontragent"} <span className="text-rose-500">*</span></span>

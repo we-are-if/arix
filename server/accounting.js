@@ -160,9 +160,11 @@ export function ensureCounterpartyAccounting(db, counterparty) {
 }
 
 const amount = (value) => Math.round((Number(value) || 0) * 100) / 100;
-const accountForMoney = (document, settings) => String(document.account ?? "").toLocaleLowerCase("tr-TR").includes("bank")
-  ? settings.accounts.bank
-  : settings.accounts.cash;
+const accountForMoney = (document, settings, db) => {
+  const financialAccount = (db?.financialAccounts ?? []).find((item) => item.id === document.financialAccountId);
+  if (financialAccount) return financialAccount.type === "bank" ? settings.accounts.bank : settings.accounts.cash;
+  return String(document.account ?? "").toLocaleLowerCase("tr-TR").includes("bank") ? settings.accounts.bank : settings.accounts.cash;
+};
 
 function counterpartyAccount(db, document, kind) {
   const counterparty = db.counterparties.find((item) => Number(item.id) === Number(document.counterpartyId));
@@ -183,7 +185,7 @@ function postingLines(db, document) {
   if (!total || document.posted === false || document.status === "draft") return [];
   const customer = counterpartyAccount(db, document, "customer");
   const supplier = counterpartyAccount(db, document, "supplier");
-  const cash = accountForMoney(document, db.accounting.settings);
+  const cash = accountForMoney(document, db.accounting.settings, db);
   const lines = [];
   const push = (accountCode, debit = 0, credit = 0, description = "") => lines.push({ accountCode, debit: amount(debit), credit: amount(credit), description });
   const tax = amount(document.taxTotal);
@@ -216,7 +218,8 @@ function postingLines(db, document) {
   } else if (document.type === "cashOut") {
     push(document.counterpartyId ? supplier : cfg.generalExpense, total, 0, document.counterpartyName || document.category); push(cash, 0, total, "Pul çıxışı");
   } else if (document.type === "cashTransfer") {
-    push(String(document.toAccount ?? "").toLocaleLowerCase("tr-TR").includes("bank") ? cfg.bank : cfg.cash, total, 0, "Hədəf hesab");
+    const targetFinancialAccount = (db.financialAccounts ?? []).find((item) => item.id === document.toFinancialAccountId);
+    push(targetFinancialAccount ? targetFinancialAccount.type === "bank" ? cfg.bank : cfg.cash : String(document.toAccount ?? "").toLocaleLowerCase("tr-TR").includes("bank") ? cfg.bank : cfg.cash, total, 0, "Hədəf hesab");
     push(cash, 0, total, "Mənbə hesab");
   } else if (document.type === "openingBalance") {
     push(cfg.inventory, total, 0, "Açılış stoku"); push(cfg.openingEquity, 0, total, "Açılış qarşılığı");

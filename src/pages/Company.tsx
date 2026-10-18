@@ -5,8 +5,9 @@ import { requestJson } from "../api";
 import AriXLogo from "../components/AriXLogo";
 import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type PrintCompanyDetails, type PrintFormKey, type PrintSettings } from "../print/printSettings";
 import EDocumentsSettings from "../components/EDocumentsSettings";
+import { PaymentIntegrationSettings } from "./OnlineCollections";
 
-export type CompanySection = "settings" | "employees" | "stores" | "accounts" | "loyalty" | "printForms" | "eDocuments";
+export type CompanySection = "settings" | "employees" | "stores" | "accounts" | "loyalty" | "printForms" | "eDocuments" | "paymentIntegrations";
 type StockMode = "simple" | "bondedRolls";
 type ExchangeRateSource = "tcmb" | "cbar" | "frankfurter" | "manual";
 type DocumentRateDay = "instant" | "previousDay" | "twoDaysBefore";
@@ -182,6 +183,7 @@ const titles: Record<CompanySection, { title: string; subtitle: string }> = {
   loyalty: { title: "Sadiqlik", subtitle: "Endirim, bonus və müştəri sadiqliyi qaydaları." },
   printForms: { title: "Çap formaları", subtitle: "Sənəd, qəbz və etiket şablonları." },
   eDocuments: { title: "e-Belgələr", subtitle: "e-Fatura, e-Arşiv və e-İrsaliye bağlantıları." },
+  paymentIntegrations: { title: "Ödəniş inteqrasiyaları", subtitle: "Xarici sistemlərdən ödənişlərin alınması və cari hesaba işlənməsi." },
 };
 
 const employees = [
@@ -192,12 +194,96 @@ const employees = [
   { name: "Mustafa Yazman", role: "Maliyyə", phone: "+90 533 965 488", email: "mustafa@arix.az", tone: "violet" },
 ];
 
-const accounts = [
-  { name: "Kassa №1", type: "Kassa", date: "22 sentyabr 2024", balance: "0.00 ₼" },
-  { name: "Ekrem Tiryaki", type: "Kassa", date: "11 noyabr 2024", balance: "0.00 ₼" },
-  { name: "ERSA DEPO", type: "Mağaza hesabı", date: "22 sentyabr 2024", balance: "522,199.72 ₼" },
-  { name: "ERSA ANTREPO", type: "Mağaza hesabı", date: "5 noyabr 2024", balance: "-1,147,922.59 ₼" },
-];
+type FinancialAccount = {
+  id: string;
+  name: string;
+  type: "bank" | "cash" | "store";
+  bankName: string;
+  branchName: string;
+  iban: string;
+  accountNumber: string;
+  currency: string;
+  accountingCode: string;
+  currentBalance: number;
+  integrationMode: "api" | "open_banking" | "file" | "manual";
+  status: "active" | "inactive";
+};
+
+type CompanyCard = {
+  id: string;
+  financialAccountId: string;
+  name: string;
+  kind: "credit" | "debit" | "prepaid" | "virtual";
+  lastFour: string;
+  holderName: string;
+  network: string;
+  currency: string;
+  creditLimit: number;
+  statementDay: number;
+  paymentDay: number;
+  status: "active" | "inactive";
+  transactions: CardTransaction[];
+};
+
+type CardTransaction = {
+  id: string;
+  externalId: string;
+  direction: "expense" | "refund";
+  amount: number;
+  currency: string;
+  transactionAt: string;
+  merchantName: string;
+  description: string;
+  installmentCount: number;
+  status: "invoice_unmatched" | "matched";
+};
+
+type AccountBankTransaction = {
+  id: string;
+  direction: "in" | "out";
+  amount: number;
+  currency: string;
+  bookedAt: string;
+  counterpartyName: string;
+  description: string;
+  status: string;
+  matchedDocumentTitle?: string;
+  suggestions?: Array<{ documentId: string; documentType: string; title: string; counterpartyName: string; amount: number; documentDate: string; confidence: string; score: number; reason: string }>;
+};
+
+type AccountMoneyDocument = {
+  id: string;
+  type: "cashIn" | "cashOut" | "cashTransfer";
+  documentDate?: string;
+  createdAt?: string;
+  counterpartyName?: string;
+  category?: string;
+  amount?: number;
+  total?: number;
+  bankMatchStatus?: "pending" | "matched";
+  bankTransactionId?: string;
+  linkedDocument?: string;
+};
+
+type AccountVirtualPos = {
+  id: string;
+  providerName: string;
+  connectionLabel: string;
+  merchantId: string;
+  terminalId: string;
+  currency: string;
+  active: boolean;
+  settlements: Array<{ id: string; batchReference: string; grossAmount: number; commissionAmount: number; netAmount: number; expectedSettlementAt: string; status: string }>;
+  transactions: Array<{ id: string; externalId: string; amount: number; currency: string; paidAt: string; counterpartyName?: string; rawCustomerName?: string; settlementStatus?: string }>;
+};
+
+type FinancialAccountDetails = {
+  account: FinancialAccount;
+  bankTransactions: AccountBankTransaction[];
+  moneyDocuments: AccountMoneyDocument[];
+  cards: CompanyCard[];
+  virtualPos: AccountVirtualPos[];
+};
 
 const printGroups: Array<{ title: string; forms: Array<{ key: PrintFormKey; label: string; description: string }> }> = [
   {
@@ -309,12 +395,13 @@ export default function Company({ section, isDark = false }: { section: CompanyS
       { label: "Antrepo", value: String(companyStores.filter((store) => store.isBonded).length) },
       { label: "Aktiv nöqtə", value: String(companyStores.filter((store) => store.status === "active").length) },
     ];
-    if (section === "accounts") return [{ label: "Balans", value: "-625,722.87 ₼" }, { label: "Kassa", value: "2" }, { label: "Mağaza hesabı", value: "2" }];
+    if (section === "accounts") return [];
     if (section === "printForms") {
       const templateCount = printGroups.reduce((total, group) => total + group.forms.length, 0);
       return [{ label: "Şablon", value: String(templateCount) }, { label: "Aktiv", value: String(templateCount) }, { label: "Qrup", value: String(printGroups.length) }];
     }
     if (section === "eDocuments") return [{ label: "Mühit", value: "Test" }, { label: "Provayder", value: "AriX Test" }, { label: "Modul", value: "5" }];
+    if (section === "paymentIntegrations") return [];
     return [{ label: "Profil", value: "Hazır" }, { label: "Valyuta", value: "AZN" }, { label: "Ölkə", value: "Azərbaycan" }];
   }, [companyStores, section]);
 
@@ -342,7 +429,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
             <h1 className="mt-1 text-2xl font-semibold">{meta.title}</h1>
             <p className={cx("mt-1 text-sm", subtle)}>{meta.subtitle}</p>
           </div>
-          {section !== "settings" && section !== "printForms" && section !== "eDocuments" && (
+          {section !== "settings" && section !== "accounts" && section !== "printForms" && section !== "eDocuments" && section !== "paymentIntegrations" && (
             <button
               type="button"
               onClick={() => section === "stores" && window.dispatchEvent(new Event("arix:create-store"))}
@@ -354,14 +441,16 @@ export default function Company({ section, isDark = false }: { section: CompanyS
         </div>
       </div>
 
-      <div className="grid shrink-0 gap-3 md:grid-cols-3">
-        {stats.map((item) => (
-          <div key={item.label} className={cx("rounded-2xl border p-4", border, card)}>
-            <div className={cx("text-xs font-semibold", subtle)}>{item.label}</div>
-            <div className="mt-2 text-2xl font-semibold tabular-nums">{item.value}</div>
-          </div>
-        ))}
-      </div>
+      {stats.length > 0 && (
+        <div className="grid shrink-0 gap-3 md:grid-cols-3">
+          {stats.map((item) => (
+            <div key={item.label} className={cx("rounded-2xl border p-4", border, card)}>
+              <div className={cx("text-xs font-semibold", subtle)}>{item.label}</div>
+              <div className="mt-2 text-2xl font-semibold tabular-nums">{item.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {section === "settings" && <SettingsView border={border} card={card} subtle={subtle} input={input} />}
       {section === "printForms" && <PrintFormsView border={border} card={card} soft={soft} subtle={subtle} input={input} isDark={isDark} />}
@@ -372,6 +461,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
           {section === "accounts" && <AccountsView border={border} card={card} soft={soft} subtle={subtle} />}
           {section === "loyalty" && <LoyaltyView border={border} card={card} soft={soft} subtle={subtle} />}
           {section === "eDocuments" && <EDocumentsSettings border={border} card={card} subtle={subtle} input={input} isDark={isDark} />}
+          {section === "paymentIntegrations" && <PaymentIntegrationSettings isDark={isDark} />}
         </div>
       )}
     </div>
@@ -995,10 +1085,217 @@ function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
 }
 
 function AccountsView({ border, card, soft, subtle }: { border: string; card: string; soft: string; subtle: string }) {
+  const emptyForm = { name: "", type: "bank" as FinancialAccount["type"], bankName: "", branchName: "", iban: "", accountNumber: "", currency: "TRY", accountingCode: "102", openingBalance: "0", integrationMode: "manual" as FinancialAccount["integrationMode"] };
+  const emptyCardForm = { name: "", kind: "credit" as CompanyCard["kind"], lastFour: "", holderName: "", network: "Visa", currency: "TRY", creditLimit: "0", statementDay: "", paymentDay: "" };
+  const emptyMovementForm = { merchantName: "", amount: "", direction: "expense" as CardTransaction["direction"], description: "", transactionAt: new Date().toISOString().slice(0, 16), installmentCount: "1" };
+  const [items, setItems] = useState<FinancialAccount[]>([]);
+  const [form, setForm] = useState(emptyForm);
+  const [creating, setCreating] = useState(false);
+  const [details, setDetails] = useState<FinancialAccountDetails | null>(null);
+  const [detailMode, setDetailMode] = useState<"bank" | "cards" | "pos">("bank");
+  const [selectedChildId, setSelectedChildId] = useState("");
+  const [selectedBankTransactionId, setSelectedBankTransactionId] = useState("");
+  const [cardCreating, setCardCreating] = useState(false);
+  const [cardForm, setCardForm] = useState(emptyCardForm);
+  const [movementCreating, setMovementCreating] = useState(false);
+  const [movementForm, setMovementForm] = useState(emptyMovementForm);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const load = async () => {
+    try {
+      const payload = await requestJson<{ data: FinancialAccount[] }>("/api/payment-integrations/accounts");
+      setItems(payload.data ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Hesaplar yüklenemedi.");
+    }
+  };
+  useEffect(() => { void load(); }, []);
+  const loadDetails = async (accountId: string) => {
+    setMessage("");
+    try {
+      const payload = await requestJson<{ data: FinancialAccountDetails }>(`/api/payment-integrations/accounts/${accountId}`);
+      setDetails(payload.data);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Hesap detayı yüklenemedi.");
+    }
+  };
+  const save = async () => {
+    setSaving(true);
+    setMessage("");
+    try {
+      await requestJson("/api/payment-integrations/accounts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...form, openingBalance: Number(form.openingBalance) || 0 }),
+      });
+      setForm(emptyForm);
+      setCreating(false);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Hesap kaydedilemedi.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const saveCard = async () => {
+    if (!details) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await requestJson(`/api/payment-integrations/accounts/${details.account.id}/cards`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...cardForm,
+          creditLimit: Number(cardForm.creditLimit) || 0,
+          statementDay: Number(cardForm.statementDay) || 0,
+          paymentDay: Number(cardForm.paymentDay) || 0,
+        }),
+      });
+      setCardCreating(false);
+      setCardForm({ ...emptyCardForm, currency: details.account.currency });
+      await loadDetails(details.account.id);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kart kaydedilemedi.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const saveCardMovement = async () => {
+    if (!details || !selectedChildId) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await requestJson(`/api/payment-integrations/cards/${selectedChildId}/transactions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ transactions: [{
+          ...movementForm,
+          externalId: `MANUAL-${Date.now()}`,
+          amount: Number(movementForm.amount) || 0,
+          installmentCount: Number(movementForm.installmentCount) || 1,
+        }] }),
+      });
+      setMovementCreating(false);
+      setMovementForm(emptyMovementForm);
+      await loadDetails(details.account.id);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kart hareketi kaydedilemedi.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const acceptBankSuggestion = async (transactionId: string, documentId: string) => {
+    if (!details) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await requestJson(`/api/payment-integrations/bank-transactions/${transactionId}/match`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ matchType: "document", documentId }),
+      });
+      setSelectedBankTransactionId("");
+      await loadDetails(details.account.id);
+      window.dispatchEvent(new Event("arix:documents-updated"));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Eşleştirme onaylanamadı.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const money = (value: number, currency: string) => `${Number(value || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  const dateTime = (value: string) => value ? new Date(value).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }) : "—";
+  const typeLabel = (type: FinancialAccount["type"]) => type === "bank" ? "Banka hesabı" : type === "cash" ? "Kasa" : "Mağaza hesabı";
+  const integrationLabel = (mode: FinancialAccount["integrationMode"]) => mode === "api" ? "Doğrudan banka API" : mode === "open_banking" ? "Açık bankacılık" : mode === "file" ? "Ekstre dosyası" : "Manuel";
+  const kindLabel = (kind: CompanyCard["kind"]) => ({ credit: "Kredi kartı", debit: "Banka kartı", prepaid: "Ön ödemeli", virtual: "Sanal kart" }[kind]);
+  const activeCard = details?.cards.find((item) => item.id === selectedChildId) ?? details?.cards[0];
+  const activePos = details?.virtualPos.find((item) => item.id === selectedChildId) ?? details?.virtualPos[0];
+  const selectedBankTransaction = details?.bankTransactions.find((item) => item.id === selectedBankTransactionId);
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <CreateTile border={border} soft={soft} label="Hesab yarat" />
-      {accounts.map((account) => <StoreCard key={`${account.type}-${account.name}`} item={account} border={border} card={card} soft={soft} subtle={subtle} />)}
+    <div className="space-y-4">
+      {!details ? (
+        <>
+          <div className={cx("flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between", border, card)}>
+            <div>
+              <h2 className="text-lg font-semibold">Şirket hesapları</h2>
+              <p className={cx("mt-1 text-sm", subtle)}>Bir bankaya girerek hesap hareketlerini, bağlı kartları ve sanal POS'ları birlikte izleyin.</p>
+            </div>
+            <button type="button" onClick={() => setCreating(true)} className="surface-primary h-10 rounded-xl px-4 text-sm font-semibold">Hesap oluştur</button>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {items.map((account) => (
+              <button key={account.id} type="button" onClick={() => { setDetailMode("bank"); setSelectedChildId(""); void loadDetails(account.id); }} className={cx("rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md", border, card)}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="text-xs font-semibold uppercase text-indigo-600">{typeLabel(account.type)}</div><h3 className="mt-1 truncate text-lg font-semibold">{account.name}</h3><div className={cx("mt-1 text-sm", subtle)}>{account.bankName || "Şirket içi hesap"}{account.branchName ? ` · ${account.branchName}` : ""}</div></div>
+                  <span className={cx("rounded-full px-2.5 py-1 text-xs font-semibold", account.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>{account.status === "active" ? "Aktif" : "Pasif"}</span>
+                </div>
+                <div className={cx("mt-4 rounded-xl border p-3", border, soft)}><div className="text-xs text-slate-500">Güncel bakiye</div><div className="mt-1 text-2xl font-semibold tabular-nums">{money(account.currentBalance, account.currency)}</div></div>
+                <div className="mt-4 flex items-center justify-between gap-3 text-sm"><span className={cx("truncate", subtle)}>{account.iban || integrationLabel(account.integrationMode)}</span><span className="font-semibold text-indigo-600">Detayları aç →</span></div>
+              </button>
+            ))}
+            {!items.length && <div className={cx("rounded-2xl border p-8 text-center text-sm", border, soft, subtle)}>Henüz şirket hesabı oluşturulmadı.</div>}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className={cx("rounded-2xl border p-4", border, card)}>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-3"><button type="button" onClick={() => { setDetails(null); setSelectedChildId(""); }} className={cx("h-10 w-10 shrink-0 rounded-xl border text-lg", border)} aria-label="Hesaplara dön">←</button><div className="min-w-0"><div className="text-xs font-semibold uppercase text-indigo-600">{typeLabel(details.account.type)}</div><h2 className="truncate text-xl font-semibold">{details.account.name}</h2><p className={cx("truncate text-sm", subtle)}>{details.account.iban || details.account.bankName || "Şirket içi hesap"}</p></div></div>
+              <div className="text-left lg:text-right"><div className={cx("text-xs", subtle)}>Güncel bakiye</div><div className="text-2xl font-semibold tabular-nums">{money(details.account.currentBalance, details.account.currency)}</div></div>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {([['bank', `Hesap hareketleri · ${details.bankTransactions.length}`], ['cards', `Kartlar · ${details.cards.length}`], ['pos', `Sanal POS · ${details.virtualPos.length}`]] as const).map(([key, label]) => <button key={key} type="button" onClick={() => { setDetailMode(key); setSelectedChildId(""); }} className={cx("min-h-11 rounded-xl border px-3 text-sm font-semibold", border, detailMode === key ? "bg-indigo-600 text-white" : soft)}>{label}</button>)}
+            </div>
+          </div>
+
+          {detailMode === "bank" && <div className="space-y-4">
+            <div className={cx("overflow-hidden rounded-2xl border", border, card)}>
+              <div className="border-b px-4 py-3"><div className="font-semibold">Banka hesabı hareketleri</div><div className={cx("mt-1 text-xs", subtle)}>Eşleşmeyen harekete tıklayarak sistemin fatura ve ödeme önerilerini inceleyin.</div></div>
+              <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-sm"><thead className={soft}><tr><th className="px-4 py-3 text-left">Tarih</th><th className="px-4 py-3 text-left">Açıklama</th><th className="px-4 py-3 text-left">Karşı taraf</th><th className="px-4 py-3 text-left">Durum</th><th className="px-4 py-3 text-right">Tutar</th><th className="w-28 px-4 py-3" /></tr></thead><tbody>{details.bankTransactions.map((transaction) => <tr key={transaction.id} className="border-t"><td className="px-4 py-3 whitespace-nowrap">{dateTime(transaction.bookedAt)}</td><td className="max-w-[280px] truncate px-4 py-3">{transaction.description || "Banka hareketi"}</td><td className="px-4 py-3">{transaction.counterpartyName || "—"}</td><td className="px-4 py-3"><span className={cx("rounded-full px-2 py-1 text-xs font-semibold", transaction.status === "unmatched" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>{transaction.status === "unmatched" ? `${transaction.suggestions?.length || 0} öneri` : transaction.matchedDocumentTitle || "Eşleşti"}</span></td><td className={cx("px-4 py-3 text-right font-semibold tabular-nums", transaction.direction === "in" ? "text-emerald-600" : "text-rose-600")}>{transaction.direction === "in" ? "+" : "-"}{money(transaction.amount, transaction.currency)}</td><td className="px-4 py-3 text-right">{transaction.status === "unmatched" && <button type="button" onClick={() => setSelectedBankTransactionId(selectedBankTransactionId === transaction.id ? "" : transaction.id)} className={cx("h-8 rounded-lg border px-3 text-xs font-semibold", border)}>{selectedBankTransactionId === transaction.id ? "Kapat" : "İncele"}</button>}</td></tr>)}</tbody></table>{!details.bankTransactions.length && <div className={cx("p-8 text-center text-sm", subtle)}>Bu hesaba ait banka hareketi henüz yok.</div>}</div>
+            </div>
+
+            {selectedBankTransaction && selectedBankTransaction.status === "unmatched" && <div className={cx("rounded-2xl border p-4", border, card)}><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="font-semibold">Olası eşleşmeler</h3><p className={cx("mt-1 text-sm", subtle)}>{selectedBankTransaction.counterpartyName || selectedBankTransaction.description} · {money(selectedBankTransaction.amount, selectedBankTransaction.currency)}</p></div><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Onay bekliyor</span></div><div className="mt-4 grid gap-3">{selectedBankTransaction.suggestions?.map((suggestion) => <div key={suggestion.documentId} className={cx("flex flex-col gap-3 rounded-xl border p-3 md:flex-row md:items-center", border, soft)}><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-indigo-600">{suggestion.title}</span><span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">%{Math.min(100, suggestion.score)} uyğun</span></div><div className={cx("mt-1 text-sm", subtle)}>{suggestion.counterpartyName || "Karşı taraf belirtilmedi"} · {dateTime(suggestion.documentDate)}</div><div className={cx("mt-1 text-xs", subtle)}>{suggestion.reason}</div></div><div className="text-right"><div className="font-semibold tabular-nums">{money(suggestion.amount, selectedBankTransaction.currency)}</div><button type="button" onClick={() => void acceptBankSuggestion(selectedBankTransaction.id, suggestion.documentId)} disabled={saving} className="surface-primary mt-2 h-9 rounded-lg px-3 text-xs font-semibold disabled:opacity-50">{saving ? "Bağlanıyor..." : "Eşleşmeyi kabul et"}</button></div></div>)}{!selectedBankTransaction.suggestions?.length && <div className={cx("rounded-xl border p-4 text-sm", border, soft, subtle)}>Uygun fatura veya bekleyen ödeme bulunamadı. Bu hareketi Pul fəaliyyəti ekranından tedarikçi, gider veya hesap transferi olarak işleyebilirsiniz.</div>}</div></div>}
+
+            <div className={cx("overflow-hidden rounded-2xl border", border, card)}><div className="border-b px-4 py-3"><div className="font-semibold">Kayıtlı ödemeler ve giderler</div><div className={cx("mt-1 text-xs", subtle)}>Bu hesaptan oluşturulan ödemeler banka ekstresiyle eşleşene kadar beklemede kalır.</div></div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className={soft}><tr><th className="px-4 py-3 text-left">Tarih</th><th className="px-4 py-3 text-left">Belge</th><th className="px-4 py-3 text-left">Karşı taraf / kategori</th><th className="px-4 py-3 text-left">Banka durumu</th><th className="px-4 py-3 text-right">Tutar</th></tr></thead><tbody>{(details.moneyDocuments ?? []).map((document) => <tr key={document.id} className="border-t"><td className="px-4 py-3 whitespace-nowrap">{dateTime(document.documentDate || document.createdAt || "")}</td><td className="px-4 py-3 font-semibold text-indigo-600">{document.type === "cashOut" ? "Məxaric" : document.type === "cashIn" ? "Mədaxil" : "Transfer"} #{String(document.id).slice(0, 8)}</td><td className="px-4 py-3">{document.counterpartyName || document.category || "—"}{document.linkedDocument ? <div className={cx("mt-1 text-xs", subtle)}>{document.linkedDocument}</div> : null}</td><td className="px-4 py-3"><span className={cx("rounded-full px-2 py-1 text-xs font-semibold", document.bankTransactionId || document.bankMatchStatus === "matched" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{document.bankTransactionId || document.bankMatchStatus === "matched" ? "Ekstreyle eşleşti" : "Banka hareketi bekleniyor"}</span></td><td className={cx("px-4 py-3 text-right font-semibold", document.type === "cashIn" ? "text-emerald-600" : "text-rose-600")}>{document.type === "cashIn" ? "+" : "-"}{money(Number(document.amount ?? document.total ?? 0), details.account.currency)}</td></tr>)}</tbody></table>{!(details.moneyDocuments ?? []).length && <div className={cx("p-8 text-center text-sm", subtle)}>Bu hesaptan oluşturulmuş ödeme veya gider yok.</div>}</div></div>
+          </div>}
+
+          {detailMode === "cards" && <div className="space-y-4"><div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold">Şirket kartları</h3><p className={cx("text-sm", subtle)}>Kart harcaması fatura eşleşene kadar belge bekler; banka bakiyesini ayrıca düşürmez.</p></div><button type="button" onClick={() => { setCardForm({ ...emptyCardForm, currency: details.account.currency }); setCardCreating(true); }} className="surface-primary h-10 rounded-xl px-4 text-sm font-semibold">Kart ekle</button></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{details.cards.map((companyCard) => <button key={companyCard.id} type="button" onClick={() => setSelectedChildId(companyCard.id)} className={cx("rounded-2xl border p-4 text-left", border, activeCard?.id === companyCard.id ? "ring-2 ring-indigo-500" : card)}><div className="flex justify-between gap-2"><span className="text-xs font-semibold uppercase text-indigo-600">{kindLabel(companyCard.kind)}</span><span className={cx("text-xs", subtle)}>•••• {companyCard.lastFour}</span></div><div className="mt-4 text-lg font-semibold">{companyCard.name}</div><div className={cx("mt-1 text-sm", subtle)}>{companyCard.holderName || "Kart sahibi belirtilmedi"}</div></button>)}{!details.cards.length && <div className={cx("rounded-2xl border p-8 text-center text-sm md:col-span-2", border, soft, subtle)}>Bu banka hesabına bağlı kart yok.</div>}</div>{activeCard && <div className={cx("overflow-hidden rounded-2xl border", border, card)}><div className="flex items-center justify-between border-b px-4 py-3"><div><div className="font-semibold">{activeCard.name} hareketleri</div><div className={cx("text-xs", subtle)}>{kindLabel(activeCard.kind)} · •••• {activeCard.lastFour}</div></div><button type="button" onClick={() => { setSelectedChildId(activeCard.id); setMovementCreating(true); }} className={cx("h-9 rounded-xl border px-3 text-sm font-semibold", border)}>Hareket ekle / test et</button></div><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead className={soft}><tr><th className="px-4 py-3 text-left">Tarih</th><th className="px-4 py-3 text-left">İş yeri</th><th className="px-4 py-3 text-left">Açıklama</th><th className="px-4 py-3 text-left">Belge</th><th className="px-4 py-3 text-right">Tutar</th></tr></thead><tbody>{activeCard.transactions.map((transaction) => <tr key={transaction.id} className="border-t"><td className="px-4 py-3 whitespace-nowrap">{dateTime(transaction.transactionAt)}</td><td className="px-4 py-3 font-medium">{transaction.merchantName || "—"}</td><td className="max-w-[280px] truncate px-4 py-3">{transaction.description || (transaction.installmentCount > 1 ? `${transaction.installmentCount} taksit` : "Kart işlemi")}</td><td className="px-4 py-3"><span className={cx("rounded-full px-2 py-1 text-xs font-semibold", transaction.status === "matched" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{transaction.status === "matched" ? "Eşleşti" : "Fatura bekliyor"}</span></td><td className={cx("px-4 py-3 text-right font-semibold", transaction.direction === "refund" ? "text-emerald-600" : "text-rose-600")}>{transaction.direction === "refund" ? "+" : "-"}{money(transaction.amount, transaction.currency)}</td></tr>)}</tbody></table>{!activeCard.transactions.length && <div className={cx("p-8 text-center text-sm", subtle)}>Bu karta ait hareket henüz yok.</div>}</div></div>}</div>}
+
+          {detailMode === "pos" && <div className="space-y-4"><div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold">Sanal POS'lar</h3><p className={cx("text-sm", subtle)}>Bu hesaba yatacak şekilde eşleştirilmiş tahsilat kanalları.</p></div><a href="/company/payment-integrations" className={cx("flex h-10 items-center rounded-xl border px-4 text-sm font-semibold", border)}>Eşleştirmeleri yönet</a></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{details.virtualPos.map((pos) => <button key={pos.id} type="button" onClick={() => setSelectedChildId(pos.id)} className={cx("rounded-2xl border p-4 text-left", border, activePos?.id === pos.id ? "ring-2 ring-indigo-500" : card)}><div className="flex justify-between gap-2"><span className="text-xs font-semibold uppercase text-indigo-600">Sanal POS</span><span className={cx("text-xs", subtle)}>{pos.currency}</span></div><div className="mt-4 text-lg font-semibold">{pos.providerName}</div><div className={cx("mt-1 truncate text-sm", subtle)}>{pos.connectionLabel || pos.merchantId || pos.terminalId}</div></button>)}{!details.virtualPos.length && <div className={cx("rounded-2xl border p-8 text-center text-sm md:col-span-2", border, soft, subtle)}>Bu banka hesabına yönlendirilmiş sanal POS yok.</div>}</div>{activePos && <div className={cx("overflow-hidden rounded-2xl border", border, card)}><div className="border-b px-4 py-3"><div className="font-semibold">{activePos.providerName} hareketleri</div><div className={cx("text-xs", subtle)}>Üye iş yeri {activePos.merchantId || "—"} · Terminal {activePos.terminalId || "—"}</div></div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className={soft}><tr><th className="px-4 py-3 text-left">Tarih</th><th className="px-4 py-3 text-left">İşlem</th><th className="px-4 py-3 text-left">Müşteri</th><th className="px-4 py-3 text-left">Hakediş</th><th className="px-4 py-3 text-right">Tutar</th></tr></thead><tbody>{activePos.transactions.map((transaction) => <tr key={transaction.id} className="border-t"><td className="px-4 py-3 whitespace-nowrap">{dateTime(transaction.paidAt)}</td><td className="px-4 py-3 font-medium">{transaction.externalId}</td><td className="px-4 py-3">{transaction.counterpartyName || transaction.rawCustomerName || "—"}</td><td className="px-4 py-3">{transaction.settlementStatus === "settled" ? "Bankaya geçti" : "Bekliyor"}</td><td className="px-4 py-3 text-right font-semibold text-emerald-600">+{money(transaction.amount, transaction.currency)}</td></tr>)}</tbody></table>{!activePos.transactions.length && <div className={cx("p-8 text-center text-sm", subtle)}>Bu sanal POS'a ait tahsilat henüz yok.</div>}</div></div>}</div>}
+        </>
+      )}
+
+      {message && <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{message}</div>}
+
+      {creating && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4" onMouseDown={() => setCreating(false)}>
+          <div className={cx("w-full max-w-2xl rounded-2xl border p-5 shadow-2xl", border, card)} onMouseDown={(event) => event.stopPropagation()}>
+            <h2 className="text-xl font-semibold">Şirket hesabı oluştur</h2>
+            <p className={cx("mt-1 text-sm", subtle)}>Banka entegrasyonu sonradan bağlanabilir; hesap ve IBAN değişmeden kalır.</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <label className="text-sm font-semibold">Hesap adı<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label>
+              <label className="text-sm font-semibold">Tür<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinancialAccount["type"] })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)}><option value="bank">Banka hesabı</option><option value="cash">Kasa</option><option value="store">Mağaza hesabı</option></select></label>
+              <label className="text-sm font-semibold">Banka<input value={form.bankName} onChange={(event) => setForm({ ...form, bankName: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label>
+              <label className="text-sm font-semibold">Şube<input value={form.branchName} onChange={(event) => setForm({ ...form, branchName: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label>
+              <label className="text-sm font-semibold sm:col-span-2">IBAN<input value={form.iban} onChange={(event) => setForm({ ...form, iban: event.target.value.toUpperCase() })} placeholder="TR..." className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label>
+              <label className="text-sm font-semibold">Para birimi<select value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)}><option>TRY</option><option>USD</option><option>EUR</option><option>AZN</option></select></label>
+              <label className="text-sm font-semibold">Açılış bakiyesi<input type="number" value={form.openingBalance} onChange={(event) => setForm({ ...form, openingBalance: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 text-right font-normal", border, soft)} /></label>
+              <label className="text-sm font-semibold">Muhasebe kodu<input value={form.accountingCode} onChange={(event) => setForm({ ...form, accountingCode: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label>
+              <label className="text-sm font-semibold">Hareket kaynağı<select value={form.integrationMode} onChange={(event) => setForm({ ...form, integrationMode: event.target.value as FinancialAccount["integrationMode"] })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)}><option value="manual">Manuel</option><option value="file">Ekstre dosyası</option><option value="api">Doğrudan banka API</option><option value="open_banking">Açık bankacılık</option></select></label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setCreating(false)} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold", border)}>Vazgeç</button><button type="button" onClick={() => void save()} disabled={saving || !form.name} className="surface-primary h-10 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">{saving ? "Kaydediliyor..." : "Kaydet"}</button></div>
+          </div>
+        </div>
+      )}
+
+      {cardCreating && details && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4" onMouseDown={() => setCardCreating(false)}><div className={cx("w-full max-w-2xl rounded-2xl border p-5 shadow-2xl", border, card)} onMouseDown={(event) => event.stopPropagation()}><h2 className="text-xl font-semibold">{details.account.name} hesabına kart ekle</h2><p className={cx("mt-1 text-sm", subtle)}>Kart yalnızca ödeme aracıdır; banka hesabının bakiyesiyle karışmaz.</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-sm font-semibold">Kart adı<input value={cardForm.name} onChange={(event) => setCardForm({ ...cardForm, name: event.target.value })} placeholder="Seyahat kartı" className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label><label className="text-sm font-semibold">Kart türü<select value={cardForm.kind} onChange={(event) => setCardForm({ ...cardForm, kind: event.target.value as CompanyCard["kind"] })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)}><option value="credit">Kredi kartı</option><option value="debit">Banka kartı</option><option value="prepaid">Ön ödemeli kart</option><option value="virtual">Sanal kart</option></select></label><label className="text-sm font-semibold">Son dört hane<input value={cardForm.lastFour} onChange={(event) => setCardForm({ ...cardForm, lastFour: event.target.value.replace(/\D/g, "").slice(0, 4) })} placeholder="1234" inputMode="numeric" className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label><label className="text-sm font-semibold">Kart sahibi<input value={cardForm.holderName} onChange={(event) => setCardForm({ ...cardForm, holderName: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label><label className="text-sm font-semibold">Kart ağı<input value={cardForm.network} onChange={(event) => setCardForm({ ...cardForm, network: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label><label className="text-sm font-semibold">Limit<input type="number" value={cardForm.creditLimit} onChange={(event) => setCardForm({ ...cardForm, creditLimit: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 text-right font-normal", border, soft)} /></label><label className="text-sm font-semibold">Hesap kesim günü<input type="number" min="1" max="31" value={cardForm.statementDay} onChange={(event) => setCardForm({ ...cardForm, statementDay: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label><label className="text-sm font-semibold">Son ödeme günü<input type="number" min="1" max="31" value={cardForm.paymentDay} onChange={(event) => setCardForm({ ...cardForm, paymentDay: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setCardCreating(false)} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold", border)}>Vazgeç</button><button type="button" onClick={() => void saveCard()} disabled={saving || !cardForm.name || cardForm.lastFour.length !== 4} className="surface-primary h-10 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">{saving ? "Kaydediliyor..." : "Kartı kaydet"}</button></div></div></div>
+      )}
+
+      {movementCreating && activeCard && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4" onMouseDown={() => setMovementCreating(false)}><div className={cx("w-full max-w-xl rounded-2xl border p-5 shadow-2xl", border, card)} onMouseDown={(event) => event.stopPropagation()}><h2 className="text-xl font-semibold">Kart hareketi ekle</h2><p className={cx("mt-1 text-sm", subtle)}>{activeCard.name} · •••• {activeCard.lastFour}. Gerçek bağlantıda bu bilgiler bankadan gelir.</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-sm font-semibold">İş yeri<input value={movementForm.merchantName} onChange={(event) => setMovementForm({ ...movementForm, merchantName: event.target.value })} placeholder="Otel adı" className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label><label className="text-sm font-semibold">İşlem türü<select value={movementForm.direction} onChange={(event) => setMovementForm({ ...movementForm, direction: event.target.value as CardTransaction["direction"] })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)}><option value="expense">Harcama</option><option value="refund">İade</option></select></label><label className="text-sm font-semibold">Tutar<input type="number" value={movementForm.amount} onChange={(event) => setMovementForm({ ...movementForm, amount: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 text-right font-normal", border, soft)} /></label><label className="text-sm font-semibold">Tarih / saat<input type="datetime-local" value={movementForm.transactionAt} onChange={(event) => setMovementForm({ ...movementForm, transactionAt: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label><label className="text-sm font-semibold">Taksit<input type="number" min="1" value={movementForm.installmentCount} onChange={(event) => setMovementForm({ ...movementForm, installmentCount: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label><label className="text-sm font-semibold">Açıklama<input value={movementForm.description} onChange={(event) => setMovementForm({ ...movementForm, description: event.target.value })} className={cx("mt-2 h-10 w-full rounded-xl border px-3 font-normal", border, soft)} /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setMovementCreating(false)} className={cx("h-10 rounded-xl border px-4 text-sm font-semibold", border)}>Vazgeç</button><button type="button" onClick={() => void saveCardMovement()} disabled={saving || !movementForm.merchantName || !(Number(movementForm.amount) > 0)} className="surface-primary h-10 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">{saving ? "Kaydediliyor..." : "Hareketi ekle"}</button></div></div></div>
+      )}
     </div>
   );
 }

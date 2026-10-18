@@ -1550,6 +1550,12 @@ export default function ProductActivity({ isDark = false }: { isDark?: boolean }
         }}
         onEdit={(row) => setEditingActivity(row)}
         onProductOpen={setSelectedProduct}
+        onDeleted={() => {
+          setSelectedActivity(null);
+          setSelectedProduct(null);
+          window.dispatchEvent(new CustomEvent("arix:documents-updated"));
+          window.dispatchEvent(new CustomEvent("arix:trash-updated"));
+        }}
       />
     )}
     {editingActivity && (
@@ -1879,6 +1885,7 @@ function ActivityDetailPanel({
   onClose,
   onEdit,
   onProductOpen,
+  onDeleted,
 }: {
   row: ActivityRow;
   products: ProductLine[];
@@ -1889,6 +1896,7 @@ function ActivityDetailPanel({
   onClose: () => void;
   onEdit: (row: ActivityRow) => void;
   onProductOpen: (product: ProductLine) => void;
+  onDeleted: () => void;
 }) {
   const border = isDark ? "border-white/10" : "border-slate-200";
   const panel = isDark ? "bg-slate-950/92 text-slate-100 ring-white/10" : "bg-white/92 text-slate-900 ring-slate-200";
@@ -1902,6 +1910,9 @@ function ActivityDetailPanel({
   const [eDocumentOpen, setEDocumentOpen] = useState(false);
   const [eDocumentInitialType, setEDocumentInitialType] = useState<EDocumentType | undefined>(undefined);
   const [sourceEDocumentId, setSourceEDocumentId] = useState<string | undefined>(undefined);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState("");
   const isSaleDocument = row.kind === "sale" || row.documentType === "sale";
   const activeOfficialDocuments = eDocuments.filter((item) => item.status === "processing" || item.status === "completed");
   const saleLockDocument = activeOfficialDocuments.find((item) => ["eInvoice", "eArchive", "exportInvoice"].includes(item.documentType ?? ""))
@@ -1956,7 +1967,7 @@ function ActivityDetailPanel({
               <I.Undo className="h-5 w-5" />
             </button>
           </div>
-          <button type="button" className="h-11 rounded-xl border border-rose-300 px-5 text-sm font-semibold text-rose-600 hover:bg-rose-50">
+          <button type="button" onClick={() => { setDeleteMessage(""); setDeleteConfirmOpen(true); }} disabled={!document?.id} title={!document?.id ? "Sənəd məlumatı tapılmadı" : "Sənədi sil"} className="h-11 rounded-xl border border-rose-300 px-5 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-45">
             Sil
           </button>
         </div>
@@ -2123,6 +2134,20 @@ function ActivityDetailPanel({
       )}
       {eDocumentOpen && document?.id && (
         <EDocumentWorkflowDialog sourceDocumentId={document.id} initialType={eDocumentInitialType} sourceEDocumentId={sourceEDocumentId} isDark={isDark} onClose={() => setEDocumentOpen(false)} />
+      )}
+      {deleteConfirmOpen && document?.id && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => !deleting && setDeleteConfirmOpen(false)}>
+          <div className={cx("w-full max-w-md rounded-2xl border p-5 shadow-2xl", border, isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-900")} onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-lg font-semibold">Sənəd silinsin?</h3>
+            <p className={cx("mt-2 text-sm", subtle)}>{row.order} silinənlər səbətinə köçürüləcək. Sənədin stok və mühasibat təsiri geri çevriləcək, bərpa zamanı yenidən tətbiq olunacaq.</p>
+            {saleLockDocument && <div className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700">{saleLockDocument.number || "Rəsmi e-Belgə"} aktiv olduğu üçün bu sənəd silinə bilməz.</div>}
+            {deleteMessage && <div className="mt-3 rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-600">{deleteMessage}</div>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" disabled={deleting} onClick={() => setDeleteConfirmOpen(false)} className={cx("h-10 rounded-lg border px-4 text-sm font-medium", border)}>Ləğv et</button>
+              <button type="button" disabled={deleting || Boolean(saleLockDocument)} onClick={async () => { setDeleting(true); setDeleteMessage(""); try { await requestJson(`/api/documents/${document.id}`, { method: "DELETE" }); onDeleted(); } catch (error) { setDeleteMessage(error instanceof Error ? error.message : "Sənəd silinmədi."); setDeleting(false); } }} className="h-10 rounded-lg bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-45">{deleting ? "Silinir..." : "Səbətə göndər"}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

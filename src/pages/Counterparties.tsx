@@ -21,6 +21,7 @@ type ApiCounterparty = {
   website?: string;
   taxId?: string;
   taxOffice?: string;
+  iban?: string;
   mersisNumber?: string;
   tradeRegistryNumber?: string;
   authorizedName?: string;
@@ -71,6 +72,7 @@ type CounterpartyRow = {
   website?: string;
   taxId?: string;
   taxOffice?: string;
+  iban?: string;
   mersisNumber?: string;
   tradeRegistryNumber?: string;
   authorizedName?: string;
@@ -139,6 +141,7 @@ type CounterpartyForm = {
   fax: string;
   taxId: string;
   taxOffice: string;
+  iban: string;
   website: string;
   mersisNumber: string;
   tradeRegistryNumber: string;
@@ -174,6 +177,7 @@ const emptyForm = (): CounterpartyForm => ({
   fax: "",
   taxId: "",
   taxOffice: "",
+  iban: "",
   website: "",
   mersisNumber: "",
   tradeRegistryNumber: "",
@@ -219,6 +223,7 @@ const mapApiCounterparty = (item: ApiCounterparty, kind: CounterpartyKind): Coun
   website: item.website ?? "",
   taxId: item.taxId ?? "",
   taxOffice: item.taxOffice ?? "",
+  iban: item.iban ?? "",
   mersisNumber: item.mersisNumber ?? "",
   tradeRegistryNumber: item.tradeRegistryNumber ?? "",
   authorizedName: item.authorizedName ?? "",
@@ -875,6 +880,7 @@ function CreatePanel({
               <div className="grid gap-4 sm:grid-cols-2">
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>VKN / TCKN</span><input inputMode="numeric" className={field} value={form.taxId} onChange={(e) => setField("taxId", form.countryCode === "TR" ? e.target.value.replace(/\D/g, "").slice(0, 11) : e.target.value)} /></label>
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vergi dairəsi</span><input className={field} value={form.taxOffice} onChange={(e) => setField("taxOffice", e.target.value)} /></label>
+                <label className="sm:col-span-2"><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ödəniş IBAN-ı</span><input className={field} value={form.iban} onChange={(e) => setField("iban", e.target.value.replace(/\s/g, "").toUpperCase())} placeholder="TR..." /></label>
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>MERSİS nömrəsi</span><input inputMode="numeric" className={field} value={form.mersisNumber} onChange={(e) => setField("mersisNumber", e.target.value.replace(/\D/g, "").slice(0, 16))} /></label>
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ticarət reyestri nömrəsi</span><input className={field} value={form.tradeRegistryNumber} onChange={(e) => setField("tradeRegistryNumber", e.target.value)} /></label>
                 <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Səlahiyyətli şəxs</span><input className={field} value={form.authorizedName} onChange={(e) => setField("authorizedName", e.target.value)} /></label>
@@ -1102,6 +1108,7 @@ function CustomerCardOverview({
             ["Mühasibat hesabı", row.accountingCode || (isSupplier ? "320" : "120")],
             ["VKN / TCKN", row.taxId || "Əlavə edilməyib"],
             ["Vergi dairəsi", row.taxOffice || "Əlavə edilməyib"],
+            ["Ödəniş IBAN-ı", row.iban || "Əlavə edilməyib"],
             ["MERSİS", row.mersisNumber || "Əlavə edilməyib"],
             ["Ticarət reyestri", row.tradeRegistryNumber || "Əlavə edilməyib"],
             ["e-Belge statusu", isSupplier ? "Alış cari kartı" : row.eInvoiceRegistered === true ? "e-Fatura mükəlləfi" : row.eInvoiceRegistered === false ? "e-Arşiv" : "Reyestr yoxlanmayıb"],
@@ -1189,12 +1196,14 @@ function DetailPanel({
   isDark,
   onClose,
   onUpdated,
+  onDelete,
 }: {
   row: CounterpartyRow;
   kind: CounterpartyKind;
   isDark: boolean;
   onClose: () => void;
   onUpdated: (updated: CounterpartyRow) => void;
+  onDelete: (row: CounterpartyRow) => Promise<void>;
 }) {
   const isSupplier = kind === "suppliers";
   const showLegacySections = false;
@@ -1204,6 +1213,8 @@ function DetailPanel({
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<CounterpartyRow>(() => ({ ...row }));
   const [saveMessage, setSaveMessage] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const priceSaveRef = useRef<((customerIdOverride?: number) => Promise<void>) | null>(null);
   const priceResetRef = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -1212,6 +1223,8 @@ function DetailPanel({
     setEditing(false);
     setDraft({ ...row });
     setSaveMessage("");
+    setDeleteConfirmOpen(false);
+    setDeleting(false);
   }, [row]);
   const title = isSupplier ? "Təchizatçı kartı" : "Müştəri kartı";
   const border = isDark ? "border-white/10" : "border-slate-200/80";
@@ -1252,6 +1265,7 @@ function DetailPanel({
           website: draft.website,
           taxId: draft.taxId ?? "",
           taxOffice: draft.taxOffice ?? "",
+          iban: draft.iban ?? "",
           mersisNumber: draft.mersisNumber,
           tradeRegistryNumber: draft.tradeRegistryNumber,
           authorizedName: draft.authorizedName,
@@ -1388,7 +1402,7 @@ function DetailPanel({
               {editing ? <I.Check className="h-4 w-4" /> : <I.Edit className="h-4 w-4" />}
               {saving ? "Saxlanır..." : editing ? "Saxla" : "Düzəlt"}
             </button>
-            <button type="button" title="Kartı sil" aria-label="Kartı sil" className={cx("flex h-9 w-9 items-center justify-center rounded-lg text-rose-500", isDark ? "hover:bg-rose-500/10" : "hover:bg-rose-50")}>
+            <button type="button" onClick={() => setDeleteConfirmOpen(true)} title="Kartı sil" aria-label="Kartı sil" className={cx("flex h-9 w-9 items-center justify-center rounded-lg text-rose-500", isDark ? "hover:bg-rose-500/10" : "hover:bg-rose-50")}>
               <I.Trash className="h-4 w-4" />
             </button>
             <button type="button" onClick={onClose} aria-label="Bağla" className={cx("flex h-9 w-9 items-center justify-center rounded-lg", isDark ? "hover:bg-white/10" : "hover:bg-slate-100")}>
@@ -1473,6 +1487,7 @@ function DetailPanel({
                     <span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Vergi dairəsi</span>
                     <input value={draft.taxOffice ?? ""} onChange={(event) => setDraftField("taxOffice", event.target.value)} className={editField} />
                   </label>
+                  <label className="sm:col-span-2"><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ödəniş IBAN-ı</span><input value={draft.iban ?? ""} onChange={(event) => setDraftField("iban", event.target.value.replace(/\s/g, "").toUpperCase())} className={editField} placeholder="TR..." /></label>
                   <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>MERSİS nömrəsi</span><input value={draft.mersisNumber} onChange={(event) => setDraftField("mersisNumber", event.target.value.replace(/\D/g, "").slice(0, 16))} className={editField} /></label>
                   <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Ticarət reyestri nömrəsi</span><input value={draft.tradeRegistryNumber} onChange={(event) => setDraftField("tradeRegistryNumber", event.target.value)} className={editField} /></label>
                   <label><span className={cx("mb-1.5 block text-xs font-medium", subtle)}>Səlahiyyətli şəxs</span><input value={draft.authorizedName} onChange={(event) => setDraftField("authorizedName", event.target.value)} className={editField} /></label>
@@ -1648,6 +1663,19 @@ function DetailPanel({
           {saveMessage && <div className={cx("mt-4 text-sm", saveMessage.includes("saxlanıldı") ? "text-emerald-600" : "text-rose-600")}>{saveMessage}</div>}
         </div>
       </div>
+      {deleteConfirmOpen && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => !deleting && setDeleteConfirmOpen(false)}>
+          <div className={cx("w-full max-w-md rounded-2xl border p-5 shadow-2xl", isDark ? "border-white/10 bg-slate-950 text-slate-100" : "border-slate-200 bg-white text-slate-900")} onClick={(event) => event.stopPropagation()}>
+            <h3 className="text-lg font-semibold">Kart silinsin?</h3>
+            <p className={cx("mt-2 text-sm", subtle)}>{row.name} silinənlər səbətinə köçürüləcək və istənilən vaxt bərpa edilə biləcək.</p>
+            {saveMessage && <div className="mt-3 rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-600">{saveMessage}</div>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" disabled={deleting} onClick={() => setDeleteConfirmOpen(false)} className={cx("h-10 rounded-lg border px-4 text-sm font-medium", border)}>Ləğv et</button>
+              <button type="button" disabled={deleting} onClick={async () => { setDeleting(true); setSaveMessage(""); try { await onDelete(row); } catch (error) { setSaveMessage(error instanceof Error ? error.message : "Kart silinmədi."); setDeleting(false); } }} className="h-10 rounded-lg bg-rose-600 px-4 text-sm font-semibold text-white disabled:opacity-60">{deleting ? "Silinir..." : "Səbətə göndər"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1703,6 +1731,7 @@ export default function Counterparties({ isDark, kind }: Props) {
       website: form.website,
       taxId: form.taxId,
       taxOffice: form.taxOffice,
+      iban: form.iban,
       mersisNumber: form.mersisNumber,
       tradeRegistryNumber: form.tradeRegistryNumber,
       authorizedName: form.authorizedName,
@@ -1744,6 +1773,7 @@ export default function Counterparties({ isDark, kind }: Props) {
           website: form.website,
           taxId: form.taxId,
           taxOffice: form.taxOffice,
+          iban: form.iban,
           mersisNumber: form.mersisNumber,
           tradeRegistryNumber: form.tradeRegistryNumber,
           authorizedName: form.authorizedName,
@@ -1775,6 +1805,14 @@ export default function Counterparties({ isDark, kind }: Props) {
     setRowsByKind((prev) => ({ ...prev, [kind]: [savedRow, ...prev[kind]] }));
     setCreateOpen(false);
     window.dispatchEvent(new CustomEvent("arix:counterparties-updated"));
+  };
+
+  const deleteCounterparty = async (row: CounterpartyRow) => {
+    await requestJson(`/api/counterparties/${row.id}`, { method: "DELETE" });
+    setRowsByKind((current) => ({ ...current, [kind]: current[kind].filter((item) => item.id !== row.id) }));
+    setSelectedRow(null);
+    window.dispatchEvent(new CustomEvent("arix:counterparties-updated"));
+    window.dispatchEvent(new CustomEvent("arix:trash-updated"));
   };
 
   useEffect(() => {
@@ -2020,6 +2058,7 @@ export default function Counterparties({ isDark, kind }: Props) {
               [kind]: current[kind].map((item) => item.id === updated.id ? updated : item),
             }));
           }}
+          onDelete={deleteCounterparty}
         />
       )}
     </div>

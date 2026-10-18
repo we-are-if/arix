@@ -16,6 +16,26 @@ http://localhost:8787
 
 Vite proxies frontend `/api/*` requests to this server.
 
+## Google Sign-In
+
+Authentication uses Google Identity Services in the browser and verifies every Google ID token with `google-auth-library` on the API. AriX then creates a hashed, expiring server session and sends only an `HttpOnly`, `SameSite=Lax` cookie to the browser.
+
+1. In Google Cloud Console create an OAuth 2.0 Client ID with application type **Web application**.
+2. Add the frontend origins that will actually be used, for example `http://localhost:5173` and the project's HTTPS Tailscale origin. Plain HTTP LAN IP addresses should not be used for production sign-in.
+3. Copy `.env.example` to `.env` and set `GOOGLE_CLIENT_ID` and `ARIX_AUTH_REQUIRED=1`.
+4. For the first owner only, set `ARIX_GOOGLE_BOOTSTRAP_EMAILS` to the exact verified Google e-mail. Remove the bootstrap value after the first successful link.
+5. Restart the API.
+
+Existing employees are matched by verified e-mail and permanently linked to the Google `sub` identifier on first sign-in. Unknown or inactive accounts receive `403` and cannot create their own company membership.
+
+Authentication endpoints:
+
+- `GET /api/auth/config`
+- `GET /api/auth/session`
+- `POST /api/auth/google`
+- `POST /api/auth/logout`
+- `POST /api/auth/demo` (available only while authentication is not required)
+
 ## Main Endpoints
 
 - `GET /api/health`
@@ -45,6 +65,25 @@ Vite proxies frontend `/api/*` requests to this server.
 - `GET /api/online-collections/pos`
 - `GET /api/online-collections/collections`
 - `GET /api/online-collections/bin-rules`
+- `GET /api/online-collections/providers`
+- `POST /api/online-collections/providers/connections`
+- `PATCH /api/online-collections/providers/connections/:id`
+- `DELETE /api/online-collections/providers/connections/:id`
+- `GET /api/payment-integrations/payments`
+- `POST /api/payment-integrations/import`
+- `PATCH /api/payment-integrations/payments/:id/match`
+- `GET|POST /api/payment-integrations/accounts`
+- `GET /api/payment-integrations/accounts/:id`
+- `POST /api/payment-integrations/accounts/:id/cards`
+- `POST /api/payment-integrations/cards/:id/transactions`
+- `GET|POST /api/payment-integrations/routing-rules`
+- `GET /api/payment-integrations/settlements`
+- `PATCH /api/payment-integrations/settlements/:id/match`
+- `GET /api/payment-integrations/bank-transactions`
+- `POST /api/payment-integrations/bank-transactions/import`
+- `PATCH /api/payment-integrations/bank-transactions/:id/match`
+
+Financial accounts represent real company IBAN, cash, and store accounts. Bank account details expose their own movements, linked company cards, and routed virtual POS terminals. Card movements remain invoice-unmatched until their expense document is linked and do not reduce the bank balance a second time. POS terminals are mapped to these accounts with routing rules instead of creating fake IBAN accounts. Provider payments create customer collections and pending settlements; bank movements close those settlements without posting the customer payment twice. Direct bank transfers match customers or suppliers by IBAN, tax identifier, learned rules, and manual exception handling.
 - `GET /api/documents`
 - `POST /api/documents`
 - `GET /api/e-documents`
@@ -53,6 +92,10 @@ Vite proxies frontend `/api/*` requests to this server.
 - `POST /api/e-documents/sync`
 
 Data is persisted to `server/data/db.json`. The app starts with empty business data: no demo products, customers, suppliers, documents, or collections. POS commission settings remain as configuration data.
+
+Online collection provider credentials are encrypted with AES-256-GCM before persistence. Production deployments should set `ARIX_CREDENTIAL_SECRET`; local development creates an ignored key file under `server/data`.
+
+External provider payments are idempotent by `providerId + externalId`. Settled payments are matched by customer id, current-account code, VKN/TCKN, document number, e-mail or phone. Exact matches create a cash-in document and reduce the customer balance; unmatched payments wait for manual matching. Refunds and chargebacks restore the balance through a linked cash-out document.
 
 ## Current Account Cards
 

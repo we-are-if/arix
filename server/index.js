@@ -1,8 +1,10 @@
+import "dotenv/config";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
+import { OAuth2Client } from "google-auth-library";
 import { XMLValidator } from "fast-xml-parser";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 import { buildProductLedger } from "./productLedger.js";
@@ -17,6 +19,31 @@ import {
   upsertDocumentJournal,
 } from "./accounting.js";
 import { normalizeCounterparty, validateCounterparty } from "./counterparties.js";
+import {
+  capabilityLabels,
+  normalizeProviderConnections,
+  paymentProviderCatalog,
+  publicProviderConnection,
+  validateProviderConnectionInput,
+} from "./paymentProviders.js";
+import {
+  externalPaymentOverview,
+  importExternalPayments,
+  manuallyMatchExternalPayment,
+} from "./externalPayments.js";
+import {
+  bankTransactionSuggestions,
+  createCompanyCard,
+  createFinancialAccount,
+  createRoutingRule,
+  financialAccountDetails,
+  importCardTransactions,
+  importBankTransactions,
+  manuallyMatchBankTransaction,
+  manuallyMatchSettlement,
+  normalizeReconciliationStore,
+  reconciliationOverview,
+} from "./paymentReconciliation.js";
 import {
   applyRegistryToCounterparties,
   lookupEDocumentRegistry,
@@ -46,7 +73,58 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
 const DB_PATH = join(DATA_DIR, "db.json");
+const CREDENTIAL_KEY_PATH = join(DATA_DIR, "payment-credentials.key");
 const PORT = Number(process.env.API_PORT ?? 8787);
+const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID ?? "").trim();
+const AUTH_REQUIRED = process.env.ARIX_AUTH_REQUIRED === "1" || Boolean(GOOGLE_CLIENT_ID);
+const SESSION_COOKIE = "arix_session";
+const SESSION_TTL_MS = Math.max(60 * 60 * 1000, Number(process.env.ARIX_SESSION_TTL_HOURS ?? 168) * 60 * 60 * 1000);
+const googleAuthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  ...String(process.env.ARIX_ALLOWED_ORIGINS ?? "").split(",").map((item) => item.trim()).filter(Boolean),
+]);
+
+const defaultAuthUsers = [
+  { id: "arif", name: "Arif Mahmud", role: "Sahib", email: "arifmd@icloud.com", active: true, companyId: "ersa-folyo", googleSubject: null },
+  { id: "ekrem", name: "Ekrem Tiryaki", role: "Rəhbər", email: "ekrem@arix.az", active: true, companyId: "ersa-folyo", googleSubject: null },
+  { id: "serkan", name: "Serkan Şeremet", role: "Satış rəhbəri", email: "serkan@arix.az", active: true, companyId: "ersa-folyo", googleSubject: null },
+  { id: "sami", name: "Sami", role: "Anbar əməliyyatları", email: "sami@arix.az", active: true, companyId: "ersa-folyo", googleSubject: null },
+  { id: "mustafa", name: "Mustafa Yazman", role: "Maliyyə", email: "mustafa@arix.az", active: true, companyId: "ersa-folyo", googleSubject: null },
+];
+
+let credentialKeyPromise;
+
+async function providerCredentialKey() {
+  if (!credentialKeyPromise) {
+    credentialKeyPromise = (async () => {
+      const environmentSecret = String(process.env.ARIX_CREDENTIAL_SECRET ?? "").trim();
+      if (environmentSecret) return createHash("sha256").update(environmentSecret).digest();
+      try {
+        const stored = await readFile(CREDENTIAL_KEY_PATH, "utf8");
+        const key = Buffer.from(stored.trim(), "base64");
+        if (key.length === 32) return key;
+      } catch {
+        // A local key is created on first credential save.
+      }
+      const key = randomBytes(32);
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeFile(CREDENTIAL_KEY_PATH, key.toString("base64"), { encoding: "utf8", mode: 0o600 });
+      return key;
+    })();
+  }
+  return credentialKeyPromise;
+}
+
+async function encryptProviderCredentials(credentials) {
+  const key = await providerCredentialKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(credentials), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ["v1", iv.toString("base64"), tag.toString("base64"), encrypted.toString("base64")].join(".");
+}
 
 const printForm = (title, subtitle) => ({
   title,
@@ -175,6 +253,9 @@ const seedDb = {
   ],
   customerPrices: [],
   documents: [],
+  trash: [],
+  authUsers: structuredClone(defaultAuthUsers),
+  authSessions: [],
   companySettings: defaultCompanySettings,
   stockContainers: [],
   stockPallets: [],
@@ -254,11 +335,29 @@ function normalizeDb(db) {
   db.stockMovements ??= [];
   db.landedCostAdjustments ??= [];
   db.customerPrices ??= [];
+  db.trash = Array.isArray(db.trash) ? db.trash : [];
+  db.authUsers = Array.isArray(db.authUsers) && db.authUsers.length
+    ? db.authUsers.map((user) => ({ ...user, active: user.active !== false, companyId: user.companyId || "ersa-folyo", googleSubject: user.googleSubject || null }))
+    : structuredClone(defaultAuthUsers);
+  db.authSessions = (Array.isArray(db.authSessions) ? db.authSessions : [])
+    .filter((session) => new Date(session.expiresAt).getTime() > Date.now());
   db.productPriceHistory ??= [];
   db.purchaseLots ??= [];
   db.depotLots ??= [];
   db.lotCostEvents ??= [];
   db.lotRecalculations ??= [];
+  db.onlineCollections = {
+    posProviders: [],
+    posTerminals: [],
+    posCommissions: [],
+    collections: [],
+    binRules: [],
+    providerConnections: [],
+    ...(db.onlineCollections ?? {}),
+  };
+  db.onlineCollections.providerConnections = normalizeProviderConnections(db.onlineCollections.providerConnections);
+  db.externalPayments = Array.isArray(db.externalPayments) ? db.externalPayments : [];
+  normalizeReconciliationStore(db);
   db.stores = Array.isArray(db.stores) && db.stores.length
     ? db.stores.map((store, index) => ({
         id: Number(store.id) || index + 1,
@@ -306,13 +405,21 @@ async function writeDb(db) {
   await writeFile(DB_PATH, `${JSON.stringify(db, null, 2)}\n`, "utf8");
 }
 
+function applyCors(req, res) {
+  const origin = String(req.headers.origin ?? "").trim();
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader("access-control-allow-origin", origin);
+    res.setHeader("access-control-allow-credentials", "true");
+    res.setHeader("vary", "Origin");
+  }
+  res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  res.setHeader("access-control-allow-headers", "content-type");
+}
+
 function send(res, status, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type",
   });
   res.end(body);
 }
@@ -343,8 +450,237 @@ function parseBody(req, limit = 1_000_000) {
   });
 }
 
+function publicAuthUser(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    email: user.email,
+    picture: user.picture || "",
+    companyId: user.companyId,
+  };
+}
+
+function sessionHash(token) {
+  return createHash("sha256").update(String(token)).digest("hex");
+}
+
+function cookieMap(req) {
+  return Object.fromEntries(String(req.headers.cookie ?? "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const separator = part.indexOf("=");
+      if (separator < 0) return [part, ""];
+      return [part.slice(0, separator), decodeURIComponent(part.slice(separator + 1))];
+    }));
+}
+
+function requestAuthUser(req, db) {
+  const token = cookieMap(req)[SESSION_COOKIE];
+  if (!token) return null;
+  const hash = sessionHash(token);
+  const session = db.authSessions.find((item) => item.tokenHash === hash && new Date(item.expiresAt).getTime() > Date.now());
+  if (!session) return null;
+  return db.authUsers.find((user) => String(user.id) === String(session.userId) && user.active !== false) ?? null;
+}
+
+function secureRequest(req) {
+  return req.headers["x-forwarded-proto"] === "https" || Boolean(req.socket?.encrypted);
+}
+
+function setSessionCookie(req, res, token, maxAgeSeconds) {
+  const secure = secureRequest(req) ? "; Secure" : "";
+  res.setHeader("set-cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`);
+}
+
+function createSession(req, db, user) {
+  const token = randomBytes(32).toString("base64url");
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
+  db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(user.id) && new Date(session.expiresAt).getTime() > Date.now());
+  db.authSessions.push({
+    id: randomUUID(),
+    userId: user.id,
+    tokenHash: sessionHash(token),
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    ip: String(req.headers["x-forwarded-for"] ?? req.socket?.remoteAddress ?? "").split(",")[0].trim(),
+    userAgent: String(req.headers["user-agent"] ?? "").slice(0, 300),
+  });
+  return { token, expiresAt };
+}
+
+async function handleAuth(req, res, parts) {
+  const action = parts[1] ?? "config";
+  const db = await readDb();
+
+  if (req.method === "GET" && action === "config") {
+    return send(res, 200, {
+      data: {
+        enabled: Boolean(GOOGLE_CLIENT_ID),
+        required: AUTH_REQUIRED,
+        googleClientId: GOOGLE_CLIENT_ID,
+        demoAvailable: !AUTH_REQUIRED,
+      },
+    });
+  }
+
+  if (req.method === "GET" && action === "session") {
+    return send(res, 200, { data: publicAuthUser(requestAuthUser(req, db)), authenticationRequired: AUTH_REQUIRED });
+  }
+
+  if (req.method === "POST" && action === "google") {
+    if (!googleAuthClient || !GOOGLE_CLIENT_ID) return send(res, 503, { error: "Google girişi hələ konfiqurasiya edilməyib." });
+    const body = await parseBody(req);
+    const credential = String(body.credential ?? "").trim();
+    if (!credential) return send(res, 400, { error: "Google giriş məlumatı yoxdur." });
+
+    let payload;
+    try {
+      const ticket = await googleAuthClient.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
+      payload = ticket.getPayload();
+    } catch {
+      return send(res, 401, { error: "Google giriş məlumatı etibarsızdır və ya müddəti bitib." });
+    }
+    if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+      return send(res, 401, { error: "Google hesabının e-poçtu təsdiqlənməyib." });
+    }
+
+    const email = String(payload.email).trim().toLocaleLowerCase("en-US");
+    let user = db.authUsers.find((item) => String(item.googleSubject ?? "") === String(payload.sub));
+    if (!user) user = db.authUsers.find((item) => String(item.email ?? "").trim().toLocaleLowerCase("en-US") === email);
+
+    const bootstrapEmails = String(process.env.ARIX_GOOGLE_BOOTSTRAP_EMAILS ?? "")
+      .split(",")
+      .map((item) => item.trim().toLocaleLowerCase("en-US"))
+      .filter(Boolean);
+    if (!user && bootstrapEmails.includes(email)) {
+      user = {
+        id: `google-${payload.sub}`,
+        name: String(payload.name || email),
+        role: "Sahib",
+        email,
+        active: true,
+        companyId: "ersa-folyo",
+        googleSubject: String(payload.sub),
+      };
+      db.authUsers.push(user);
+    }
+    if (!user || user.active === false) {
+      return send(res, 403, { error: "Bu Google hesabına AriX giriş icazəsi verilməyib. Şirkət administratoru ilə əlaqə saxlayın." });
+    }
+    if (user.googleSubject && String(user.googleSubject) !== String(payload.sub)) {
+      return send(res, 409, { error: "Bu əməkdaş kartı başqa Google hesabına bağlıdır." });
+    }
+
+    user.googleSubject = String(payload.sub);
+    user.picture = String(payload.picture ?? user.picture ?? "");
+    user.lastLoginAt = new Date().toISOString();
+    const session = createSession(req, db, user);
+    await writeDb(db);
+    setSessionCookie(req, res, session.token, Math.floor(SESSION_TTL_MS / 1000));
+    return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
+  }
+
+  if (req.method === "POST" && action === "demo") {
+    if (AUTH_REQUIRED) return send(res, 403, { error: "Demo giriş bu mühitdə bağlıdır." });
+    const body = await parseBody(req);
+    const requestedEmail = String(body.email ?? "").trim().toLocaleLowerCase("en-US");
+    const user = db.authUsers.find((item) => item.active !== false && String(item.email).toLocaleLowerCase("en-US") === requestedEmail)
+      ?? db.authUsers.find((item) => item.active !== false);
+    if (!user) return send(res, 403, { error: "Aktiv demo əməkdaş tapılmadı." });
+    user.lastLoginAt = new Date().toISOString();
+    const session = createSession(req, db, user);
+    await writeDb(db);
+    setSessionCookie(req, res, session.token, Math.floor(SESSION_TTL_MS / 1000));
+    return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
+  }
+
+  if (req.method === "POST" && action === "logout") {
+    const token = cookieMap(req)[SESSION_COOKIE];
+    if (token) db.authSessions = db.authSessions.filter((session) => session.tokenHash !== sessionHash(token));
+    await writeDb(db);
+    setSessionCookie(req, res, "", 0);
+    return send(res, 200, { ok: true });
+  }
+
+  return notFound(res);
+}
+
 function nextNumericId(items) {
   return Math.max(0, ...items.map((item) => Number(item.id) || 0)) + 1;
+}
+
+function nextEntityNumericId(db, collectionKey, entityType) {
+  const activeIds = (db[collectionKey] ?? []).map((item) => Number(item.id) || 0);
+  const deletedIds = (db.trash ?? [])
+    .filter((entry) => entry.entityType === entityType)
+    .map((entry) => Number(entry.entityId) || 0);
+  return Math.max(0, ...activeIds, ...deletedIds) + 1;
+}
+
+function trashLabel(entityType, item) {
+  if (entityType === "product") return String(item.name || item.code || `Məhsul #${item.id}`);
+  if (entityType === "counterparty") return String(item.name || `Kontragent #${item.id}`);
+  if (entityType === "store") return String(item.name || `Mağaza #${item.id}`);
+  if (entityType === "document") return `${sourceDocumentTitle(item)}${item.counterpartyName ? ` · ${item.counterpartyName}` : ""}`;
+  return String(item.name || item.title || item.id || "Silinmiş qeyd");
+}
+
+function trashSubtype(entityType, item) {
+  if (entityType === "counterparty") return item.kind === "supplier" ? "supplier" : "customer";
+  if (entityType === "product") return String(item.type || "product");
+  if (entityType === "document") return String(item.type || "document");
+  if (entityType === "store") return item.isBonded ? "bonded" : "store";
+  return "other";
+}
+
+function trashSummary(entityType, item) {
+  if (entityType === "product") {
+    const stock = Object.values(item.warehouses ?? {}).reduce((sum, value) => sum + numberValue(value), 0);
+    return `${item.code || item.sku || "Kodsuz"} · ${stock.toFixed(2)} ${item.unit || "əd"}`;
+  }
+  if (entityType === "counterparty") return [item.code, item.phone, item.email].filter(Boolean).join(" · ") || item.kind || "Kontragent";
+  if (entityType === "store") return `${item.type || "Mağaza"}${item.isBonded ? " · Antrepo" : ""}`;
+  if (entityType === "document") {
+    const amount = numberValue(item.total ?? item.amount);
+    const date = item.documentDate ?? item.createdAt;
+    return `${date ? String(date).slice(0, 10) : "Tarixsiz"} · ${amount.toFixed(2)}`;
+  }
+  return "";
+}
+
+function moveToTrash(db, entityType, item, related = {}, deletedBy = "Arif Mahmud") {
+  const entry = {
+    id: randomUUID(),
+    entityType,
+    entityId: String(item.id),
+    subtype: trashSubtype(entityType, item),
+    label: trashLabel(entityType, item),
+    summary: trashSummary(entityType, item),
+    deletedAt: new Date().toISOString(),
+    deletedBy,
+    original: structuredClone(item),
+    related: structuredClone(related),
+  };
+  db.trash.unshift(entry);
+  return entry;
+}
+
+function publicTrashEntry(entry) {
+  return {
+    id: entry.id,
+    entityType: entry.entityType,
+    entityId: entry.entityId,
+    subtype: entry.subtype,
+    label: entry.label,
+    summary: entry.summary,
+    deletedAt: entry.deletedAt,
+    deletedBy: entry.deletedBy,
+  };
 }
 
 function matchesSearch(item, query) {
@@ -406,7 +742,7 @@ async function handleProducts(req, res, url, parts) {
 
   if (req.method === "POST" && parts.length === 1) {
     const body = await parseBody(req);
-    const product = { id: nextNumericId(db.products), active: true, createdAt: new Date().toISOString(), ...body };
+    const product = { id: nextEntityNumericId(db, "products", "product"), active: true, createdAt: new Date().toISOString(), ...body };
     db.products.push(product);
     await writeDb(db);
     return send(res, 201, { data: product });
@@ -464,11 +800,22 @@ async function handleProducts(req, res, url, parts) {
   }
 
   if (req.method === "DELETE" && id) {
-    const before = db.products.length;
-    db.products = db.products.filter((item) => item.id !== id);
-    if (db.products.length === before) return notFound(res);
+    const product = db.products.find((item) => Number(item.id) === id);
+    if (!product) return notFound(res);
+    const totalStock = Object.values(product.warehouses ?? {}).reduce((sum, value) => sum + numberValue(value), 0);
+    if (Math.abs(totalStock) > 0.0001) {
+      return send(res, 409, { error: "Qalığı olan məhsul silinə bilməz. Əvvəl stoku köçürün və ya silinmə sənədi yaradın." });
+    }
+    const related = {
+      customerPrices: db.customerPrices.filter((item) => Number(item.productId) === id),
+      priceHistory: db.productPriceHistory.filter((item) => Number(item.productId) === id),
+    };
+    const entry = moveToTrash(db, "product", product, related, req.authUser?.name);
+    db.products = db.products.filter((item) => Number(item.id) !== id);
+    db.customerPrices = db.customerPrices.filter((item) => Number(item.productId) !== id);
+    db.productPriceHistory = db.productPriceHistory.filter((item) => Number(item.productId) !== id);
     await writeDb(db);
-    return send(res, 200, { ok: true });
+    return send(res, 200, { ok: true, data: publicTrashEntry(entry) });
   }
 
   return notFound(res);
@@ -516,7 +863,7 @@ async function handleStores(req, res, parts) {
       return send(res, 409, { error: "Bu adda mağaza artıq mövcuddur." });
     }
     const item = {
-      id: nextNumericId(db.stores),
+      id: nextEntityNumericId(db, "stores", "store"),
       key: nextStoreKey(db.stores, name),
       name,
       type: String(body.type || "Mağaza"),
@@ -579,9 +926,10 @@ async function handleStores(req, res, parts) {
     if (!store) return notFound(res);
     const hasStock = db.products.some((product) => Number(product.warehouses?.[store.key] ?? 0) !== 0);
     if (hasStock) return send(res, 409, { error: "Bu mağazada qalıq var. Silməzdən əvvəl stoku köçürün." });
+    const entry = moveToTrash(db, "store", store, {}, req.authUser?.name);
     db.stores = db.stores.filter((item) => Number(item.id) !== id);
     await writeDb(db);
-    return send(res, 200, { ok: true });
+    return send(res, 200, { ok: true, data: publicTrashEntry(entry) });
   }
 
   return notFound(res);
@@ -612,7 +960,7 @@ async function handleCounterparties(req, res, url, parts) {
         eInvoiceRegistryCheckedAt: db.eDocuments.registry.importedAt,
       };
     }
-    const item = ensureCounterpartyAccounting(db, { id: nextNumericId(db.counterparties), createdAt: new Date().toISOString(), ...normalized });
+    const item = ensureCounterpartyAccounting(db, { id: nextEntityNumericId(db, "counterparties", "counterparty"), createdAt: new Date().toISOString(), ...normalized });
     db.counterparties.push(item);
     await writeDb(db);
     return send(res, 201, { data: item });
@@ -638,6 +986,23 @@ async function handleCounterparties(req, res, url, parts) {
     db.counterparties[index] = ensureCounterpartyAccounting(db, { ...normalized, updatedAt: new Date().toISOString() });
     await writeDb(db);
     return send(res, 200, { data: db.counterparties[index] });
+  }
+
+  if (req.method === "DELETE" && id) {
+    const counterparty = db.counterparties.find((item) => Number(item.id) === id);
+    if (!counterparty) return notFound(res);
+    const related = {
+      customerPrices: db.customerPrices.filter((item) => Number(item.customerId) === id),
+      accountingAccounts: (db.accounting?.accounts ?? []).filter((item) => Number(item.counterpartyId) === id),
+    };
+    const entry = moveToTrash(db, "counterparty", counterparty, related, req.authUser?.name);
+    db.counterparties = db.counterparties.filter((item) => Number(item.id) !== id);
+    db.customerPrices = db.customerPrices.filter((item) => Number(item.customerId) !== id);
+    for (const account of db.accounting?.accounts ?? []) {
+      if (Number(account.counterpartyId) === id) account.active = false;
+    }
+    await writeDb(db);
+    return send(res, 200, { ok: true, data: publicTrashEntry(entry) });
   }
 
   return notFound(res);
@@ -830,9 +1195,8 @@ async function handleCustomerPrices(req, res, url, parts) {
 async function handleOnlineCollections(req, res, parts) {
   const db = await readDb();
   const [, section] = parts;
-  if (req.method !== "GET") return notFound(res);
-  if (!section) return send(res, 200, { data: db.onlineCollections });
-  if (section === "pos") {
+  if (req.method === "GET" && !section) return send(res, 200, { data: db.onlineCollections });
+  if (req.method === "GET" && section === "pos") {
     return send(res, 200, {
       data: {
         providers: db.onlineCollections.posProviders,
@@ -841,8 +1205,241 @@ async function handleOnlineCollections(req, res, parts) {
       },
     });
   }
-  if (section === "collections") return send(res, 200, { data: db.onlineCollections.collections });
-  if (section === "bin-rules") return send(res, 200, { data: db.onlineCollections.binRules });
+  if (req.method === "GET" && section === "collections") return send(res, 200, { data: db.onlineCollections.collections });
+  if (req.method === "GET" && section === "bin-rules") return send(res, 200, { data: db.onlineCollections.binRules });
+  if (req.method === "GET" && section === "providers") {
+    return send(res, 200, {
+      data: {
+        catalog: paymentProviderCatalog,
+        capabilityLabels,
+        connections: db.onlineCollections.providerConnections.map(publicProviderConnection),
+      },
+    });
+  }
+  if (req.method === "POST" && section === "providers" && parts[2] === "connections") {
+    const body = await parseBody(req);
+    const validation = validateProviderConnectionInput(body);
+    if (!validation.ok) return send(res, 400, { error: validation.error });
+    const now = new Date().toISOString();
+    const connection = {
+      id: randomUUID(),
+      providerId: validation.value.provider.id,
+      label: validation.value.label,
+      environment: validation.value.environment,
+      status: "configured",
+      credentialCipher: await encryptProviderCredentials(validation.value.credentials),
+      credentialKeys: validation.value.credentialKeys,
+      webhookUrl: validation.value.webhookUrl,
+      lastTestedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.onlineCollections.providerConnections.unshift(connection);
+    await writeDb(db);
+    return send(res, 201, { data: publicProviderConnection(connection) });
+  }
+  if (section === "providers" && parts[2] === "connections" && parts[3]) {
+    const connectionIndex = db.onlineCollections.providerConnections.findIndex((item) => item.id === parts[3]);
+    if (connectionIndex < 0) return notFound(res);
+    if (req.method === "DELETE") {
+      const [removed] = db.onlineCollections.providerConnections.splice(connectionIndex, 1);
+      await writeDb(db);
+      return send(res, 200, { data: publicProviderConnection(removed) });
+    }
+    if (req.method === "PATCH") {
+      const body = await parseBody(req);
+      const current = db.onlineCollections.providerConnections[connectionIndex];
+      const next = {
+        ...current,
+        label: String(body.label ?? current.label).trim() || current.label,
+        environment: body.environment === "live" ? "live" : body.environment === "test" ? "test" : current.environment,
+        status: body.status === "disabled" ? "disabled" : body.status === "configured" ? "configured" : current.status,
+        webhookUrl: body.webhookUrl === undefined ? current.webhookUrl : String(body.webhookUrl).trim(),
+        updatedAt: new Date().toISOString(),
+      };
+      if (body.credentials && typeof body.credentials === "object") {
+        const credentialEntries = Object.entries(body.credentials).filter(([, value]) => String(value ?? "").trim());
+        if (credentialEntries.length) {
+          const credentials = Object.fromEntries(credentialEntries.map(([key, value]) => [key, String(value).trim()]));
+          next.credentialCipher = await encryptProviderCredentials(credentials);
+          next.credentialKeys = Object.keys(credentials);
+        }
+      }
+      db.onlineCollections.providerConnections[connectionIndex] = next;
+      await writeDb(db);
+      return send(res, 200, { data: publicProviderConnection(next) });
+    }
+  }
+  return notFound(res);
+}
+
+async function handlePaymentIntegrations(req, res, parts) {
+  const db = await readDb();
+  const [, section, paymentId, action] = parts;
+  if (req.method === "GET" && !section) {
+    return send(res, 200, {
+      data: {
+        overview: externalPaymentOverview(db.externalPayments),
+        payments: db.externalPayments,
+        connections: db.onlineCollections.providerConnections.map(publicProviderConnection),
+        reconciliation: reconciliationOverview(db),
+      },
+    });
+  }
+  if (req.method === "GET" && section === "accounts") {
+    if (paymentId) {
+      try {
+        return send(res, 200, { data: financialAccountDetails(db, paymentId) });
+      } catch (error) {
+        return send(res, 404, { error: error instanceof Error ? error.message : "Şirket hesabı bulunamadı." });
+      }
+    }
+    return send(res, 200, { data: db.financialAccounts });
+  }
+  if (req.method === "POST" && section === "accounts" && !paymentId) {
+    try {
+      const account = createFinancialAccount(db, await parseBody(req));
+      await writeDb(db);
+      return send(res, 201, { data: account });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Hesap oluşturulamadı." });
+    }
+  }
+  if (req.method === "DELETE" && section === "accounts" && paymentId) {
+    const account = db.financialAccounts.find((item) => item.id === paymentId);
+    if (!account) return notFound(res);
+    const inUse = db.paymentRoutingRules.some((rule) => rule.financialAccountId === account.id)
+      || db.companyCards.some((card) => card.financialAccountId === account.id)
+      || db.bankTransactions.some((transaction) => transaction.financialAccountId === account.id);
+    if (inUse) return send(res, 409, { error: "Hareketi veya POS kuralı bulunan hesap silinemez; pasif duruma alınmalıdır." });
+    db.financialAccounts = db.financialAccounts.filter((item) => item.id !== account.id);
+    await writeDb(db);
+    return send(res, 200, { data: account });
+  }
+  if (req.method === "POST" && section === "accounts" && paymentId && action === "cards") {
+    try {
+      const card = createCompanyCard(db, paymentId, await parseBody(req));
+      await writeDb(db);
+      return send(res, 201, { data: card });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Şirket kartı oluşturulamadı." });
+    }
+  }
+  if (req.method === "POST" && section === "cards" && paymentId && action === "transactions") {
+    try {
+      const body = await parseBody(req);
+      const result = importCardTransactions(db, paymentId, body.transactions);
+      await writeDb(db);
+      return send(res, 200, { data: result });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Kart hareketleri içe aktarılamadı." });
+    }
+  }
+  if (req.method === "GET" && section === "routing-rules") {
+    return send(res, 200, { data: db.paymentRoutingRules });
+  }
+  if (req.method === "POST" && section === "routing-rules") {
+    try {
+      const rule = createRoutingRule(db, await parseBody(req));
+      await writeDb(db);
+      return send(res, 201, { data: rule });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Yönlendirme kuralı oluşturulamadı." });
+    }
+  }
+  if (req.method === "DELETE" && section === "routing-rules" && paymentId) {
+    const rule = db.paymentRoutingRules.find((item) => item.id === paymentId);
+    if (!rule) return notFound(res);
+    db.paymentRoutingRules = db.paymentRoutingRules.filter((item) => item.id !== paymentId);
+    await writeDb(db);
+    return send(res, 200, { data: rule });
+  }
+  if (req.method === "GET" && section === "settlements") {
+    return send(res, 200, { data: db.paymentSettlements, overview: reconciliationOverview(db) });
+  }
+  if (req.method === "PATCH" && section === "settlements" && paymentId && action === "match") {
+    try {
+      const settlement = manuallyMatchSettlement(db, paymentId, await parseBody(req));
+      settlement.paymentIds
+        .map((id) => db.externalPayments.find((payment) => payment.id === id)?.ledgerDocumentId)
+        .map((id) => db.documents.find((document) => document.id === id))
+        .filter(Boolean)
+        .forEach((document) => upsertDocumentJournal(db, document));
+      await writeDb(db);
+      return send(res, 200, { data: settlement, overview: reconciliationOverview(db) });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Hakediş hesabı eşleştirilemedi." });
+    }
+  }
+  if (req.method === "GET" && section === "bank-transactions") {
+    return send(res, 200, { data: db.bankTransactions.map((transaction) => ({ ...transaction, suggestions: bankTransactionSuggestions(db, transaction) })), overview: reconciliationOverview(db) });
+  }
+  if (req.method === "GET" && section === "bank-imports") {
+    return send(res, 200, { data: db.bankImportBatches });
+  }
+  if (req.method === "POST" && section === "bank-transactions" && paymentId === "import") {
+    try {
+      const body = await parseBody(req);
+      const documentIds = new Set(db.documents.map((document) => document.id));
+      const result = importBankTransactions(db, body);
+      db.documents.filter((document) => !documentIds.has(document.id)).forEach((document) => upsertDocumentJournal(db, document));
+      await writeDb(db);
+      return send(res, 200, { data: result, overview: reconciliationOverview(db) });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Banka hareketleri içe aktarılamadı." });
+    }
+  }
+  if (req.method === "PATCH" && section === "bank-transactions" && paymentId && action === "match") {
+    try {
+      const transaction = manuallyMatchBankTransaction(db, paymentId, await parseBody(req));
+      const document = db.documents.find((item) => item.id === transaction.documentId);
+      if (document) upsertDocumentJournal(db, document);
+      await writeDb(db);
+      return send(res, 200, { data: transaction, overview: reconciliationOverview(db) });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Banka hareketi eşleştirilemedi." });
+    }
+  }
+  if (req.method === "GET" && section === "payments") {
+    return send(res, 200, { data: db.externalPayments, overview: externalPaymentOverview(db.externalPayments) });
+  }
+  if (req.method === "POST" && section === "import") {
+    const body = await parseBody(req);
+    const provider = paymentProviderCatalog.find((item) => item.id === String(body.providerId ?? ""));
+    if (!provider || provider.availability !== "active") return send(res, 400, { error: "Aktif sağlayıcı bulunamadı." });
+    const connection = body.connectionId
+      ? db.onlineCollections.providerConnections.find((item) => item.id === String(body.connectionId))
+      : null;
+    if (body.connectionId && !connection) return send(res, 400, { error: "Sağlayıcı bağlantısı bulunamadı." });
+    try {
+      const result = importExternalPayments(db, {
+        providerId: provider.id,
+        providerName: provider.name,
+        connectionId: connection?.id ?? "",
+        payments: body.payments,
+      });
+      [...result.created, ...result.updated]
+        .map((payment) => db.documents.find((document) => document.id === payment.ledgerDocumentId))
+        .filter(Boolean)
+        .forEach((document) => upsertDocumentJournal(db, document));
+      await writeDb(db);
+      return send(res, 200, { data: result, overview: externalPaymentOverview(db.externalPayments) });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Ödemeler içe aktarılamadı." });
+    }
+  }
+  if (req.method === "PATCH" && section === "payments" && paymentId && action === "match") {
+    const body = await parseBody(req);
+    try {
+      const payment = manuallyMatchExternalPayment(db, paymentId, body.counterpartyId);
+      const document = db.documents.find((item) => item.id === payment.ledgerDocumentId);
+      if (document) upsertDocumentJournal(db, document);
+      await writeDb(db);
+      return send(res, 200, { data: payment, overview: externalPaymentOverview(db.externalPayments) });
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : "Ödeme eşleştirilemedi." });
+    }
+  }
   return notFound(res);
 }
 
@@ -2481,6 +3078,121 @@ function createPaymentDocuments(sourceDocument) {
     .filter(Boolean);
 }
 
+function refreshDocumentPaymentSummary(document) {
+  const total = Math.abs(numberValue(document.paymentSummary?.total ?? document.total));
+  const payments = Array.isArray(document.payments) ? document.payments : [];
+  const paid = payments.reduce((sum, payment) => sum + Math.abs(numberValue(payment.amount)), 0);
+  document.paymentSummary = {
+    total,
+    paid,
+    remaining: Math.max(0, total - paid),
+    status: paid >= total && total > 0 ? "Tam ödənilib" : paid > 0 ? "Qismən ödənilib" : "Ödənilməyib",
+  };
+  document.updatedAt = new Date().toISOString();
+}
+
+function validateDocumentRemoval(db, document) {
+  if (document.posted === false) return { ok: true };
+  if (document.type === "movement") {
+    const to = normalizeWarehouse(db, document.toAccount ?? "ERSA ANTREPO");
+    for (const line of document.lines ?? []) {
+      const product = db.products.find((item) => Number(item.id) === Number(line.productId));
+      if (!product || product.type === "service") continue;
+      const qty = numberValue(line.qty);
+      if (productStock(product, to) + 0.0001 < qty) {
+        return { ok: false, error: `${product.name} məhsulunun sonrakı hərəkətləri var. ${to.toUpperCase()} qalığı sənədi silmək üçün kifayət etmir.` };
+      }
+    }
+  }
+  if (["purchase", "saleReturn", "openingBalance"].includes(document.type)) {
+    const account = normalizeWarehouse(db, document.account);
+    for (const line of document.lines ?? []) {
+      const product = db.products.find((item) => Number(item.id) === Number(line.productId));
+      if (!product || product.type === "service") continue;
+      const qty = numberValue(line.qty);
+      if (productStock(product, account) + 0.0001 < qty) {
+        return { ok: false, error: `${product.name} məhsulunun bu alışdan sonra çıxışı var. Əvvəl sonrakı sənədləri düzəldin.` };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+function reverseDocumentEffects(db, document) {
+  const validation = validateDocumentRemoval(db, document);
+  if (!validation.ok) return validation;
+
+  if (document.type === "movement" || (document.type === "sale" && (document.saleMode === "export" || document.exportMode))) {
+    reverseMovementStock(db, document);
+    releaseMovementSelection(db, document);
+  } else if (document.type === "sale") {
+    reverseRegularSaleStock(db, document);
+  } else if (document.posted !== false && ["purchase", "saleReturn", "openingBalance"].includes(document.type)) {
+    const account = normalizeWarehouse(db, document.account);
+    for (const line of document.lines ?? []) {
+      const product = db.products.find((item) => Number(item.id) === Number(line.productId));
+      if (!product || product.type === "service") continue;
+      changeStock(product, account, -numberValue(line.qty));
+    }
+  } else if (document.posted !== false && ["writeOff", "purchaseReturn"].includes(document.type)) {
+    const account = normalizeWarehouse(db, document.account);
+    for (const line of document.lines ?? []) {
+      const product = db.products.find((item) => Number(item.id) === Number(line.productId));
+      if (!product || product.type === "service") continue;
+      changeStock(product, account, numberValue(line.qty));
+    }
+  }
+
+  if (document.relationshipType === "debtPayment" && document.linkedDocumentId) {
+    const source = db.documents.find((item) => String(item.id) === String(document.linkedDocumentId));
+    if (source) {
+      source.payments = (source.payments ?? []).filter((payment) => String(payment.externalDocumentId ?? "") !== String(document.id));
+      refreshDocumentPaymentSummary(source);
+    }
+  } else if (document.generatedFromPayment && document.linkedDocumentId) {
+    const source = db.documents.find((item) => String(item.id) === String(document.linkedDocumentId));
+    if (source && Number(document.paymentIndex) > 0) {
+      source.payments = (source.payments ?? []).filter((_, index) => index !== Number(document.paymentIndex) - 1);
+      refreshDocumentPaymentSummary(source);
+    }
+  }
+
+  db.landedCostAdjustments = db.landedCostAdjustments.filter((item) => String(item.documentId) !== String(document.id));
+  db.accounting.journals = db.accounting.journals.filter((journal) => String(journal.sourceDocumentId) !== String(document.id));
+  return { ok: true };
+}
+
+function restoreDocumentEffects(db, document) {
+  const stockResult = applyDocumentStock(db, document);
+  if (!stockResult.ok) return stockResult;
+  markMovementSelection(db, document);
+
+  if (document.relationshipType === "debtPayment") {
+    const paymentResult = applyDebtPayment(db, document);
+    if (!paymentResult.ok) return paymentResult;
+  } else if (document.generatedFromPayment && document.linkedDocumentId) {
+    const source = db.documents.find((item) => String(item.id) === String(document.linkedDocumentId));
+    if (source) {
+      const payments = [...(source.payments ?? [])];
+      const index = Math.max(0, Number(document.paymentIndex || payments.length + 1) - 1);
+      payments.splice(index, 0, {
+        account: document.account,
+        method: document.method,
+        amount: Math.abs(numberValue(document.amount ?? document.total)),
+        date: document.documentDate ?? document.createdAt,
+        note: document.comment ?? "",
+        direction: document.type === "cashIn" ? "in" : "out",
+      });
+      source.payments = payments;
+      refreshDocumentPaymentSummary(source);
+    }
+  }
+
+  applyLandedCost(db, document);
+  upsertDocumentJournal(db, document);
+  return { ok: true };
+}
+
 async function handleDocuments(req, res) {
   const db = await readDb();
   if (req.method === "GET") {
@@ -2495,6 +3207,12 @@ async function handleDocuments(req, res) {
     const index = db.documents.findIndex((item) => String(item.id) === String(id));
     if (index < 0) return notFound(res);
     const body = await parseBody(req);
+    if (body.financialAccountId) {
+      const financialAccount = db.financialAccounts.find((item) => item.id === String(body.financialAccountId) && item.status !== "inactive");
+      if (!financialAccount) return send(res, 400, { error: "Seçilen şirket hesabı bulunamadı." });
+      body.account = financialAccount.name;
+      if (["cashIn", "cashOut"].includes(body.type ?? db.documents[index]?.type) && !body.bankTransactionId) body.bankMatchStatus = "pending";
+    }
     const previousDocument = db.documents[index];
     const sourceLock = resolveSourceDocumentLock(db.eDocuments.documents, previousDocument.id);
     if (previousDocument.type === "sale" && sourceLock.locked) {
@@ -2547,6 +3265,12 @@ async function handleDocuments(req, res) {
   }
   if (req.method === "POST") {
     const body = await parseBody(req);
+    if (body.financialAccountId) {
+      const financialAccount = db.financialAccounts.find((item) => item.id === String(body.financialAccountId) && item.status !== "inactive");
+      if (!financialAccount) return send(res, 400, { error: "Seçilen şirket hesabı bulunamadı." });
+      body.account = financialAccount.name;
+      if (["cashIn", "cashOut"].includes(body.type) && !body.bankTransactionId) body.bankMatchStatus = "pending";
+    }
     const document = {
       id: randomUUID(),
       status: body.posted === false ? "draft" : "posted",
@@ -2580,6 +3304,119 @@ async function handleDocuments(req, res) {
     await writeDb(db);
     return send(res, 201, { data: document, payments: paymentDocuments, products: stockResult.products, journal });
   }
+  if (req.method === "DELETE") {
+    const id = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`).pathname.split("/").filter(Boolean)[2];
+    const document = db.documents.find((item) => String(item.id) === String(id));
+    if (!document) return notFound(res);
+    const sourceLock = resolveSourceDocumentLock(db.eDocuments.documents, document.id);
+    if (sourceLock.locked) return send(res, 409, { error: sourceLock.reason, lock: sourceLock });
+    const reverseResult = reverseDocumentEffects(db, document);
+    if (!reverseResult.ok) return send(res, 409, { error: reverseResult.error });
+    const relatedDocuments = db.documents.filter((item) => item.generatedFromPayment && String(item.linkedDocumentId) === String(document.id));
+    const relatedIds = new Set(relatedDocuments.map((item) => String(item.id)));
+    const entry = moveToTrash(db, "document", document, { documents: relatedDocuments }, req.authUser?.name);
+    db.documents = db.documents.filter((item) => String(item.id) !== String(document.id) && !relatedIds.has(String(item.id)));
+    db.accounting.journals = db.accounting.journals.filter((journal) => !relatedIds.has(String(journal.sourceDocumentId)));
+    rebuildLotAccounting(db, {
+      sourceDocumentId: document.id,
+      effectiveFrom: document.documentDate ?? document.createdAt,
+      reason: "Sənəd səbətə köçürüldükdən sonra yenidən hesablandı",
+    });
+    await writeDb(db);
+    return send(res, 200, { ok: true, data: publicTrashEntry(entry) });
+  }
+  return notFound(res);
+}
+
+async function handleTrash(req, res, url, parts) {
+  const db = await readDb();
+  const id = parts[1];
+  const action = parts[2];
+
+  if (req.method === "GET" && parts.length === 1) {
+    const type = String(url.searchParams.get("type") ?? "").trim();
+    const query = String(url.searchParams.get("q") ?? "").trim().toLocaleLowerCase("az-Latn-AZ");
+    const data = db.trash
+      .filter((entry) => !type || entry.entityType === type || entry.subtype === type)
+      .filter((entry) => !query || [entry.label, entry.summary, entry.entityId, entry.deletedBy]
+        .some((value) => String(value ?? "").toLocaleLowerCase("az-Latn-AZ").includes(query)))
+      .sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)))
+      .map(publicTrashEntry);
+    return send(res, 200, { data });
+  }
+
+  if (req.method === "PATCH" && id && action === "restore") {
+    const working = structuredClone(db);
+    const entryIndex = working.trash.findIndex((item) => String(item.id) === String(id));
+    if (entryIndex < 0) return notFound(res);
+    const entry = working.trash[entryIndex];
+    const original = structuredClone(entry.original);
+
+    if (entry.entityType === "product") {
+      if (working.products.some((item) => Number(item.id) === Number(original.id))) {
+        return send(res, 409, { error: "Bu məhsul ID-si artıq istifadə olunur." });
+      }
+      working.products.push(original);
+      const priceIds = new Set(working.customerPrices.map((item) => String(item.id)));
+      working.customerPrices.push(...(entry.related?.customerPrices ?? []).filter((item) => !priceIds.has(String(item.id))));
+      const historyIds = new Set(working.productPriceHistory.map((item) => String(item.id)));
+      working.productPriceHistory.push(...(entry.related?.priceHistory ?? []).filter((item) => !historyIds.has(String(item.id))));
+    } else if (entry.entityType === "counterparty") {
+      if (working.counterparties.some((item) => Number(item.id) === Number(original.id))) {
+        return send(res, 409, { error: "Bu kontragent ID-si artıq istifadə olunur." });
+      }
+      working.counterparties.push(original);
+      const priceIds = new Set(working.customerPrices.map((item) => String(item.id)));
+      working.customerPrices.push(...(entry.related?.customerPrices ?? []).filter((item) => !priceIds.has(String(item.id))));
+      for (const restoredAccount of entry.related?.accountingAccounts ?? []) {
+        const accountIndex = working.accounting.accounts.findIndex((item) => String(item.id) === String(restoredAccount.id));
+        if (accountIndex >= 0) working.accounting.accounts[accountIndex] = restoredAccount;
+        else working.accounting.accounts.push(restoredAccount);
+      }
+    } else if (entry.entityType === "store") {
+      if (working.stores.some((item) => Number(item.id) === Number(original.id) || item.key === original.key || item.name === original.name)) {
+        return send(res, 409, { error: "Eyni mağaza artıq mövcuddur." });
+      }
+      working.stores.push(original);
+      working.products = working.products.map((product) => ({
+        ...product,
+        warehouses: { ...(product.warehouses ?? {}), [original.key]: numberValue(product.warehouses?.[original.key]) },
+        storePrices: { ...(product.storePrices ?? {}), [original.name]: numberValue(product.storePrices?.[original.name] ?? product.salePrice) },
+      }));
+    } else if (entry.entityType === "document") {
+      if (working.documents.some((item) => String(item.id) === String(original.id))) {
+        return send(res, 409, { error: "Bu sənəd artıq mövcuddur." });
+      }
+      working.documents.unshift(original);
+      const restoreResult = restoreDocumentEffects(working, original);
+      if (!restoreResult.ok) return send(res, 409, { error: restoreResult.error });
+      for (const relatedDocument of entry.related?.documents ?? []) {
+        if (working.documents.some((item) => String(item.id) === String(relatedDocument.id))) continue;
+        working.documents.unshift(relatedDocument);
+        upsertDocumentJournal(working, relatedDocument);
+      }
+      rebuildLotAccounting(working, {
+        sourceDocumentId: original.id,
+        effectiveFrom: original.documentDate ?? original.createdAt,
+        reason: "Sənəd səbətdən bərpa edildikdən sonra yenidən hesablandı",
+      });
+    } else {
+      return send(res, 400, { error: "Bu qeyd növü hələ bərpa edilmir." });
+    }
+
+    working.trash.splice(entryIndex, 1);
+    await writeDb(working);
+    return send(res, 200, { ok: true, data: publicTrashEntry(entry) });
+  }
+
+  if (req.method === "DELETE" && id) {
+    const before = db.trash.length;
+    db.trash = db.trash.filter((entry) => String(entry.id) !== String(id));
+    if (db.trash.length === before) return notFound(res);
+    await writeDb(db);
+    return send(res, 200, { ok: true });
+  }
+
   return notFound(res);
 }
 
@@ -2747,12 +3584,20 @@ await writeDb(initialDb);
 
 const server = createServer(async (req, res) => {
   try {
+    applyCors(req, res);
     if (req.method === "OPTIONS") return send(res, 204, {});
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const parts = url.pathname.split("/").filter(Boolean);
 
     if (parts[0] !== "api") return notFound(res);
     if (parts[1] === "health") return send(res, 200, { ok: true, service: "arix-api", time: new Date().toISOString() });
+    if (parts[1] === "auth") return await handleAuth(req, res, parts.slice(1));
+
+    const authDb = await readDb();
+    const authUser = requestAuthUser(req, authDb);
+    if (AUTH_REQUIRED && !authUser) return send(res, 401, { error: "Giriş sessiyası tələb olunur." });
+    req.authUser = authUser;
+
     if (parts[1] === "products") return await handleProducts(req, res, url, parts.slice(1));
     if (parts[1] === "product-price-history") return await handleProductPriceHistory(req, res, url);
     if (parts[1] === "product-groups") return await handleSimpleCollection(req, res, "productGroups");
@@ -2762,10 +3607,12 @@ const server = createServer(async (req, res) => {
     if (parts[1] === "accounting") return await handleAccounting(req, res, url, parts.slice(1));
     if (parts[1] === "customer-prices") return await handleCustomerPrices(req, res, url, parts.slice(1));
     if (parts[1] === "online-collections") return await handleOnlineCollections(req, res, parts.slice(1));
+    if (parts[1] === "payment-integrations") return await handlePaymentIntegrations(req, res, parts.slice(1));
     if (parts[1] === "company-settings") return await handleCompanySettings(req, res);
     if (parts[1] === "e-documents") return await handleEDocuments(req, res, url, parts.slice(1));
     if (parts[1] === "exchange-rates") return await handleExchangeRates(req, res, url);
     if (parts[1] === "documents") return await handleDocuments(req, res);
+    if (parts[1] === "trash") return await handleTrash(req, res, url, parts.slice(1));
     if (parts[1] === "stock-containers") return await handleStockContainers(req, res);
     if (parts[1] === "movement-suggestions") return await handleMovementSuggestions(req, res);
     if (parts[1] === "sale-roll-suggestion") return await handleSaleRollSuggestion(req, res);

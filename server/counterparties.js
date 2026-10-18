@@ -23,6 +23,7 @@ export function normalizeCounterparty(value = {}, previous = {}) {
     website: text(merged.website, 200),
     taxId,
     taxOffice: text(merged.taxOffice, 120),
+    iban: text(merged.iban, 64).replace(/\s/g, "").toUpperCase(),
     mersisNumber: text(merged.mersisNumber, 20).replace(/\D/g, ""),
     tradeRegistryNumber: text(merged.tradeRegistryNumber, 40),
     address: text(merged.address, 500),

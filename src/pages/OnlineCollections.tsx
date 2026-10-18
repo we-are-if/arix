@@ -1,4 +1,4 @@
-import { useEffect, useState, type SVGProps } from "react";
+import { useEffect, useState, type FormEvent, type SVGProps } from "react";
 import { requestJson } from "../api";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
@@ -7,6 +7,7 @@ export type OnlineCollectionSection =
   | "payments"
   | "new"
   | "pos"
+  | "providers"
   | "paramPos"
   | "commissions"
   | "paymentAi"
@@ -83,6 +84,40 @@ type CollectionRow = {
   paidAt?: string;
 };
 
+type ProviderType = "collection_platform" | "orchestration" | "payment_institution" | "direct_bank" | "legacy";
+
+type PaymentProvider = {
+  id: string;
+  name: string;
+  type: ProviderType;
+  website: string;
+  country: string;
+  availability: "active" | "legacy";
+  integrationState: "catalog" | "unsupported";
+  note?: string;
+  capabilities: string[];
+  credentialFields: string[];
+};
+
+type ProviderConnection = {
+  id: string;
+  providerId: string;
+  providerName: string;
+  providerType: ProviderType;
+  label: string;
+  environment: "test" | "live";
+  status: "configured" | "disabled" | "attention";
+  credentialKeys: string[];
+  credentialsConfigured: boolean;
+  webhookUrl: string;
+  lastTestedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type FinancialAccountOption = { id: string; name: string; bankName: string; iban: string; currency: string; status: "active" | "inactive" };
+type PaymentRoutingRule = { id: string; providerId: string; connectionId: string; merchantId: string; terminalId: string; currency: string; financialAccountId: string; financialAccountName: string; active: boolean };
+
 const I = {
   Search: (p: SVGProps<SVGSVGElement>) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
@@ -117,6 +152,21 @@ const I = {
   Send: (p: SVGProps<SVGSVGElement>) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
       <path d="m22 2-7 20-4-9-9-4 20-7Z" /><path d="M22 2 11 13" />
+    </svg>
+  ),
+  Plug: (p: SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="m12 22 1-5-4-4 5-5 4 4-5 5" /><path d="m16 6 2-2M19 9l2-2M8 14l-5 5" />
+    </svg>
+  ),
+  Trash: (p: SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+    </svg>
+  ),
+  Close: (p: SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" {...p}>
+      <path d="m6 6 12 12M18 6 6 18" />
     </svg>
   ),
 };
@@ -155,6 +205,7 @@ const sectionTitles: Record<OnlineCollectionSection, string> = {
   payments: "Onlayn ödənişlər",
   new: "Ödəniş al",
   pos: "POS və routing",
+  providers: "Tahsilat sağlayıcıları",
   paramPos: "Param POS",
   commissions: "Taksit və komissiyalar",
   paymentAi: "Ödeme AI",
@@ -200,9 +251,95 @@ const makeUI = (isDark: boolean) => ({
   ].join(" "),
 });
 
+export function PaymentIntegrationSettings({ isDark = false }: { isDark?: boolean }) {
+  const ui = makeUI(isDark);
+  const [query, setQuery] = useState("");
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className={cx("flex shrink-0 flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between", ui.card, ui.ring)}>
+        <div>
+          <h2 className="text-base font-semibold">Harici ödeme sistemleri</h2>
+          <p className={cx("mt-1 text-sm", ui.subtle)}>Gerçekleşmiş ödemeler içeri alınır, müşteriyle eşleştirilir ve cari bakiyeden düşülür.</p>
+        </div>
+        <div className="relative w-full lg:w-[380px]">
+          <I.Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Sağlayıcı ara..." className={cx(ui.input, "w-full pl-9")} />
+        </div>
+      </div>
+      <RoutingRuleSettings isDark={isDark} />
+      <ProviderCatalog isDark={isDark} query={query} />
+    </div>
+  );
+}
+
+function RoutingRuleSettings({ isDark }: { isDark: boolean }) {
+  const ui = makeUI(isDark);
+  const [accounts, setAccounts] = useState<FinancialAccountOption[]>([]);
+  const [rules, setRules] = useState<PaymentRoutingRule[]>([]);
+  const [connections, setConnections] = useState<ProviderConnection[]>([]);
+  const [form, setForm] = useState({ providerId: "", connectionId: "", merchantId: "", terminalId: "", currency: "TRY", financialAccountId: "" });
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const load = async () => {
+    try {
+      const [accountPayload, rulePayload, providerPayload] = await Promise.all([
+        requestJson<{ data: FinancialAccountOption[] }>("/api/payment-integrations/accounts"),
+        requestJson<{ data: PaymentRoutingRule[] }>("/api/payment-integrations/routing-rules"),
+        requestJson<{ data?: { connections?: ProviderConnection[] } }>("/api/online-collections/providers"),
+      ]);
+      setAccounts(accountPayload.data ?? []);
+      setRules(rulePayload.data ?? []);
+      setConnections(providerPayload.data?.connections ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Yönlendirme bilgileri yüklenemedi.");
+    }
+  };
+  useEffect(() => { void load(); }, []);
+  const save = async () => {
+    setMessage("");
+    try {
+      await requestJson("/api/payment-integrations/routing-rules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
+      setOpen(false);
+      setForm({ providerId: "", connectionId: "", merchantId: "", terminalId: "", currency: "TRY", financialAccountId: "" });
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kural kaydedilemedi.");
+    }
+  };
+  const remove = async (id: string) => {
+    try {
+      await requestJson(`/api/payment-integrations/routing-rules/${id}`, { method: "DELETE" });
+      setRules((current) => current.filter((item) => item.id !== id));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Kural silinemedi.");
+    }
+  };
+  return (
+    <section className={cx("shrink-0 overflow-hidden", ui.card, ui.ring)}>
+      <div className={cx("flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between", ui.border)}>
+        <div><h2 className="text-lg font-semibold">POS → şirket hesabı yönlendirmesi</h2><p className={cx("mt-1 text-sm", ui.subtle)}>Terminal veya üye işyeri bir defa gerçek IBAN hesabına bağlanır; sonraki hakedişler otomatik yönlenir.</p></div>
+        <button type="button" onClick={() => setOpen((value) => !value)} className="surface-primary h-10 rounded-xl px-4 text-sm font-semibold">Kural ekle</button>
+      </div>
+      {message && <div className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{message}</div>}
+      {open && (
+        <div className={cx("grid gap-3 border-b p-4 md:grid-cols-3", ui.border)}>
+          <label className="text-xs font-semibold">Sağlayıcı bağlantısı<select value={form.connectionId} onChange={(event) => { const connection = connections.find((item) => item.id === event.target.value); setForm({ ...form, connectionId: event.target.value, providerId: connection?.providerId ?? "" }); }} className={cx(ui.input, "mt-2 w-full")}><option value="">Seçin</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+          <label className="text-xs font-semibold">Üye işyeri no<input value={form.merchantId} onChange={(event) => setForm({ ...form, merchantId: event.target.value })} className={cx(ui.input, "mt-2 w-full")} /></label>
+          <label className="text-xs font-semibold">Terminal no<input value={form.terminalId} onChange={(event) => setForm({ ...form, terminalId: event.target.value })} className={cx(ui.input, "mt-2 w-full")} /></label>
+          <label className="text-xs font-semibold">Para birimi<select value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value })} className={cx(ui.input, "mt-2 w-full")}><option>TRY</option><option>USD</option><option>EUR</option><option>AZN</option></select></label>
+          <label className="text-xs font-semibold md:col-span-2">Hakedişin yatacağı gerçek hesap<select value={form.financialAccountId} onChange={(event) => setForm({ ...form, financialAccountId: event.target.value })} className={cx(ui.input, "mt-2 w-full")}><option value="">Şirket hesabı seçin</option>{accounts.filter((item) => item.status === "active" && item.currency === form.currency).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.iban || item.bankName}</option>)}</select></label>
+          <div className="md:col-span-3 flex justify-end"><button type="button" disabled={!form.providerId || !form.financialAccountId || (!form.merchantId && !form.terminalId)} onClick={() => void save()} className="surface-primary h-10 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">Kaydet</button></div>
+        </div>
+      )}
+      {rules.length ? <div className="overflow-auto"><table className="w-full min-w-[760px] text-sm"><thead className={isDark ? "bg-white/5 text-slate-400" : "bg-slate-50 text-slate-500"}><tr>{["Sağlayıcı", "Üye işyeri", "Terminal", "Para birimi", "Hedef şirket hesabı", ""].map((item) => <th key={item} className="px-4 py-3 text-left text-xs">{item}</th>)}</tr></thead><tbody>{rules.map((rule) => <tr key={rule.id} className={cx("border-t", ui.border)}><td className="px-4 py-3 font-medium">{connections.find((item) => item.id === rule.connectionId)?.label || rule.providerId}</td><td className="px-4 py-3">{rule.merchantId || "—"}</td><td className="px-4 py-3">{rule.terminalId || "—"}</td><td className="px-4 py-3">{rule.currency}</td><td className="px-4 py-3 font-semibold">{rule.financialAccountName}</td><td className="px-4 py-3 text-right"><button type="button" onClick={() => void remove(rule.id)} className="text-rose-600">Sil</button></td></tr>)}</tbody></table></div> : <div className={cx("p-4 text-sm", ui.subtle)}>Henüz terminal yönlendirmesi yok. Önce gerçek şirket hesabı ve sağlayıcı bağlantısı oluşturun.</div>}
+    </section>
+  );
+}
+
 export default function OnlineCollections({ section = "payments", isDark = false }: { section?: OnlineCollectionSection; isDark?: boolean }) {
   const ui = makeUI(isDark);
   const view =
+    section === "providers" ? "providers" :
     section === "paramPos" || section === "paymentAi" || section === "routing" || section === "bins" || section === "binFilters" ? "pos" :
     section === "paymentSettings" || section === "contracts" || section === "currentAccounts" || section === "generalSettings" || section === "ntLogin" || section === "cardSettings" || section === "dynamicFields" || section === "paymentItems" || section === "pages" || section === "logs" ? "settings" :
     section === "transactions" || section === "paymentLinks" || section === "mailSmsTracking" || section === "notifications" || section === "cardList" || section === "dealerPos" || section === "customersDealers" ? "payments" :
@@ -249,6 +386,8 @@ export default function OnlineCollections({ section = "payments", isDark = false
         <NewCollection amount={amount} setAmount={setAmount} cardPrefix={cardPrefix} setCardPrefix={setCardPrefix} installment={installment} setInstallment={setInstallment} matchedBin={matchedBin} suggestedPos={suggestedPos} commission={commission} commissionAmount={commissionAmount} payable={payable} isDark={isDark} />
       ) : view === "pos" ? (
         <PosSectionModern isDark={isDark} cardPrefix={cardPrefix} setCardPrefix={setCardPrefix} matchedBin={matchedBin} suggestedPos={suggestedPos} />
+      ) : view === "providers" ? (
+        <ProviderCatalog isDark={isDark} query={query} />
       ) : view === "commissions" ? (
         <CommissionsSection isDark={isDark} />
       ) : view === "settings" ? (
@@ -453,6 +592,294 @@ function PaymentsSection({
           Ödəniş linki yarat
         </button>
       </div>
+    </div>
+  );
+}
+
+const providerTypeLabels: Record<ProviderType, string> = {
+  collection_platform: "Tahsilat ve ERP",
+  orchestration: "Ödeme orkestrasyonu",
+  payment_institution: "Ödeme kuruluşu",
+  direct_bank: "Doğrudan banka POS",
+  legacy: "Eski / kullanılamaz",
+};
+
+const credentialLabels: Record<string, string> = {
+  merchantId: "Üye işyeri / merchant no",
+  terminalId: "Terminal no",
+  username: "API kullanıcı adı",
+  password: "API şifresi",
+  storeKey: "3D Store Key",
+  apiKey: "API anahtarı",
+  secretKey: "Gizli anahtar",
+  webhookSecret: "Webhook imza anahtarı",
+};
+
+function ProviderCatalog({ isDark, query }: { isDark: boolean; query: string }) {
+  const ui = makeUI(isDark);
+  const [catalog, setCatalog] = useState<PaymentProvider[]>([]);
+  const [connections, setConnections] = useState<ProviderConnection[]>([]);
+  const [capabilityLabels, setCapabilityLabels] = useState<Record<string, string>>({});
+  const [typeFilter, setTypeFilter] = useState<"all" | ProviderType>("all");
+  const [selected, setSelected] = useState<PaymentProvider | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = () => {
+    setLoading(true);
+    setError("");
+    requestJson<{ data?: { catalog?: PaymentProvider[]; connections?: ProviderConnection[]; capabilityLabels?: Record<string, string> } }>("/api/online-collections/providers")
+      .then((payload) => {
+        setCatalog(payload.data?.catalog ?? []);
+        setConnections(payload.data?.connections ?? []);
+        setCapabilityLabels(payload.data?.capabilityLabels ?? {});
+      })
+      .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Sağlayıcılar alınamadı."))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
+
+  const normalizedQuery = query.trim().toLocaleLowerCase("tr-TR");
+  const filtered = catalog.filter((provider) => {
+    const matchesType = typeFilter === "all" || provider.type === typeFilter;
+    const searchText = [provider.name, providerTypeLabels[provider.type], provider.note, ...provider.capabilities.map((key) => capabilityLabels[key] ?? key)]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase("tr-TR");
+    return matchesType && (!normalizedQuery || searchText.includes(normalizedQuery));
+  });
+  const activeCount = catalog.filter((provider) => provider.availability === "active").length;
+
+  const removeConnection = async (connection: ProviderConnection) => {
+    if (!window.confirm(`${connection.label} bağlantısı kaldırılsın mı?`)) return;
+    try {
+      await requestJson(`/api/online-collections/providers/connections/${connection.id}`, { method: "DELETE" });
+      setConnections((current) => current.filter((item) => item.id !== connection.id));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Bağlantı kaldırılamadı.");
+    }
+  };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto">
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricCard label="Katalog" value={String(catalog.length)} caption="Türkiye sağlayıcı envanteri" isDark={isDark} />
+        <MetricCard label="Aktif aday" value={String(activeCount)} caption="Bağlantı kurulabilir" isDark={isDark} />
+        <MetricCard label="Şirket bağlantısı" value={String(connections.length)} caption="Test ve canlı birlikte" isDark={isDark} />
+        <MetricCard label="Bağlantı türü" value="4" caption="Platform, orkestrasyon, PSP, banka" isDark={isDark} />
+      </div>
+
+      <section className={cx("mt-3 overflow-hidden", ui.card, ui.ring)}>
+        <div className={cx("flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between", ui.border)}>
+          <div>
+            <h2 className="text-lg font-semibold">Şirket bağlantıları</h2>
+            <p className={cx("text-sm", ui.subtle)}>Kimlik bilgileri şifreli saklanır; kaydedildikten sonra tekrar görüntülenmez.</p>
+          </div>
+          <span className={cx("text-xs font-semibold", ui.subtle)}>Canlı işlem için ilgili sağlayıcı adaptörü ayrıca etkinleştirilir.</span>
+        </div>
+        {connections.length ? (
+          <div className="grid gap-0 md:grid-cols-2 xl:grid-cols-3">
+            {connections.map((connection) => (
+              <div key={connection.id} className={cx("border-b p-4 md:border-r", ui.border)}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{connection.label}</div>
+                    <div className={cx("mt-1 text-xs", ui.subtle)}>{connection.providerName} · {providerTypeLabels[connection.providerType]}</div>
+                  </div>
+                  <span className={cx("rounded-full px-2.5 py-1 text-xs font-semibold", connection.environment === "live" ? "bg-emerald-500/12 text-emerald-700" : "bg-amber-500/12 text-amber-700")}>
+                    {connection.environment === "live" ? "Canlı" : "Test"}
+                  </span>
+                </div>
+                <div className={cx("mt-3 flex items-center justify-between text-xs", ui.subtle)}>
+                  <span>{connection.credentialKeys.length} güvenli alan</span>
+                  <button type="button" onClick={() => removeConnection(connection)} className="flex h-8 w-8 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-500/10" title="Bağlantıyı kaldır">
+                    <I.Trash className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={cx("p-6 text-sm", ui.subtle)}>Henüz sağlayıcı bağlanmadı. Aşağıdaki katalogdan ilk bağlantıyı ekleyin.</div>
+        )}
+      </section>
+
+      <section className={cx("mt-3 overflow-hidden", ui.card, ui.ring)}>
+        <div className={cx("border-b p-4", ui.border)}>
+          <div className="flex flex-wrap gap-2">
+            {(["all", "collection_platform", "orchestration", "payment_institution", "direct_bank", "legacy"] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setTypeFilter(type)}
+                className={cx(
+                  "h-9 rounded-lg px-3 text-sm font-semibold transition",
+                  typeFilter === type ? "surface-primary" : isDark ? "bg-white/5 text-slate-300 hover:bg-white/10" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                )}
+              >
+                {type === "all" ? "Tümü" : providerTypeLabels[type]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && <div className="border-b border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+        {loading ? (
+          <div className={cx("p-8 text-center text-sm", ui.subtle)}>Sağlayıcı kataloğu yükleniyor...</div>
+        ) : (
+          <div className="overflow-auto">
+            <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
+              <thead className={isDark ? "bg-slate-950/35 text-slate-400" : "bg-slate-50 text-slate-500"}>
+                <tr>
+                  {["Sağlayıcı", "Tür", "Yetenekler", "Durum", "Bağlantı"].map((header) => (
+                    <th key={header} className={cx("border-b px-4 py-3 text-left text-xs font-semibold", ui.border)}>{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((provider) => {
+                  const providerConnections = connections.filter((connection) => connection.providerId === provider.id);
+                  return (
+                    <tr key={provider.id} className={isDark ? "hover:bg-white/5" : "hover:bg-slate-50"}>
+                      <td className={cx("border-b px-4 py-3", ui.border)}>
+                        <div className="font-semibold">{provider.name}</div>
+                        {provider.note && <div className="mt-1 text-xs text-amber-700">{provider.note}</div>}
+                      </td>
+                      <td className={cx("border-b px-4 py-3", ui.border)}>{providerTypeLabels[provider.type]}</td>
+                      <td className={cx("border-b px-4 py-3", ui.border)}>
+                        <div className="flex max-w-[520px] flex-wrap gap-1.5">
+                          {provider.capabilities.slice(0, 5).map((capability) => (
+                            <span key={capability} className={cx("rounded-md px-2 py-1 text-xs", isDark ? "bg-white/7 text-slate-300" : "bg-slate-100 text-slate-600")}>
+                              {capabilityLabels[capability] ?? capability}
+                            </span>
+                          ))}
+                          {provider.capabilities.length > 5 && <span className={cx("px-1 py-1 text-xs", ui.subtle)}>+{provider.capabilities.length - 5}</span>}
+                        </div>
+                      </td>
+                      <td className={cx("border-b px-4 py-3", ui.border)}>
+                        {provider.availability === "active" ? <StatusBadge status="Aktiv" /> : <StatusBadge status="Kullanılamaz" />}
+                      </td>
+                      <td className={cx("border-b px-4 py-3", ui.border)}>
+                        {provider.availability === "active" ? (
+                          <button type="button" onClick={() => setSelected(provider)} className={cx("inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold", ui.border, isDark ? "hover:bg-white/10" : "hover:bg-white")}>
+                            <I.Plug className="h-4 w-4" />
+                            {providerConnections.length ? `Yeni bağlantı (${providerConnections.length})` : "Bağlantı ekle"}
+                          </button>
+                        ) : <span className={cx("text-xs", ui.subtle)}>Yalnızca arşiv kaydı</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {selected && (
+        <ProviderConnectionDialog
+          provider={selected}
+          isDark={isDark}
+          onClose={() => setSelected(null)}
+          onSaved={(connection) => {
+            setConnections((current) => [connection, ...current]);
+            setSelected(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProviderConnectionDialog({
+  provider,
+  isDark,
+  onClose,
+  onSaved,
+}: {
+  provider: PaymentProvider;
+  isDark: boolean;
+  onClose: () => void;
+  onSaved: (connection: ProviderConnection) => void;
+}) {
+  const ui = makeUI(isDark);
+  const [label, setLabel] = useState(`${provider.name} bağlantısı`);
+  const [environment, setEnvironment] = useState<"test" | "live">("test");
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const payload = await requestJson<{ data: ProviderConnection }>("/api/online-collections/providers/connections", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ providerId: provider.id, label, environment, webhookUrl, credentials }),
+      });
+      onSaved(payload.data);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Bağlantı kaydedilemedi.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label={`${provider.name} bağlantısı`}>
+      <form onSubmit={save} className={cx("max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl border shadow-2xl", isDark ? "border-white/10 bg-slate-900 text-slate-100" : "border-slate-200 bg-white text-slate-900")}>
+        <div className={cx("sticky top-0 z-10 flex items-start justify-between gap-4 border-b p-5", ui.border, isDark ? "bg-slate-900" : "bg-white")}>
+          <div>
+            <h2 className="text-xl font-semibold">{provider.name} entegrasyonu</h2>
+            <p className={cx("mt-1 text-sm", ui.subtle)}>{providerTypeLabels[provider.type]} · kimlik bilgileri yalnızca şifrelenmiş olarak saklanır.</p>
+          </div>
+          <button type="button" onClick={onClose} className={cx("flex h-9 w-9 items-center justify-center rounded-lg border", ui.border)} title="Kapat">
+            <I.Close className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <label className="sm:col-span-2">
+            <span className={cx("mb-1.5 block text-xs font-semibold", ui.subtle)}>Bağlantı adı</span>
+            <input value={label} onChange={(event) => setLabel(event.target.value)} className={cx(ui.input, "w-full")} required />
+          </label>
+          <label>
+            <span className={cx("mb-1.5 block text-xs font-semibold", ui.subtle)}>Ortam</span>
+            <select value={environment} onChange={(event) => setEnvironment(event.target.value as "test" | "live")} className={cx(ui.input, "w-full")}>
+              <option value="test">Test / sandbox</option>
+              <option value="live">Canlı</option>
+            </select>
+          </label>
+          <label>
+            <span className={cx("mb-1.5 block text-xs font-semibold", ui.subtle)}>Webhook adresi</span>
+            <input value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} placeholder="https://.../webhooks/provider" className={cx(ui.input, "w-full")} />
+          </label>
+          {provider.credentialFields.map((field) => (
+            <label key={field}>
+              <span className={cx("mb-1.5 block text-xs font-semibold", ui.subtle)}>{credentialLabels[field] ?? field}</span>
+              <input
+                type={field.toLocaleLowerCase().includes("secret") || field === "password" || field === "storeKey" ? "password" : "text"}
+                value={credentials[field] ?? ""}
+                onChange={(event) => setCredentials((current) => ({ ...current, [field]: event.target.value }))}
+                autoComplete="off"
+                className={cx(ui.input, "w-full")}
+              />
+            </label>
+          ))}
+        </div>
+
+        {error && <div className="mx-5 mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+        <div className={cx("flex justify-end gap-2 border-t p-4", ui.border)}>
+          <button type="button" onClick={onClose} className={cx("h-10 rounded-lg border px-4 text-sm font-semibold", ui.border)}>Vazgeç</button>
+          <button type="submit" disabled={saving} className="surface-primary h-10 rounded-lg px-5 text-sm font-semibold disabled:opacity-50">
+            {saving ? "Kaydediliyor..." : "Bağlantıyı kaydet"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
