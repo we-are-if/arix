@@ -1,0 +1,16 @@
+{
+  "name": "AriX Panel",
+  "short_name": "AriX",
+  "description": "Şirkət, satış, stok və maliyyə idarəetmə paneli",
+  "lang": "az",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "/arix-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/arix-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
