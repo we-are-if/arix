@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { XMLValidator } from "fast-xml-parser";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
@@ -460,6 +460,7 @@ function publicAuthUser(user) {
     email: user.email,
     picture: user.picture || "",
     companyId: user.companyId,
+    passwordChangeRequired: Boolean(user.passwordChangeRequired),
   };
 }
 
@@ -474,7 +475,32 @@ function publicEmployee(user) {
     invitePending: Boolean(user.inviteCodeHash) && !user.googleSubject,
     googleLinked: Boolean(user.googleSubject),
     lastLoginAt: user.lastLoginAt || null,
+    passwordEnabled: Boolean(user.passwordHash),
+    passwordChangeRequired: Boolean(user.passwordChangeRequired),
   };
+}
+
+function passwordDigest(password, salt = randomBytes(16).toString("hex")) {
+  const digest = scryptSync(String(password), salt, 64).toString("hex");
+  return { salt, digest };
+}
+
+function setPassword(user, password, requireChange = false) {
+  const { salt, digest } = passwordDigest(password);
+  user.passwordSalt = salt;
+  user.passwordHash = digest;
+  user.passwordChangeRequired = requireChange;
+}
+
+function validPassword(user, password) {
+  if (!user?.passwordSalt || !user?.passwordHash || !password) return false;
+  const actual = Buffer.from(passwordDigest(password, user.passwordSalt).digest, "hex");
+  const expected = Buffer.from(user.passwordHash, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function createTemporaryPassword() {
+  return `Ax!${randomBytes(6).toString("base64url")}`;
 }
 
 function inviteCodeHash(code) {
@@ -560,6 +586,53 @@ async function handleAuth(req, res, parts) {
 
   if (req.method === "GET" && action === "session") {
     return send(res, 200, { data: publicAuthUser(requestAuthUser(req, db)), authenticationRequired: AUTH_REQUIRED });
+  }
+
+  if (req.method === "POST" && action === "password") {
+    const body = await parseBody(req);
+    const email = String(body.email ?? "").trim().toLocaleLowerCase("en-US");
+    const password = String(body.password ?? "");
+    const user = db.authUsers.find((item) => String(item.email ?? "").trim().toLocaleLowerCase("en-US") === email);
+    if (!user || !validPassword(user, password)) return send(res, 401, { error: "E-poçt və ya şifrə yanlışdır." });
+    if (user.joinPending) return send(res, 202, { pending: true });
+    if (user.active === false) return send(res, 403, { error: "Hesab aktiv deyil. Şirkət sahibinin təsdiqini gözləyin." });
+    user.lastLoginAt = new Date().toISOString();
+    const session = createSession(req, db, user);
+    await writeDb(db);
+    setSessionCookie(req, res, session.token, Math.floor(SESSION_TTL_MS / 1000));
+    return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
+  }
+
+  if (req.method === "POST" && action === "register") {
+    const body = await parseBody(req);
+    const name = String(body.name ?? "").trim();
+    const email = String(body.email ?? "").trim().toLocaleLowerCase("en-US");
+    const password = String(body.password ?? "");
+    const companyCode = String(body.companyCode ?? "").trim().toUpperCase();
+    if (!name || !email.includes("@")) return send(res, 400, { error: "Ad soyad və düzgün e-poçt məcburidir." });
+    if (password.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+    if (!COMPANY_JOIN_CODE || companyCode !== COMPANY_JOIN_CODE) return send(res, 403, { error: "Dəvət kodu yanlışdır." });
+    if (db.authUsers.some((item) => String(item.email ?? "").trim().toLocaleLowerCase("en-US") === email)) {
+      return send(res, 409, { error: "Bu e-poçtla hesab və ya müraciət artıq mövcuddur." });
+    }
+    const user = { id: randomUUID(), name, role: "Əməkdaş", email, active: false, joinPending: true, companyId: "ersa-folyo", googleSubject: null, createdAt: new Date().toISOString() };
+    setPassword(user, password, false);
+    db.authUsers.push(user);
+    await writeDb(db);
+    return send(res, 202, { pending: true });
+  }
+
+  if (req.method === "POST" && action === "change-password") {
+    const user = requestAuthUser(req, db);
+    if (!user) return send(res, 401, { error: "Giriş sessiyası tələb olunur." });
+    const body = await parseBody(req);
+    const currentPassword = String(body.currentPassword ?? "");
+    const newPassword = String(body.newPassword ?? "");
+    if (!validPassword(user, currentPassword)) return send(res, 401, { error: "Cari şifrə yanlışdır." });
+    if (newPassword.length < 8) return send(res, 400, { error: "Yeni şifrə ən az 8 simvol olmalıdır." });
+    setPassword(user, newPassword, false);
+    await writeDb(db);
+    return send(res, 200, { data: publicAuthUser(user) });
   }
 
   if (action === "requests") {
@@ -701,16 +774,18 @@ async function handleEmployees(req, res, parts) {
     if (db.authUsers.some((user) => String(user.email).trim().toLocaleLowerCase("en-US") === email)) {
       return send(res, 409, { error: "Bu e-poçtla əməkdaş artıq mövcuddur." });
     }
-    const inviteCode = createInviteCode();
+    const temporaryPassword = String(body.temporaryPassword ?? "").trim() || createTemporaryPassword();
+    if (temporaryPassword.length < 8) return send(res, 400, { error: "İlkin şifrə ən az 8 simvol olmalıdır." });
     const employee = {
-      id: randomUUID(), name, role, email, phone, active: false,
+      id: randomUUID(), name, role, email, phone, active: true,
       companyId: req.authUser.companyId, googleSubject: null,
-      inviteCodeHash: inviteCodeHash(inviteCode),
+      inviteCodeHash: null,
       invitedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
     };
+    setPassword(employee, temporaryPassword, true);
     db.authUsers.push(employee);
     await writeDb(db);
-    return send(res, 201, { data: publicEmployee(employee), inviteCode });
+    return send(res, 201, { data: publicEmployee(employee), inviteCode: "", temporaryPassword });
   }
 
   return notFound(res);

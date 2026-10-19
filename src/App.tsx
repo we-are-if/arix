@@ -33,6 +33,7 @@ type CurrentEmployee = {
   email: string;
   picture?: string;
   companyId?: string;
+  passwordChangeRequired?: boolean;
 };
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -83,6 +84,11 @@ const I = {
   Menu: (p: React.SVGProps<SVGSVGElement>) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}>
       <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  ),
+  Bell: (p: React.SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" />
     </svg>
   ),
   OnlinePay: (p: React.SVGProps<SVGSVGElement>) => (
@@ -224,6 +230,8 @@ export default function App() {
   const [createKind, setCreateKind] = useState<DocumentCreateKind | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
+  const [joinRequests, setJoinRequests] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -378,11 +386,27 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (!currentEmployee || currentEmployee.role.toLocaleLowerCase("az") !== "sahib") { setJoinRequests([]); return; }
+    let cancelled = false;
+    const load = () => requestJson<{ data: Array<{ id: string; name: string; email: string }> }>("/api/auth/requests")
+      .then((payload) => { if (!cancelled) setJoinRequests(payload.data); })
+      .catch(() => { if (!cancelled) setJoinRequests([]); });
+    void load();
+    const timer = window.setInterval(load, 30000);
+    const refresh = () => void load();
+    window.addEventListener("arix:employee-requests-changed", refresh);
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener("arix:employee-requests-changed", refresh); };
+  }, [currentEmployee]);
+
   if (authLoading) {
     return <div className={cx("flex min-h-screen items-center justify-center", colors.page)}><div className="flex flex-col items-center gap-3"><AriXLogo className="h-20 w-20" /><span className={colors.kpiLabel}>{t("login.checking")}</span></div></div>;
   }
   if (!currentEmployee) {
     return <LoginScreen isDark={isDark} onLogin={setCurrentEmployee} onThemeToggle={() => setTheme(isDark ? "light" : "dark")} />;
+  }
+  if (currentEmployee.passwordChangeRequired) {
+    return <PasswordChangeScreen isDark={isDark} onChanged={(user) => setCurrentEmployee(user)} />;
   }
   const currentLanguage = languageOptions.find((item) => item.id === language) ?? languageOptions[0];
 
@@ -450,6 +474,16 @@ export default function App() {
             >
               {isDark ? "🌙 Dark" : "☀️ Light"}
             </button>
+            {currentEmployee.role.toLocaleLowerCase("az") === "sahib" && <div className="relative">
+              <button type="button" onClick={() => { setNotificationMenuOpen((value) => !value); setProfileMenuOpen(false); setLanguageMenuOpen(false); }} className={cx("relative flex h-11 w-11 items-center justify-center rounded-xl border", isDark ? "glass-control-dark border-white/10" : "glass-control border-white/70")} aria-label="Bildirişlər">
+                <I.Bell className="h-5 w-5" />
+                {joinRequests.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{joinRequests.length}</span>}
+              </button>
+              {notificationMenuOpen && <div className={cx("surface-popover absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border p-2 shadow-xl", isDark ? "glass-panel-dark border-white/10" : "glass-panel border-white/70")}>
+                <div className="px-3 py-2 text-sm font-semibold">Bildirişlər</div>
+                {joinRequests.length === 0 ? <div className={cx("px-3 py-5 text-center text-sm", isDark ? "text-slate-400" : "text-slate-500")}>Yeni bildiriş yoxdur</div> : joinRequests.map((item) => <NavLink key={item.id} to="/company/employees" onClick={() => setNotificationMenuOpen(false)} className={cx("block rounded-xl px-3 py-3 text-sm", isDark ? "hover:bg-white/7" : "hover:bg-slate-50")}><div className="font-semibold">Yeni əməkdaş müraciəti</div><div className={isDark ? "text-slate-400" : "text-slate-500"}>{item.name} · {item.email}</div></NavLink>)}
+              </div>}
+            </div>}
             <div className="relative">
               <button
                 type="button"
@@ -773,6 +807,34 @@ export default function App() {
       </footer>
     </div>
   );
+}
+
+function PasswordChangeScreen({ isDark, onChanged }: { isDark: boolean; onChanged: (user: CurrentEmployee) => void }) {
+  const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async () => {
+    if (form.newPassword !== form.confirmPassword) { setError("Yeni şifrələr eyni deyil."); return; }
+    setSaving(true); setError("");
+    try {
+      const payload = await requestJson<{ data: CurrentEmployee }>("/api/auth/change-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
+      onChanged(payload.data);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Şifrə yenilənmədi."); }
+    finally { setSaving(false); }
+  };
+  const field = isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-900";
+  return <div className={cx("flex min-h-screen items-center justify-center px-4", isDark ? "surface-page-dark text-slate-100" : "surface-page text-slate-900")}>
+    <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className={cx("w-full max-w-md rounded-3xl border p-6 shadow-2xl", isDark ? "glass-panel-dark border-white/10" : "glass-panel border-white/70")}>
+      <AriXLogo className="mx-auto h-16 w-16" /><h1 className="mt-4 text-center text-2xl font-semibold">Yeni şifrə yaradın</h1><p className={cx("mt-2 text-center text-sm", isDark ? "text-slate-400" : "text-slate-500")}>Təhlükəsizlik üçün ilkin şifrənizi ilk girişdə dəyişin.</p>
+      <div className="mt-6 space-y-3">
+        <label className="block text-sm font-medium">İlkin şifrə<input required type="password" autoComplete="current-password" value={form.currentPassword} onChange={(e) => setForm({ ...form, currentPassword: e.target.value })} className={cx("mt-1.5 h-12 w-full rounded-xl border px-4 outline-none", field)} /></label>
+        <label className="block text-sm font-medium">Yeni şifrə<input required minLength={8} type="password" autoComplete="new-password" value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} className={cx("mt-1.5 h-12 w-full rounded-xl border px-4 outline-none", field)} /></label>
+        <label className="block text-sm font-medium">Yeni şifrəni təkrar edin<input required minLength={8} type="password" autoComplete="new-password" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} className={cx("mt-1.5 h-12 w-full rounded-xl border px-4 outline-none", field)} /></label>
+      </div>
+      {error && <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-sm text-rose-600">{error}</div>}
+      <button disabled={saving} className="surface-primary mt-5 h-12 w-full rounded-xl text-sm font-semibold disabled:opacity-60">Şifrəni yenilə və davam et</button>
+    </form>
+  </div>;
 }
 
 function LoginScreen({

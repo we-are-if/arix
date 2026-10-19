@@ -9,6 +9,7 @@ export type AuthUser = {
   email: string;
   picture?: string;
   companyId?: string;
+  passwordChangeRequired?: boolean;
 };
 
 type AuthConfig = {
@@ -69,6 +70,35 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
   const [companyCode, setCompanyCode] = useState("");
   const [registering, setRegistering] = useState(false);
   const [pending, setPending] = useState(false);
+  const [mode, setMode] = useState<"password" | "google" | "register">("password");
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [registrationForm, setRegistrationForm] = useState({ name: "", email: "", password: "", companyCode: "" });
+
+  const passwordLogin = async () => {
+    setSubmitting(true);
+    setError("");
+    setPending(false);
+    try {
+      const payload = await requestJson<{ data?: AuthUser; pending?: boolean }>("/api/auth/password", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(loginForm),
+      });
+      if (payload.pending) { setPending(true); return; }
+      if (payload.data) onAuthenticated(payload.data);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Giriş mümkün olmadı."); }
+    finally { setSubmitting(false); }
+  };
+
+  const register = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const payload = await requestJson<{ pending?: boolean }>("/api/auth/register", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(registrationForm),
+      });
+      if (payload.pending) setPending(true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Müraciət göndərilmədi."); }
+    finally { setSubmitting(false); }
+  };
 
   const authenticate = async (credential: string, code = "", joinCode = "") => {
     setSubmitting(true);
@@ -133,7 +163,7 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
       .catch((reason) => setError(reason instanceof Error ? reason.message : t("login.googleUnavailable")))
       .finally(() => setLoading(false));
     return () => { cancelled = true; };
-  }, [config, isDark, language, onAuthenticated, t]);
+  }, [config, isDark, language, mode, onAuthenticated, t]);
 
   const demoLogin = async () => {
     setSubmitting(true);
@@ -154,7 +184,25 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
 
   return (
     <div className="space-y-3">
-      {config?.enabled && <div ref={buttonRef} className="flex min-h-11 w-full items-center justify-center" />}
+      <div className={isDark ? "grid grid-cols-3 rounded-xl bg-white/5 p-1" : "grid grid-cols-3 rounded-xl bg-slate-100 p-1"}>
+        {([['password', 'Şifrə'], ['google', 'Google'], ['register', 'Qeydiyyat']] as const).map(([id, label]) => (
+          <button key={id} type="button" onClick={() => { setMode(id); setError(""); setPending(false); }} className={mode === id ? "rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white shadow" : "rounded-lg px-2 py-2 text-sm font-medium text-slate-500"}>{label}</button>
+        ))}
+      </div>
+      {mode === "password" && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void passwordLogin(); }}>
+        <label className="block text-sm font-medium">E-poçt<input required type="email" autoComplete="email" value={loginForm.email} onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
+        <label className="block text-sm font-medium">Şifrə<input required type="password" autoComplete="current-password" value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
+        <button disabled={submitting} className="surface-primary h-12 w-full rounded-xl text-sm font-semibold disabled:opacity-60">Daxil ol</button>
+      </form>}
+      {mode === "google" && config?.enabled && <div ref={buttonRef} className="flex min-h-11 w-full items-center justify-center" />}
+      {mode === "register" && !pending && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void register(); }}>
+        <div className="rounded-xl bg-indigo-500/10 p-3 text-sm">Şirkətə qoşulmaq üçün məlumatlarınızı və sizə verilən dəvət kodunu daxil edin.</div>
+        <label className="block text-sm font-medium">Ad soyad<input required value={registrationForm.name} onChange={(event) => setRegistrationForm({ ...registrationForm, name: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
+        <label className="block text-sm font-medium">E-poçt<input required type="email" value={registrationForm.email} onChange={(event) => setRegistrationForm({ ...registrationForm, email: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
+        <label className="block text-sm font-medium">Şifrə<input required minLength={8} type="password" value={registrationForm.password} onChange={(event) => setRegistrationForm({ ...registrationForm, password: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
+        <label className="block text-sm font-medium">Dəvət kodu<input required value={registrationForm.companyCode} onChange={(event) => setRegistrationForm({ ...registrationForm, companyCode: event.target.value.toUpperCase() })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-center font-mono tracking-[0.18em] outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-center font-mono tracking-[0.18em] outline-none"} /></label>
+        <button disabled={submitting} className="surface-primary h-12 w-full rounded-xl text-sm font-semibold disabled:opacity-60">Təsdiq üçün göndər</button>
+      </form>}
       {pendingCredential && (
         registering ? <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void authenticate(pendingCredential, "", companyCode); }}>
           <label className="block text-sm">Şirkət kodu<input required value={companyCode} onChange={(event) => setCompanyCode(event.target.value.toUpperCase())} className="mt-2 h-12 w-full rounded-xl border border-slate-400 bg-transparent px-4" /></label>
@@ -167,9 +215,9 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
           <button type="submit" disabled={submitting || inviteCode.length !== 8} className="surface-primary h-12 w-full rounded-xl px-5 text-sm font-semibold disabled:opacity-50">Kodu təsdiqlə</button>
         </form>
       )}
-      {pending && <div role="status" className="rounded-xl bg-amber-500/10 p-4 text-sm">Müraciətiniz gözləmədədir. Şirkət sahibi təsdiqlədikdən sonra Google ilə yenidən daxil olun.</div>}
+      {pending && <div role="status" className="rounded-xl bg-amber-500/10 p-4 text-sm">Müraciətiniz göndərildi. Şirkət sahibi təsdiqlədikdən sonra e-poçt və şifrənizlə daxil ola bilərsiniz.</div>}
       {(loading || submitting) && <div className="text-center text-sm text-slate-500">{t("login.checking")}</div>}
-      {!loading && config && !config.enabled && (
+      {mode === "google" && !loading && config && !config.enabled && (
         <>
           <div className={isDark ? "rounded-xl bg-amber-400/10 px-3 py-2 text-sm text-amber-200" : "rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700"}>{t("login.googleNotConfigured")}</div>
           {config.demoAvailable && <button type="button" disabled={submitting} onClick={() => void demoLogin()} className="surface-primary h-12 w-full rounded-xl px-5 text-sm font-semibold disabled:opacity-60">{t("login.demoSubmit")}</button>}

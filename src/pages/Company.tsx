@@ -186,7 +186,7 @@ const titles: Record<CompanySection, { title: string; subtitle: string }> = {
   paymentIntegrations: { title: "Ödəniş inteqrasiyaları", subtitle: "Xarici sistemlərdən ödənişlərin alınması və cari hesaba işlənməsi." },
 };
 
-type Employee = { id: string; name: string; role: string; phone: string; email: string; active: boolean; invitePending: boolean };
+type Employee = { id: string; name: string; role: string; phone: string; email: string; active: boolean; invitePending: boolean; passwordEnabled?: boolean; passwordChangeRequired?: boolean };
 
 type FinancialAccount = {
   id: string;
@@ -370,6 +370,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeError, setEmployeeError] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [temporaryPassword, setTemporaryPassword] = useState("");
   const [companyJoinCode, setCompanyJoinCode] = useState("");
   const loadEmployees = async () => {
     try {
@@ -383,12 +384,13 @@ export default function Company({ section, isDark = false }: { section: CompanyS
     } catch (error) { setEmployeeError(error instanceof Error ? error.message : "Əməkdaşlar yüklənmədi."); }
   };
   useEffect(() => { if (section === "employees") void loadEmployees(); }, [section]);
-  const createEmployee = async (details: { name: string; email: string; role: string; phone: string }) => {
+  const createEmployee = async (details: { name: string; email: string; role: string; phone: string; temporaryPassword?: string }) => {
     try {
-      const payload = await requestJson<{ inviteCode: string }>("/api/employees", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(details) });
+      const payload = await requestJson<{ inviteCode: string; temporaryPassword: string }>("/api/employees", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(details) });
       setInviteCode(payload.inviteCode);
+      setTemporaryPassword(payload.temporaryPassword);
       await loadEmployees();
-    } catch (error) { setEmployeeError(error instanceof Error ? error.message : "Əməkdaş yaradıla bilmədi."); }
+    } catch (error) { setEmployeeError(error instanceof Error ? error.message : "Əməkdaş yaradıla bilmədi."); throw error; }
   };
 
   const loadStores = async () => {
@@ -476,7 +478,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
       {section === "printForms" && <PrintFormsView border={border} card={card} soft={soft} subtle={subtle} input={input} isDark={isDark} />}
       {section !== "settings" && section !== "printForms" && (
         <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl pb-4 [scrollbar-gutter:stable]">
-          {section === "employees" && <EmployeesView employees={employees} error={employeeError} inviteCode={inviteCode} companyJoinCode={companyJoinCode} onCreate={createEmployee} border={border} card={card} soft={soft} subtle={subtle} isDark={isDark} />}
+          {section === "employees" && <EmployeesView employees={employees} error={employeeError} inviteCode={inviteCode} temporaryPassword={temporaryPassword} companyJoinCode={companyJoinCode} onCreate={createEmployee} border={border} card={card} soft={soft} subtle={subtle} isDark={isDark} />}
           {section === "stores" && <StoresView stores={companyStores} onChanged={loadStores} border={border} card={card} soft={soft} subtle={subtle} input={input} />}
           {section === "accounts" && <AccountsView border={border} card={card} soft={soft} subtle={subtle} />}
           {section === "loyalty" && <LoyaltyView border={border} card={card} soft={soft} subtle={subtle} />}
@@ -909,7 +911,7 @@ function SettingsView({ border, card, subtle, input }: { border: string; card: s
   );
 }
 
-function EmployeesView({ employees, error, inviteCode, companyJoinCode, onCreate, border, card, soft, subtle, isDark }: { employees: Employee[]; error: string; inviteCode: string; companyJoinCode: string; onCreate: (details: { name: string; email: string; role: string; phone: string }) => Promise<void>; border: string; card: string; soft: string; subtle: string; isDark: boolean }) {
+function EmployeesView({ employees, error, inviteCode, temporaryPassword, companyJoinCode, onCreate, border, card, soft, subtle, isDark }: { employees: Employee[]; error: string; inviteCode: string; temporaryPassword: string; companyJoinCode: string; onCreate: (details: { name: string; email: string; role: string; phone: string; temporaryPassword?: string }) => Promise<void>; border: string; card: string; soft: string; subtle: string; isDark: boolean }) {
   const [showForm, setShowForm] = useState(false);
   const [requests, setRequests] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [requestError, setRequestError] = useState("");
@@ -921,46 +923,26 @@ function EmployeesView({ employees, error, inviteCode, companyJoinCode, onCreate
     return () => window.removeEventListener("arix:create-employee", open);
   }, []);
   const decide = async (id: string, approve: boolean) => {
-    try { await requestJson("/api/auth/requests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, approve }) }); await refreshRequests(); }
+    try { await requestJson("/api/auth/requests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, approve }) }); await refreshRequests(); window.dispatchEvent(new Event("arix:employee-requests-changed")); }
     catch (reason) { setRequestError(reason instanceof Error ? reason.message : "Xəta baş verdi"); }
   };
-  const [form, setForm] = useState({ name: "", email: "", role: "Əməkdaş", phone: "" });
+  const [form, setForm] = useState({ name: "", email: "", role: "Əməkdaş", phone: "", temporaryPassword: "" });
+  const [saving, setSaving] = useState(false);
+  const inputClass = cx("h-11 w-full rounded-xl border px-3 outline-none", border, isDark ? "bg-white/5 text-slate-100" : "bg-white text-slate-900");
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      {requestError && <div role="alert" className="text-red-500">{requestError}</div>}
-      {companyJoinCode && <div className={cx("rounded-2xl border p-4", border, card)}>
-        <div className="text-sm font-semibold">Şirkətə qoşulma kodu</div>
-        <div className="mt-2 select-all font-mono text-2xl font-semibold tracking-[0.18em]">{companyJoinCode}</div>
-        <div className={cx("mt-2 text-xs", subtle)}>Bu kodla edilən müraciətlər siz təsdiqləyənədək sistemə daxil ola bilməz.</div>
-      </div>}
-      {requests.map((item) => <div key={item.id} className={cx("rounded-2xl border p-4", border, card)}>
-        <div className="font-semibold">Təsdiq gözləyir: {item.name}</div><div className="text-sm">{item.email}</div>
-        <div className="mt-3 flex gap-2"><button onClick={() => void decide(item.id, true)} className="surface-primary rounded-lg px-4 py-2">Təsdiqlə</button><button onClick={() => void decide(item.id, false)} className="rounded-lg border px-4 py-2">Rədd et</button></div>
-      </div>)}
-      <button type="button" onClick={() => setShowForm(!showForm)} className={cx("rounded-2xl border p-5 text-left font-semibold", border, soft)}>+ Əməkdaş yarat</button>
-      {error && <div role="alert" className="rounded-xl p-3 text-red-500">{error}</div>}
-      {inviteCode && <div className="rounded-xl border border-amber-500 p-3">Dəvət kodu (yalnız indi göstərilir): <strong className="select-all">{inviteCode}</strong></div>}
-      {showForm && <form className={cx("grid gap-3 rounded-xl border p-4", border)} onSubmit={async (event) => { event.preventDefault(); await onCreate(form); }}>
-        {(["name", "email", "role", "phone"] as const).map((field) => <label key={field} className="grid gap-1 text-sm">{({ name: "Ad soyad", email: "E-poçt", role: "Rol", phone: "Telefon" })[field]}<input required={field === "name" || field === "email"} type={field === "email" ? "email" : "text"} className="rounded-lg border bg-transparent p-2" value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} /></label>)}
-        <button className="surface-primary rounded-lg p-2" type="submit">Dəvət kodu yarat</button>
-      </form>}
-      {employees.map((employee) => (
-        <div key={employee.email} className={cx("overflow-hidden rounded-2xl border", border, card)}>
-          <div className="flex items-start gap-4 p-4">
-            <div className={cx("flex h-20 w-20 shrink-0 items-center justify-center rounded-full", toneClass("indigo", isDark))}>
-              <I.User className="h-9 w-9" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-xl font-semibold">{employee.name}</div>
-              <div className={cx("mt-1 text-sm", subtle)}>{employee.role} · {employee.invitePending ? "Dəvət gözləyir" : employee.active ? "Aktiv" : "Deaktiv"}</div>
-            </div>
-          </div>
-          <div className={cx("space-y-2 border-t p-4 text-sm", border, soft)}>
-            <div className="flex items-center gap-2 text-indigo-600"><I.Phone className="h-4 w-4" />{employee.phone}</div>
-            <div className="flex items-center gap-2 text-indigo-600"><I.Mail className="h-4 w-4" />{employee.email}</div>
-          </div>
+    <div className="space-y-4">
+      {(error || requestError) && <div role="alert" className="rounded-xl bg-rose-500/10 p-3 text-sm text-rose-600">{error || requestError}</div>}
+      <div className="grid gap-3 xl:grid-cols-[1fr_1.4fr]">
+        {companyJoinCode && <div className={cx("rounded-2xl border p-5", border, card)}><div className="text-sm font-semibold">Şirkət dəvət kodu</div><div className="mt-3 select-all font-mono text-2xl font-semibold tracking-[0.18em]">{companyJoinCode}</div><div className={cx("mt-2 text-xs", subtle)}>Öz qeydiyyatını edən əməkdaş bu kodu yazır, sonra sizin təsdiqinizi gözləyir.</div></div>}
+        <div className={cx("rounded-2xl border p-5", border, card)}><div className="flex items-center justify-between"><div><div className="font-semibold">Təsdiq gözləyən müraciətlər</div><div className={cx("mt-1 text-sm", subtle)}>{requests.length ? `${requests.length} müraciət qərar gözləyir` : "Yeni müraciət yoxdur"}</div></div>{requests.length > 0 && <span className="rounded-full bg-amber-500/12 px-3 py-1 text-sm font-semibold text-amber-600">{requests.length}</span>}</div>
+          {requests.map((item) => <div key={item.id} className={cx("mt-3 flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center", border, soft)}><div className="min-w-0 flex-1"><div className="truncate font-semibold">{item.name}</div><div className={cx("truncate text-sm", subtle)}>{item.email}</div></div><div className="flex gap-2"><button onClick={() => void decide(item.id, true)} className="surface-primary rounded-lg px-4 py-2 text-sm font-semibold">Təsdiqlə</button><button onClick={() => void decide(item.id, false)} className={cx("rounded-lg border px-4 py-2 text-sm", border)}>Rədd et</button></div></div>)}
         </div>
-      ))}
+      </div>
+      {temporaryPassword && <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4"><div className="font-semibold text-emerald-700">Əməkdaş yaradıldı</div><div className="mt-2 text-sm">İlkin şifrə yalnız indi göstərilir: <strong className="select-all font-mono text-base">{temporaryPassword}</strong></div><div className="mt-1 text-xs">İlk girişdə əməkdaş bu şifrəni dəyişməlidir. {inviteCode && `Dəvət kodu: ${inviteCode}`}</div></div>}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {employees.map((employee) => <div key={employee.email} className={cx("rounded-2xl border p-4", border, card)}><div className="flex items-start gap-3"><div className={cx("flex h-12 w-12 shrink-0 items-center justify-center rounded-xl", toneClass("indigo", isDark))}><I.User className="h-6 w-6" /></div><div className="min-w-0 flex-1"><div className="truncate font-semibold">{employee.name}</div><div className={cx("truncate text-sm", subtle)}>{employee.role}</div></div><span className={cx("rounded-full px-2.5 py-1 text-xs font-semibold", employee.active ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-500/10 text-slate-500")}>{employee.active ? "Aktiv" : "Deaktiv"}</span></div><div className={cx("mt-4 space-y-2 border-t pt-3 text-sm", border)}><div className="flex min-w-0 items-center gap-2"><I.Mail className="h-4 w-4 shrink-0 text-indigo-500" /><span className="truncate">{employee.email}</span></div>{employee.phone && <div className="flex items-center gap-2"><I.Phone className="h-4 w-4 text-indigo-500" />{employee.phone}</div>}<div className={cx("text-xs", subtle)}>{employee.passwordChangeRequired ? "İlkin şifrə dəyişdirilməlidir" : employee.passwordEnabled ? "Şifrə ilə giriş aktivdir" : "Google ilə giriş"}</div></div></div>)}
+      </div>
+      {showForm && createPortal(<div className="fixed inset-0 z-[10000] flex items-center justify-center p-4"><button type="button" aria-label="Bağla" onClick={() => setShowForm(false)} className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm" /><form onSubmit={async (event) => { event.preventDefault(); setSaving(true); try { await onCreate(form); setShowForm(false); setForm({ name: "", email: "", role: "Əməkdaş", phone: "", temporaryPassword: "" }); } catch { /* Error is shown by the parent view. */ } finally { setSaving(false); } }} className={cx("relative z-10 w-full max-w-lg rounded-3xl border p-6 shadow-2xl", border, isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-900")}><div className="flex items-start justify-between"><div><h2 className="text-xl font-semibold">Yeni əməkdaş</h2><p className={cx("mt-1 text-sm", subtle)}>Giriş məlumatlarını yaradın. Boş saxlanılan ilkin şifrə avtomatik hazırlanacaq.</p></div><button type="button" onClick={() => setShowForm(false)} className={cx("flex h-9 w-9 items-center justify-center rounded-xl border text-xl", border)}>×</button></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Ad soyad<input required className={cx(inputClass, "mt-1.5")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label><label className="text-sm font-medium">Rol<select className={cx(inputClass, "mt-1.5")} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option>Əməkdaş</option><option>Rəhbər</option><option>Satış rəhbəri</option><option>Anbar əməliyyatları</option><option>Maliyyə</option></select></label><label className="text-sm font-medium sm:col-span-2">E-poçt<input required type="email" className={cx(inputClass, "mt-1.5")} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label><label className="text-sm font-medium">Telefon<input className={cx(inputClass, "mt-1.5")} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label><label className="text-sm font-medium">İlkin şifrə<input minLength={8} type="text" placeholder="Avtomatik yaradılsın" className={cx(inputClass, "mt-1.5")} value={form.temporaryPassword} onChange={(e) => setForm({ ...form, temporaryPassword: e.target.value })} /></label></div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setShowForm(false)} className={cx("h-11 rounded-xl border px-5 text-sm font-semibold", border)}>Ləğv et</button><button disabled={saving} className="surface-primary h-11 rounded-xl px-5 text-sm font-semibold disabled:opacity-60">{saving ? "Saxlanılır..." : "Saxla"}</button></div></form></div>, document.body)}
     </div>
   );
 }
