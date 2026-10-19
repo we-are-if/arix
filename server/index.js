@@ -342,6 +342,7 @@ function normalizeDb(db) {
     : structuredClone(defaultAuthUsers);
   db.authSessions = (Array.isArray(db.authSessions) ? db.authSessions : [])
     .filter((session) => new Date(session.expiresAt).getTime() > Date.now());
+  db.companyJoinCode = String(db.companyJoinCode || COMPANY_JOIN_CODE || createInviteCode()).trim().toUpperCase();
   db.productPriceHistory ??= [];
   db.purchaseLots ??= [];
   db.depotLots ??= [];
@@ -612,7 +613,7 @@ async function handleAuth(req, res, parts) {
     const companyCode = String(body.companyCode ?? "").trim().toUpperCase();
     if (!name || !email.includes("@")) return send(res, 400, { error: "Ad soyad və düzgün e-poçt məcburidir." });
     if (password.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
-    if (!COMPANY_JOIN_CODE || companyCode !== COMPANY_JOIN_CODE) return send(res, 403, { error: "Dəvət kodu yanlışdır." });
+    if (!db.companyJoinCode || companyCode !== db.companyJoinCode) return send(res, 403, { error: "Dəvət kodu yanlışdır." });
     if (db.authUsers.some((item) => String(item.email ?? "").trim().toLocaleLowerCase("en-US") === email)) {
       return send(res, 409, { error: "Bu e-poçtla hesab və ya müraciət artıq mövcuddur." });
     }
@@ -690,7 +691,7 @@ async function handleAuth(req, res, parts) {
       db.authUsers.push(user);
     }
     if (!user && body.companyCode) {
-      if (!COMPANY_JOIN_CODE || String(body.companyCode).trim().toUpperCase() !== COMPANY_JOIN_CODE) return send(res, 403, { error: "Dəvət kodu yanlışdır." });
+      if (!db.companyJoinCode || String(body.companyCode).trim().toUpperCase() !== db.companyJoinCode) return send(res, 403, { error: "Dəvət kodu yanlışdır." });
       user = { id: randomUUID(), name: String(payload.name || email), role: "Əməkdaş", email, active: false, joinPending: true, companyId: "ersa-folyo", googleSubject: String(payload.sub), createdAt: new Date().toISOString() };
       db.authUsers.push(user);
       await writeDb(db);
@@ -755,7 +756,17 @@ async function handleEmployees(req, res, parts) {
 
   if (req.method === "GET" && id === "join-code") {
     if (String(req.authUser.role).toLocaleLowerCase("az") !== "sahib") return send(res, 403, { error: "Şirkət kodunu yalnız sahib görə bilər." });
-    return send(res, 200, { data: { configured: Boolean(COMPANY_JOIN_CODE), code: COMPANY_JOIN_CODE } });
+    return send(res, 200, { data: { configured: Boolean(db.companyJoinCode), code: db.companyJoinCode } });
+  }
+
+  if (req.method === "PUT" && id === "join-code") {
+    if (String(req.authUser.role).toLocaleLowerCase("az") !== "sahib") return send(res, 403, { error: "Dəvət kodunu yalnız sahib dəyişə bilər." });
+    const body = await parseBody(req);
+    const code = body.generate === true ? createInviteCode() : String(body.code ?? "").trim().toUpperCase();
+    if (!/^[A-Z0-9]{8,24}$/.test(code)) return send(res, 400, { error: "Dəvət kodu 8-24 hərf və rəqəmdən ibarət olmalıdır." });
+    db.companyJoinCode = code;
+    await writeDb(db);
+    return send(res, 200, { data: { configured: true, code } });
   }
 
   if (req.method === "GET" && !id) {
@@ -787,6 +798,45 @@ async function handleEmployees(req, res, parts) {
     db.authUsers.push(employee);
     await writeDb(db);
     return send(res, 201, { data: publicEmployee(employee), inviteCode: "", temporaryPassword });
+  }
+
+  if (req.method === "PATCH" && id) {
+    const employee = db.authUsers.find((user) => String(user.id) === id && user.companyId === req.authUser.companyId);
+    if (!employee) return send(res, 404, { error: "Əməkdaş tapılmadı." });
+    const body = await parseBody(req);
+    if (String(employee.role).toLocaleLowerCase("az") === "sahib" && String(req.authUser.role).toLocaleLowerCase("az") !== "sahib") return send(res, 403, { error: "Sahib hesabını yalnız sahib dəyişə bilər." });
+    const name = String(body.name ?? employee.name).trim();
+    const email = String(body.email ?? employee.email).trim().toLocaleLowerCase("en-US");
+    if (!name || !email.includes("@")) return send(res, 400, { error: "Ad və düzgün e-poçt məcburidir." });
+    if (db.authUsers.some((user) => user !== employee && String(user.email).trim().toLocaleLowerCase("en-US") === email)) return send(res, 409, { error: "Bu e-poçt başqa əməkdaşda istifadə olunur." });
+    employee.name = name;
+    employee.email = email;
+    employee.phone = String(body.phone ?? employee.phone ?? "").trim();
+    employee.role = String(body.role ?? employee.role).trim() || "Əməkdaş";
+    employee.active = body.active === undefined ? employee.active !== false : body.active === true;
+    let temporaryPassword = "";
+    if (body.resetPassword === true) {
+      temporaryPassword = createTemporaryPassword();
+      setPassword(employee, temporaryPassword, true);
+      db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(employee.id));
+    }
+    await writeDb(db);
+    return send(res, 200, { data: publicEmployee(employee), temporaryPassword });
+  }
+
+  if (req.method === "DELETE" && id) {
+    const employee = db.authUsers.find((user) => String(user.id) === id && user.companyId === req.authUser.companyId);
+    if (!employee) return send(res, 404, { error: "Əməkdaş tapılmadı." });
+    if (String(employee.id) === String(req.authUser.id)) return send(res, 400, { error: "Hazırda daxil olduğunuz hesabı silə bilməzsiniz." });
+    if (String(employee.role).toLocaleLowerCase("az") === "sahib") {
+      const owners = db.authUsers.filter((user) => user.companyId === employee.companyId && String(user.role).toLocaleLowerCase("az") === "sahib");
+      if (owners.length <= 1) return send(res, 400, { error: "Şirkətin son sahib hesabı silinə bilməz." });
+      if (String(req.authUser.role).toLocaleLowerCase("az") !== "sahib") return send(res, 403, { error: "Sahib hesabını yalnız sahib silə bilər." });
+    }
+    db.authUsers = db.authUsers.filter((user) => user !== employee);
+    db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(employee.id));
+    await writeDb(db);
+    return send(res, 200, { ok: true });
   }
 
   return notFound(res);
