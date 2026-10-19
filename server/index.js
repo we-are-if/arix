@@ -76,6 +76,7 @@ const DB_PATH = join(DATA_DIR, "db.json");
 const CREDENTIAL_KEY_PATH = join(DATA_DIR, "payment-credentials.key");
 const PORT = Number(process.env.API_PORT ?? 8787);
 const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID ?? "").trim();
+const COMPANY_JOIN_CODE = String(process.env.ARIX_COMPANY_JOIN_CODE ?? "").trim().toUpperCase();
 const AUTH_REQUIRED = process.env.ARIX_AUTH_REQUIRED === "1" || Boolean(GOOGLE_CLIENT_ID);
 const SESSION_COOKIE = "arix_session";
 const SESSION_TTL_MS = Math.max(60 * 60 * 1000, Number(process.env.ARIX_SESSION_TTL_HOURS ?? 168) * 60 * 60 * 1000);
@@ -337,7 +338,7 @@ function normalizeDb(db) {
   db.customerPrices ??= [];
   db.trash = Array.isArray(db.trash) ? db.trash : [];
   db.authUsers = Array.isArray(db.authUsers) && db.authUsers.length
-    ? db.authUsers.map((user) => ({ ...user, active: user.active !== false, companyId: user.companyId || "ersa-folyo", googleSubject: user.googleSubject || null }))
+    ? db.authUsers.map((user) => ({ ...user, active: user.inviteCodeHash ? user.active === true : user.active !== false, companyId: user.companyId || "ersa-folyo", googleSubject: user.googleSubject || null }))
     : structuredClone(defaultAuthUsers);
   db.authSessions = (Array.isArray(db.authSessions) ? db.authSessions : [])
     .filter((session) => new Date(session.expiresAt).getTime() > Date.now());
@@ -462,6 +463,35 @@ function publicAuthUser(user) {
   };
 }
 
+function publicEmployee(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    email: user.email,
+    phone: user.phone || "",
+    active: user.active !== false,
+    invitePending: Boolean(user.inviteCodeHash) && !user.googleSubject,
+    googleLinked: Boolean(user.googleSubject),
+    lastLoginAt: user.lastLoginAt || null,
+  };
+}
+
+function inviteCodeHash(code) {
+  return createHash("sha256").update(String(code).trim().toUpperCase()).digest("hex");
+}
+
+function createInviteCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = randomBytes(8);
+  return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
+}
+
+function canManageEmployees(user) {
+  const role = String(user?.role ?? "").toLocaleLowerCase("az");
+  return role === "sahib" || role === "admin" || role === "administrator" || role === "rəhbər";
+}
+
 function sessionHash(token) {
   return createHash("sha256").update(String(token)).digest("hex");
 }
@@ -532,6 +562,22 @@ async function handleAuth(req, res, parts) {
     return send(res, 200, { data: publicAuthUser(requestAuthUser(req, db)), authenticationRequired: AUTH_REQUIRED });
   }
 
+  if (action === "requests") {
+    const owner = requestAuthUser(req, db);
+    if (!owner || String(owner.role).toLocaleLowerCase("az") !== "sahib") return send(res, 403, { error: "Yalnız şirkət sahibi təsdiq edə bilər." });
+    if (req.method === "GET") return send(res, 200, { data: db.authUsers.filter((u) => u.companyId === owner.companyId && u.joinPending).map(publicEmployee) });
+    if (req.method === "POST") {
+      const body = await parseBody(req);
+      const target = db.authUsers.find((u) => u.id === body.id && u.companyId === owner.companyId && u.joinPending);
+      if (!target) return send(res, 404, { error: "Gözləyən müraciət tapılmadı." });
+      if (body.approve !== true && body.approve !== false) return send(res, 400, { error: "Qərar göstərilməyib." });
+      if (body.approve) { target.active = true; target.joinPending = false; }
+      else db.authUsers = db.authUsers.filter((u) => u !== target);
+      await writeDb(db);
+      return send(res, 200, { ok: true });
+    }
+  }
+
   if (req.method === "POST" && action === "google") {
     if (!googleAuthClient || !GOOGLE_CLIENT_ID) return send(res, 503, { error: "Google girişi hələ konfiqurasiya edilməyib." });
     const body = await parseBody(req);
@@ -569,8 +615,26 @@ async function handleAuth(req, res, parts) {
       };
       db.authUsers.push(user);
     }
+    if (!user && body.companyCode) {
+      if (!COMPANY_JOIN_CODE || String(body.companyCode).trim().toUpperCase() !== COMPANY_JOIN_CODE) return send(res, 403, { error: "Şirkət kodu yanlışdır." });
+      user = { id: randomUUID(), name: String(payload.name || email), role: "Əməkdaş", email, active: false, joinPending: true, companyId: "ersa-folyo", googleSubject: String(payload.sub), createdAt: new Date().toISOString() };
+      db.authUsers.push(user);
+      await writeDb(db);
+      return send(res, 202, { pending: true });
+    }
+    if (user?.joinPending) return send(res, 202, { pending: true });
+    const inviteCode = String(body.inviteCode ?? "").trim().toUpperCase();
+    if (user && user.active === false && user.inviteCodeHash && inviteCode && inviteCodeHash(inviteCode) === user.inviteCodeHash) {
+      user.active = true;
+      user.inviteCodeHash = null;
+      user.invitedAt = null;
+    }
+    if (user && user.active === false && user.inviteCodeHash) {
+      await writeDb(db);
+      return send(res, 403, { error: inviteCode ? "Dəvət kodu düzgün deyil." : "Bu hesab üçün əməkdaş dəvət kodunu daxil edin.", inviteRequired: true });
+    }
     if (!user || user.active === false) {
-      return send(res, 403, { error: "Bu Google hesabına AriX giriş icazəsi verilməyib. Şirkət administratoru ilə əlaqə saxlayın." });
+      return send(res, 403, { error: "Hesabınız yoxdur. Şirkət kodunu daxil edərək qeydiyyat istəyin.", registrationRequired: true });
     }
     if (user.googleSubject && String(user.googleSubject) !== String(payload.sub)) {
       return send(res, 409, { error: "Bu əməkdaş kartı başqa Google hesabına bağlıdır." });
@@ -605,6 +669,48 @@ async function handleAuth(req, res, parts) {
     await writeDb(db);
     setSessionCookie(req, res, "", 0);
     return send(res, 200, { ok: true });
+  }
+
+  return notFound(res);
+}
+
+async function handleEmployees(req, res, parts) {
+  const db = await readDb();
+  if (!canManageEmployees(req.authUser)) return send(res, 403, { error: "Əməkdaşları idarə etmək üçün rəhbər icazəsi lazımdır." });
+  const id = decodeURIComponent(parts[1] ?? "");
+
+  if (req.method === "GET" && id === "join-code") {
+    if (String(req.authUser.role).toLocaleLowerCase("az") !== "sahib") return send(res, 403, { error: "Şirkət kodunu yalnız sahib görə bilər." });
+    return send(res, 200, { data: { configured: Boolean(COMPANY_JOIN_CODE), code: COMPANY_JOIN_CODE } });
+  }
+
+  if (req.method === "GET" && !id) {
+    const employees = db.authUsers
+      .filter((user) => user.companyId === req.authUser.companyId)
+      .map(publicEmployee);
+    return send(res, 200, { data: employees });
+  }
+
+  if (req.method === "POST" && !id) {
+    const body = await parseBody(req);
+    const name = String(body.name ?? "").trim();
+    const email = String(body.email ?? "").trim().toLocaleLowerCase("en-US");
+    const role = String(body.role ?? "Əməkdaş").trim() || "Əməkdaş";
+    const phone = String(body.phone ?? "").trim();
+    if (!name || !email || !email.includes("@")) return send(res, 400, { error: "Ad və düzgün e-poçt məcburidir." });
+    if (db.authUsers.some((user) => String(user.email).trim().toLocaleLowerCase("en-US") === email)) {
+      return send(res, 409, { error: "Bu e-poçtla əməkdaş artıq mövcuddur." });
+    }
+    const inviteCode = createInviteCode();
+    const employee = {
+      id: randomUUID(), name, role, email, phone, active: false,
+      companyId: req.authUser.companyId, googleSubject: null,
+      inviteCodeHash: inviteCodeHash(inviteCode),
+      invitedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
+    };
+    db.authUsers.push(employee);
+    await writeDb(db);
+    return send(res, 201, { data: publicEmployee(employee), inviteCode });
   }
 
   return notFound(res);
@@ -3599,6 +3705,7 @@ const server = createServer(async (req, res) => {
     req.authUser = authUser;
 
     if (parts[1] === "products") return await handleProducts(req, res, url, parts.slice(1));
+    if (parts[1] === "employees") return await handleEmployees(req, res, parts.slice(1));
     if (parts[1] === "product-price-history") return await handleProductPriceHistory(req, res, url);
     if (parts[1] === "product-groups") return await handleSimpleCollection(req, res, "productGroups");
     if (parts[1] === "categories") return await handleSimpleCollection(req, res, "categories");

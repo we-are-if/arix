@@ -64,6 +64,33 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [pendingCredential, setPendingCredential] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [companyCode, setCompanyCode] = useState("");
+  const [registering, setRegistering] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  const authenticate = async (credential: string, code = "", joinCode = "") => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const payload = await requestJson<{ data?: AuthUser; pending?: boolean }>("/api/auth/google", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ credential, inviteCode: code, companyCode: joinCode }),
+      });
+      if (payload.pending) { setPending(true); return; }
+      setPendingCredential("");
+      if (payload.data) onAuthenticated(payload.data);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : t("login.googleUnavailable");
+      if (message.toLocaleLowerCase("az").includes("dəvət kodu")) setPendingCredential(credential);
+      if (message.includes("Şirkət kodunu")) { setPendingCredential(credential); setRegistering(true); }
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -89,20 +116,7 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
           use_fedcm_for_prompt: true,
           callback: async (response) => {
             if (!response.credential) return;
-            setSubmitting(true);
-            setError("");
-            try {
-              const payload = await requestJson<{ data: AuthUser }>("/api/auth/google", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ credential: response.credential }),
-              });
-              onAuthenticated(payload.data);
-            } catch (reason) {
-              setError(reason instanceof Error ? reason.message : t("login.googleUnavailable"));
-            } finally {
-              setSubmitting(false);
-            }
+            await authenticate(response.credential);
           },
         });
         window.google.accounts.id.renderButton(buttonRef.current, {
@@ -141,6 +155,19 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
   return (
     <div className="space-y-3">
       {config?.enabled && <div ref={buttonRef} className="flex min-h-11 w-full items-center justify-center" />}
+      {pendingCredential && (
+        registering ? <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void authenticate(pendingCredential, "", companyCode); }}>
+          <label className="block text-sm">Şirkət kodu<input required value={companyCode} onChange={(event) => setCompanyCode(event.target.value.toUpperCase())} className="mt-2 h-12 w-full rounded-xl border border-slate-400 bg-transparent px-4" /></label>
+          <button disabled={submitting} className="surface-primary h-12 w-full rounded-xl">Hesab yaratmaq üçün müraciət et</button>
+        </form> :
+        <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void authenticate(pendingCredential, inviteCode); }}>
+          <label className="block text-sm font-semibold">Əməkdaş dəvət kodu
+            <input value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} maxLength={8} autoComplete="one-time-code" className={isDark ? "mt-2 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-center font-mono text-lg tracking-[0.2em] text-white outline-none" : "mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-center font-mono text-lg tracking-[0.2em] text-slate-900 outline-none"} placeholder="XXXXXXXX" />
+          </label>
+          <button type="submit" disabled={submitting || inviteCode.length !== 8} className="surface-primary h-12 w-full rounded-xl px-5 text-sm font-semibold disabled:opacity-50">Kodu təsdiqlə</button>
+        </form>
+      )}
+      {pending && <div role="status" className="rounded-xl bg-amber-500/10 p-4 text-sm">Müraciətiniz gözləmədədir. Şirkət sahibi təsdiqlədikdən sonra Google ilə yenidən daxil olun.</div>}
       {(loading || submitting) && <div className="text-center text-sm text-slate-500">{t("login.checking")}</div>}
       {!loading && config && !config.enabled && (
         <>

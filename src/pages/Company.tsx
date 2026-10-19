@@ -186,13 +186,7 @@ const titles: Record<CompanySection, { title: string; subtitle: string }> = {
   paymentIntegrations: { title: "Ödəniş inteqrasiyaları", subtitle: "Xarici sistemlərdən ödənişlərin alınması və cari hesaba işlənməsi." },
 };
 
-const employees = [
-  { name: "Arif Mahmud", role: "Sahib", phone: "+90 554 113 7244", email: "arifmd@icloud.com", tone: "indigo" },
-  { name: "Ekrem Tiryaki", role: "Rəhbər", phone: "+90 533 281 5488", email: "ekrem@arix.az", tone: "emerald" },
-  { name: "Serkan Şeremet", role: "Satış rəhbəri", phone: "+90 533 707 5488", email: "serkan@arix.az", tone: "sky" },
-  { name: "Sami", role: "Anbar əməliyyatları", phone: "+964 750 448 7617", email: "sami@arix.az", tone: "amber" },
-  { name: "Mustafa Yazman", role: "Maliyyə", phone: "+90 533 965 488", email: "mustafa@arix.az", tone: "violet" },
-];
+type Employee = { id: string; name: string; role: string; phone: string; email: string; active: boolean; invitePending: boolean };
 
 type FinancialAccount = {
   id: string;
@@ -373,6 +367,29 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   const subtle = isDark ? "text-slate-400" : "text-slate-500";
   const input = cx("h-11 min-w-0 w-full rounded-xl border px-3 outline-none", border, isDark ? "bg-white/5 text-slate-100" : "bg-white/75 text-slate-800");
   const [companyStores, setCompanyStores] = useState<CompanyStore[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeeError, setEmployeeError] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [companyJoinCode, setCompanyJoinCode] = useState("");
+  const loadEmployees = async () => {
+    try {
+      const [payload, joinPayload] = await Promise.all([
+        requestJson<{ data: Employee[] }>("/api/employees"),
+        requestJson<{ data: { configured: boolean; code: string } }>("/api/employees/join-code").catch(() => ({ data: { configured: false, code: "" } })),
+      ]);
+      setEmployees(payload.data);
+      setCompanyJoinCode(joinPayload.data.code);
+      setEmployeeError("");
+    } catch (error) { setEmployeeError(error instanceof Error ? error.message : "Əməkdaşlar yüklənmədi."); }
+  };
+  useEffect(() => { if (section === "employees") void loadEmployees(); }, [section]);
+  const createEmployee = async (details: { name: string; email: string; role: string; phone: string }) => {
+    try {
+      const payload = await requestJson<{ inviteCode: string }>("/api/employees", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(details) });
+      setInviteCode(payload.inviteCode);
+      await loadEmployees();
+    } catch (error) { setEmployeeError(error instanceof Error ? error.message : "Əməkdaş yaradıla bilmədi."); }
+  };
 
   const loadStores = async () => {
     try {
@@ -389,7 +406,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
   }, [section]);
 
   const stats = useMemo(() => {
-    if (section === "employees") return [{ label: "Cəmi əməkdaş", value: "5" }, { label: "Rəhbər", value: "3" }, { label: "Anbar", value: "1" }];
+    if (section === "employees") return [{ label: "Cəmi əməkdaş", value: String(employees.length) }, { label: "Aktiv", value: String(employees.filter((item) => item.active).length) }, { label: "Dəvət gözləyən", value: String(employees.filter((item) => item.invitePending).length) }];
     if (section === "stores") return [
       { label: "Mağaza", value: String(companyStores.filter((store) => !store.isBonded).length) },
       { label: "Antrepo", value: String(companyStores.filter((store) => store.isBonded).length) },
@@ -403,7 +420,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
     if (section === "eDocuments") return [{ label: "Mühit", value: "Test" }, { label: "Provayder", value: "AriX Test" }, { label: "Modul", value: "5" }];
     if (section === "paymentIntegrations") return [];
     return [{ label: "Profil", value: "Hazır" }, { label: "Valyuta", value: "AZN" }, { label: "Ölkə", value: "Azərbaycan" }];
-  }, [companyStores, section]);
+  }, [companyStores, employees, section]);
 
   const stockModes: { id: StockMode; title: string; subtitle: string; points: string[] }[] = [
     {
@@ -432,7 +449,10 @@ export default function Company({ section, isDark = false }: { section: CompanyS
           {section !== "settings" && section !== "accounts" && section !== "printForms" && section !== "eDocuments" && section !== "paymentIntegrations" && (
             <button
               type="button"
-              onClick={() => section === "stores" && window.dispatchEvent(new Event("arix:create-store"))}
+              onClick={() => {
+                if (section === "stores") window.dispatchEvent(new Event("arix:create-store"));
+                if (section === "employees") window.dispatchEvent(new Event("arix:create-employee"));
+              }}
               className="surface-primary h-10 rounded-xl px-4 text-sm font-semibold"
             >
               Yarat
@@ -456,7 +476,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
       {section === "printForms" && <PrintFormsView border={border} card={card} soft={soft} subtle={subtle} input={input} isDark={isDark} />}
       {section !== "settings" && section !== "printForms" && (
         <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl pb-4 [scrollbar-gutter:stable]">
-          {section === "employees" && <EmployeesView border={border} card={card} soft={soft} subtle={subtle} isDark={isDark} />}
+          {section === "employees" && <EmployeesView employees={employees} error={employeeError} inviteCode={inviteCode} companyJoinCode={companyJoinCode} onCreate={createEmployee} border={border} card={card} soft={soft} subtle={subtle} isDark={isDark} />}
           {section === "stores" && <StoresView stores={companyStores} onChanged={loadStores} border={border} card={card} soft={soft} subtle={subtle} input={input} />}
           {section === "accounts" && <AccountsView border={border} card={card} soft={soft} subtle={subtle} />}
           {section === "loyalty" && <LoyaltyView border={border} card={card} soft={soft} subtle={subtle} />}
@@ -889,21 +909,51 @@ function SettingsView({ border, card, subtle, input }: { border: string; card: s
   );
 }
 
-function EmployeesView({ border, card, soft, subtle, isDark }: { border: string; card: string; soft: string; subtle: string; isDark: boolean }) {
+function EmployeesView({ employees, error, inviteCode, companyJoinCode, onCreate, border, card, soft, subtle, isDark }: { employees: Employee[]; error: string; inviteCode: string; companyJoinCode: string; onCreate: (details: { name: string; email: string; role: string; phone: string }) => Promise<void>; border: string; card: string; soft: string; subtle: string; isDark: boolean }) {
+  const [showForm, setShowForm] = useState(false);
+  const [requests, setRequests] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [requestError, setRequestError] = useState("");
+  const refreshRequests = async () => { try { const result = await requestJson<{ data: typeof requests }>("/api/auth/requests"); setRequests(result.data); setRequestError(""); } catch { setRequests([]); } };
+  useEffect(() => { void refreshRequests(); }, []);
+  useEffect(() => {
+    const open = () => setShowForm(true);
+    window.addEventListener("arix:create-employee", open);
+    return () => window.removeEventListener("arix:create-employee", open);
+  }, []);
+  const decide = async (id: string, approve: boolean) => {
+    try { await requestJson("/api/auth/requests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, approve }) }); await refreshRequests(); }
+    catch (reason) { setRequestError(reason instanceof Error ? reason.message : "Xəta baş verdi"); }
+  };
+  const [form, setForm] = useState({ name: "", email: "", role: "Əməkdaş", phone: "" });
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <CreateTile border={border} soft={soft} label="Əməkdaş yarat" />
+      {requestError && <div role="alert" className="text-red-500">{requestError}</div>}
+      {companyJoinCode && <div className={cx("rounded-2xl border p-4", border, card)}>
+        <div className="text-sm font-semibold">Şirkətə qoşulma kodu</div>
+        <div className="mt-2 select-all font-mono text-2xl font-semibold tracking-[0.18em]">{companyJoinCode}</div>
+        <div className={cx("mt-2 text-xs", subtle)}>Bu kodla edilən müraciətlər siz təsdiqləyənədək sistemə daxil ola bilməz.</div>
+      </div>}
+      {requests.map((item) => <div key={item.id} className={cx("rounded-2xl border p-4", border, card)}>
+        <div className="font-semibold">Təsdiq gözləyir: {item.name}</div><div className="text-sm">{item.email}</div>
+        <div className="mt-3 flex gap-2"><button onClick={() => void decide(item.id, true)} className="surface-primary rounded-lg px-4 py-2">Təsdiqlə</button><button onClick={() => void decide(item.id, false)} className="rounded-lg border px-4 py-2">Rədd et</button></div>
+      </div>)}
+      <button type="button" onClick={() => setShowForm(!showForm)} className={cx("rounded-2xl border p-5 text-left font-semibold", border, soft)}>+ Əməkdaş yarat</button>
+      {error && <div role="alert" className="rounded-xl p-3 text-red-500">{error}</div>}
+      {inviteCode && <div className="rounded-xl border border-amber-500 p-3">Dəvət kodu (yalnız indi göstərilir): <strong className="select-all">{inviteCode}</strong></div>}
+      {showForm && <form className={cx("grid gap-3 rounded-xl border p-4", border)} onSubmit={async (event) => { event.preventDefault(); await onCreate(form); }}>
+        {(["name", "email", "role", "phone"] as const).map((field) => <label key={field} className="grid gap-1 text-sm">{({ name: "Ad soyad", email: "E-poçt", role: "Rol", phone: "Telefon" })[field]}<input required={field === "name" || field === "email"} type={field === "email" ? "email" : "text"} className="rounded-lg border bg-transparent p-2" value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} /></label>)}
+        <button className="surface-primary rounded-lg p-2" type="submit">Dəvət kodu yarat</button>
+      </form>}
       {employees.map((employee) => (
         <div key={employee.email} className={cx("overflow-hidden rounded-2xl border", border, card)}>
           <div className="flex items-start gap-4 p-4">
-            <div className={cx("flex h-20 w-20 shrink-0 items-center justify-center rounded-full", toneClass(employee.tone, isDark))}>
+            <div className={cx("flex h-20 w-20 shrink-0 items-center justify-center rounded-full", toneClass("indigo", isDark))}>
               <I.User className="h-9 w-9" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-xl font-semibold">{employee.name}</div>
-              <div className={cx("mt-1 text-sm", subtle)}>{employee.role}</div>
+              <div className={cx("mt-1 text-sm", subtle)}>{employee.role} · {employee.invitePending ? "Dəvət gözləyir" : employee.active ? "Aktiv" : "Deaktiv"}</div>
             </div>
-            <button type="button" className={cx("rounded-lg p-1", subtle)}><I.More className="h-5 w-5" /></button>
           </div>
           <div className={cx("space-y-2 border-t p-4 text-sm", border, soft)}>
             <div className="flex items-center gap-2 text-indigo-600"><I.Phone className="h-4 w-4" />{employee.phone}</div>
