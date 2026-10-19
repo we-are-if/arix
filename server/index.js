@@ -593,7 +593,8 @@ async function handleAuth(req, res, parts) {
     const email = String(body.email ?? "").trim().toLocaleLowerCase("en-US");
     const password = String(body.password ?? "");
     const user = db.authUsers.find((item) => String(item.email ?? "").trim().toLocaleLowerCase("en-US") === email);
-    if (!user || !validPassword(user, password)) return send(res, 401, { error: "E-poçt və ya şifrə yanlışdır." });
+    if (!user) return send(res, 404, { error: "Bu e-poçtla hesab tapılmadı. Qeydiyyata keçin.", registrationRequired: true });
+    if (!validPassword(user, password)) return send(res, 401, { error: "E-poçt və ya şifrə yanlışdır." });
     if (user.joinPending) return send(res, 202, { pending: true });
     if (user.active === false) return send(res, 403, { error: "Hesab aktiv deyil. Şirkət sahibinin təsdiqini gözləyin." });
     user.lastLoginAt = new Date().toISOString();

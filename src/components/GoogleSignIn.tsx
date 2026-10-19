@@ -70,7 +70,7 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
   const [companyCode, setCompanyCode] = useState("");
   const [registering, setRegistering] = useState(false);
   const [pending, setPending] = useState(false);
-  const [mode, setMode] = useState<"password" | "google" | "register">("password");
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [registrationForm, setRegistrationForm] = useState({ name: "", email: "", password: "", companyCode: "" });
 
@@ -84,7 +84,14 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
       });
       if (payload.pending) { setPending(true); return; }
       if (payload.data) onAuthenticated(payload.data);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Giriş mümkün olmadı."); }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "Giriş mümkün olmadı.";
+      if (message.includes("hesab tapılmadı")) {
+        setRegistrationForm((current) => ({ ...current, email: loginForm.email }));
+        setMode("register");
+        setError("");
+      } else setError(message);
+    }
     finally { setSubmitting(false); }
   };
 
@@ -184,18 +191,15 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
 
   return (
     <div className="space-y-3">
-      <div className={isDark ? "grid grid-cols-3 rounded-xl bg-white/5 p-1" : "grid grid-cols-3 rounded-xl bg-slate-100 p-1"}>
-        {([['password', 'Şifrə'], ['google', 'Google'], ['register', 'Qeydiyyat']] as const).map(([id, label]) => (
-          <button key={id} type="button" onClick={() => { setMode(id); setError(""); setPending(false); }} className={mode === id ? "rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white shadow" : "rounded-lg px-2 py-2 text-sm font-medium text-slate-500"}>{label}</button>
-        ))}
-      </div>
-      {mode === "password" && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void passwordLogin(); }}>
+      {mode === "login" && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void passwordLogin(); }}>
         <label className="block text-sm font-medium">E-poçt<input required type="email" autoComplete="email" value={loginForm.email} onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
         <label className="block text-sm font-medium">Şifrə<input required type="password" autoComplete="current-password" value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
         <button disabled={submitting} className="surface-primary h-12 w-full rounded-xl text-sm font-semibold disabled:opacity-60">Daxil ol</button>
       </form>}
-      {mode === "google" && config?.enabled && <div ref={buttonRef} className="flex min-h-11 w-full items-center justify-center" />}
+      {mode === "login" && config?.enabled && <><div className="flex items-center gap-3 py-1"><span className="h-px flex-1 bg-slate-300/60" /><span className="text-xs text-slate-500">və ya</span><span className="h-px flex-1 bg-slate-300/60" /></div><div ref={buttonRef} className="flex min-h-11 w-full items-center justify-center" /></>}
+      {mode === "login" && <button type="button" onClick={() => { setMode("register"); setError(""); }} className="w-full text-center text-sm font-semibold text-indigo-600 hover:text-indigo-500">Hesabınız yoxdur? Qeydiyyatdan keçin</button>}
       {mode === "register" && !pending && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void register(); }}>
+        <button type="button" onClick={() => { setMode("login"); setError(""); }} className="text-sm font-semibold text-indigo-600">← Girişə qayıt</button>
         <div className="rounded-xl bg-indigo-500/10 p-3 text-sm">Şirkətə qoşulmaq üçün məlumatlarınızı və sizə verilən dəvət kodunu daxil edin.</div>
         <label className="block text-sm font-medium">Ad soyad<input required value={registrationForm.name} onChange={(event) => setRegistrationForm({ ...registrationForm, name: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
         <label className="block text-sm font-medium">E-poçt<input required type="email" value={registrationForm.email} onChange={(event) => setRegistrationForm({ ...registrationForm, email: event.target.value })} className={isDark ? "mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 outline-none" : "mt-1.5 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 outline-none"} /></label>
@@ -217,7 +221,7 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
       )}
       {pending && <div role="status" className="rounded-xl bg-amber-500/10 p-4 text-sm">Müraciətiniz göndərildi. Şirkət sahibi təsdiqlədikdən sonra e-poçt və şifrənizlə daxil ola bilərsiniz.</div>}
       {(loading || submitting) && <div className="text-center text-sm text-slate-500">{t("login.checking")}</div>}
-      {mode === "google" && !loading && config && !config.enabled && (
+      {mode === "login" && !loading && config && !config.enabled && (
         <>
           <div className={isDark ? "rounded-xl bg-amber-400/10 px-3 py-2 text-sm text-amber-200" : "rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700"}>{t("login.googleNotConfigured")}</div>
           {config.demoAvailable && <button type="button" disabled={submitting} onClick={() => void demoLogin()} className="surface-primary h-12 w-full rounded-xl px-5 text-sm font-semibold disabled:opacity-60">{t("login.demoSubmit")}</button>}
