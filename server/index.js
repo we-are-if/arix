@@ -690,7 +690,7 @@ async function handleAuth(req, res, parts) {
       db.authUsers.push(user);
     }
     if (!user && body.companyCode) {
-      if (!COMPANY_JOIN_CODE || String(body.companyCode).trim().toUpperCase() !== COMPANY_JOIN_CODE) return send(res, 403, { error: "Şirkət kodu yanlışdır." });
+      if (!COMPANY_JOIN_CODE || String(body.companyCode).trim().toUpperCase() !== COMPANY_JOIN_CODE) return send(res, 403, { error: "Dəvət kodu yanlışdır." });
       user = { id: randomUUID(), name: String(payload.name || email), role: "Əməkdaş", email, active: false, joinPending: true, companyId: "ersa-folyo", googleSubject: String(payload.sub), createdAt: new Date().toISOString() };
       db.authUsers.push(user);
       await writeDb(db);
@@ -708,7 +708,7 @@ async function handleAuth(req, res, parts) {
       return send(res, 403, { error: inviteCode ? "Dəvət kodu düzgün deyil." : "Bu hesab üçün əməkdaş dəvət kodunu daxil edin.", inviteRequired: true });
     }
     if (!user || user.active === false) {
-      return send(res, 403, { error: "Hesabınız yoxdur. Şirkət kodunu daxil edərək qeydiyyat istəyin.", registrationRequired: true });
+      return send(res, 403, { error: "Hesabınız yoxdur. Dəvət kodunu daxil edərək qeydiyyat istəyin.", registrationRequired: true });
     }
     if (user.googleSubject && String(user.googleSubject) !== String(payload.sub)) {
       return send(res, 409, { error: "Bu əməkdaş kartı başqa Google hesabına bağlıdır." });

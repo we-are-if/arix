@@ -122,7 +122,7 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : t("login.googleUnavailable");
       if (message.toLocaleLowerCase("az").includes("dəvət kodu")) setPendingCredential(credential);
-      if (message.includes("Şirkət kodunu")) { setPendingCredential(credential); setRegistering(true); }
+      if (message.includes("Dəvət kodunu")) { setPendingCredential(credential); setRegistering(true); }
       setError(message);
     } finally {
       setSubmitting(false);
@@ -209,8 +209,9 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
       </form>}
       {pendingCredential && (
         registering ? <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void authenticate(pendingCredential, "", companyCode); }}>
-          <label className="block text-sm">Şirkət kodu<input required value={companyCode} onChange={(event) => setCompanyCode(event.target.value.toUpperCase())} className="mt-2 h-12 w-full rounded-xl border border-slate-400 bg-transparent px-4" /></label>
-          <button disabled={submitting} className="surface-primary h-12 w-full rounded-xl">Hesab yaratmaq üçün müraciət et</button>
+          <div className="rounded-xl bg-indigo-500/10 p-3 text-sm">Bu Google hesabı sistemdə yoxdur. Şirkət sahibindən aldığınız dəvət kodunu daxil edin.</div>
+          <label className="block text-sm font-semibold">Dəvət kodu<input required value={companyCode} onChange={(event) => setCompanyCode(event.target.value.toUpperCase())} autoComplete="one-time-code" className={isDark ? "mt-2 h-12 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-center font-mono tracking-[0.18em] text-white outline-none" : "mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-center font-mono tracking-[0.18em] text-slate-900 outline-none"} /></label>
+          <button disabled={submitting || !companyCode.trim()} className="surface-primary h-12 w-full rounded-xl disabled:opacity-60">Təsdiq üçün müraciət et</button>
         </form> :
         <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void authenticate(pendingCredential, inviteCode); }}>
           <label className="block text-sm font-semibold">Əməkdaş dəvət kodu
