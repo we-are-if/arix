@@ -6,6 +6,7 @@ import AriXLogo from "../components/AriXLogo";
 import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type PrintCompanyDetails, type PrintFormKey, type PrintSettings } from "../print/printSettings";
 import EDocumentsSettings from "../components/EDocumentsSettings";
 import { PaymentIntegrationSettings } from "./OnlineCollections";
+import { showToast } from "../toast";
 
 export type CompanySection = "settings" | "employees" | "stores" | "accounts" | "loyalty" | "printForms" | "eDocuments" | "paymentIntegrations";
 type StockMode = "simple" | "bondedRolls";
@@ -1049,8 +1050,11 @@ function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
       await onChanged();
       window.dispatchEvent(new Event("arix:stores-updated"));
       setEditing(null);
+      showToast(current ? "Mağaza yeniləndi." : "Mağaza yaradıldı.", { tone: "success", title: "Mağazalar" });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Mağaza saxlanılmadı.");
+      const errorMessage = error instanceof Error ? error.message : "Mağaza saxlanılmadı.";
+      setMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: "Mağazalar" });
     } finally {
       setSaving(false);
     }
@@ -1064,8 +1068,11 @@ function StoresView({ stores, onChanged, border, card, soft, subtle, input }: {
       await onChanged();
       window.dispatchEvent(new Event("arix:stores-updated"));
       setDeleting(null);
+      showToast("Mağaza silinənlərə göndərildi.", { tone: "success", title: "Mağazalar" });
     } catch (error) {
-      setDeleteMessage(error instanceof Error ? error.message : "Mağaza silinmədi.");
+      const errorMessage = error instanceof Error ? error.message : "Mağaza silinmədi.";
+      setDeleteMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: "Mağazalar" });
     } finally {
       setSaving(false);
     }
@@ -1494,8 +1501,10 @@ function PrintFormsView({
       window.dispatchEvent(new CustomEvent("arix:company-settings-updated", { detail: payload.data }));
       window.dispatchEvent(new CustomEvent("arix:print-settings-updated", { detail: next }));
       setMessage("Çap forması saxlanıldı.");
+      showToast("Çap forması saxlanıldı.", { tone: "success", title: "Çap formaları" });
     } catch {
       setMessage("Saxlama zamanı xəta baş verdi.");
+      showToast("Saxlama zamanı xəta baş verdi.", { tone: "error", title: "Çap formaları" });
     } finally {
       setSaving(false);
     }

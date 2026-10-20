@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { requestJson } from "../api";
 import { useI18n } from "../i18n";
+import { showToast } from "../toast";
 
 type TrashEntry = {
   id: string;
@@ -107,9 +108,12 @@ export default function Trash({ isDark = false }: { isDark?: boolean }) {
       await requestJson(`/api/trash/${encodeURIComponent(entry.id)}/restore`, { method: "PATCH" });
       setEntries((current) => current.filter((item) => item.id !== entry.id));
       setMessage(t("trash.restoreSuccess"));
+      showToast(t("trash.restoreSuccess"), { tone: "success", title: t("trash.title") });
       notifyRestored(entry);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : t("trash.error"));
+      const errorMessage = error instanceof Error ? error.message : t("trash.error");
+      setMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: t("trash.title") });
     } finally {
       setBusyId(null);
     }
@@ -124,8 +128,11 @@ export default function Trash({ isDark = false }: { isDark?: boolean }) {
       setEntries((current) => current.filter((item) => item.id !== deleteTarget.id));
       setDeleteTarget(null);
       setMessage(t("trash.deleteSuccess"));
+      showToast(t("trash.deleteSuccess"), { tone: "success", title: t("trash.title") });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : t("trash.error"));
+      const errorMessage = error instanceof Error ? error.message : t("trash.error");
+      setMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: t("trash.title") });
     } finally {
       setBusyId(null);
     }

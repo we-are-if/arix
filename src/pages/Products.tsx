@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { requestJson } from "../api";
 import ProductCreatePanel, { type ProductFormValues } from "../components/ProductCreatePanel";
+import { showToast } from "../toast";
 
 /* ------------------------------ helpers ------------------------------ */
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
@@ -1465,10 +1466,11 @@ export default function Products({ isDark = false }: { isDark?: boolean }) {
       setSelected((current) => new Set(Array.from(current).filter((id) => !deletedIds.includes(id))));
       if (detailProductId != null && deletedIds.includes(detailProductId)) setDetailProductId(null);
       window.dispatchEvent(new CustomEvent("arix:trash-updated"));
+      showToast("Məhsul silinənlərə göndərildi.", { tone: "success", title: "Məhsullar" });
     }
     if (failures.length) {
       const reason = failures[0].reason instanceof Error ? failures[0].reason.message : "Məhsul silinmədi.";
-      window.alert(reason);
+      showToast(reason, { tone: "error", title: "Məhsul silinmədi" });
     }
   };
 

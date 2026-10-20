@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState, type PointerEvent, type SVGProps } from "react";
 import { requestJson } from "../api";
 import EDocumentWorkflowDialog from "./EDocumentWorkflowDialog";
+import { showToast } from "../toast";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -2234,13 +2235,17 @@ export default function DocumentCreatePanel({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(documentPayload),
       });
-      setMessage(isEditing ? "Sənəd yeniləndi." : posted ? "Sənəd saxlandı və stok yeniləndi." : "Sənəd qaralama kimi saxlandı.");
+      const successMessage = isEditing ? "Sənəd yeniləndi." : posted ? "Sənəd saxlandı və stok yeniləndi." : "Sənəd qaralama kimi saxlandı.";
+      setMessage(successMessage);
+      showToast(successMessage, { tone: "success", title: "Sənəd" });
       window.dispatchEvent(new CustomEvent("arix:products-updated"));
       window.dispatchEvent(new CustomEvent("arix:documents-updated"));
       if (isEditing) onSaved?.();
       return response.data;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Sənəd saxlanmadı");
+      const errorMessage = error instanceof Error ? error.message : "Sənəd saxlanmadı";
+      setMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: "Sənəd saxlanmadı" });
       return false;
     } finally {
       setSaving(false);
