@@ -23,6 +23,7 @@ type ProductLine = {
   name: string;
   code: string;
   sku: string;
+  barcode?: string;
   type?: string;
   unit: string;
   variant: string;
@@ -56,6 +57,7 @@ type ApiProduct = {
   name: string;
   code: string;
   sku: string;
+  barcode?: string;
   type: string;
   unit: string;
   salePrice?: number;
@@ -749,6 +751,7 @@ const mapApiProduct = (product: ApiProduct, store: ApiStore | string = "ERSA DEP
   name: product.name,
   code: product.code,
   sku: product.sku,
+  barcode: product.barcode,
   type: product.type,
   unit: product.unit,
   variant: "Standart",
@@ -1079,12 +1082,14 @@ export default function DocumentCreatePanel({
   onClose,
   editingDocument,
   onSaved,
+  quickSale = false,
 }: {
   kind: DocumentCreateKind;
   isDark: boolean;
   onClose: () => void;
   editingDocument?: ApiDocument | null;
   onSaved?: () => void;
+  quickSale?: boolean;
 }) {
   const meta = documentTypes.find((item) => item.id === kind) ?? documentTypes[0];
   const isMoney = meta.group === "money";
@@ -1127,6 +1132,8 @@ export default function DocumentCreatePanel({
     exchangeRate: Number(editingDocument?.invoiceDetails?.exchangeRate ?? 0),
   }));
   const [query, setQuery] = useState("");
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [eDocumentSourceId, setEDocumentSourceId] = useState<string | number | null>(null);
@@ -1176,7 +1183,7 @@ export default function DocumentCreatePanel({
   const stockSelectionToAccount = isExportSale ? "İxracat" : movementToAccount;
   const stockSelectionFromKey = availableStores.find((store) => store.name === stockSelectionFromAccount)?.key;
   const stockSelectionToKey = availableStores.find((store) => store.name === stockSelectionToAccount)?.key;
-  const filteredProducts = availableProducts.filter((product) => [product.name, product.code, product.sku, product.variant].join(" ").toLowerCase().includes(query.toLowerCase()));
+  const filteredProducts = availableProducts.filter((product) => [product.name, product.code, product.sku, product.barcode, product.variant].join(" ").toLowerCase().includes(query.toLowerCase()));
   const isBondedPurchase = kind === "purchase"
     && companySettings.stockMode === "bondedRolls"
     && selectedDocumentStore?.isBonded === true;
@@ -1365,6 +1372,36 @@ export default function DocumentCreatePanel({
       setMovementSuggestions([]);
       setSelectedMovementSuggestion((current) => current ? summarizeMovementSelection(current.containers, nextProducts, current) : null);
     }
+  };
+  const scanProduct = () => {
+    const code = barcodeInput.trim().toLocaleLowerCase("tr-TR");
+    if (!code) return;
+    const product = availableProducts.find((item) =>
+      [item.barcode, item.sku, item.code].some((value) => String(value ?? "").trim().toLocaleLowerCase("tr-TR") === code)
+    );
+    if (!product) {
+      setMessage(`Barkod tapılmadı: ${barcodeInput.trim()}`);
+      showToast("Bu barkoda uyğun məhsul tapılmadı.", { tone: "warning", title: "Barkod" });
+      setBarcodeInput("");
+      barcodeInputRef.current?.focus();
+      return;
+    }
+    const selected = selectedProducts.find((item) => item.id === product.id);
+    if (selected) {
+      updateProduct(product.id, { qty: Number(selected.qty ?? 0) + 1 });
+    } else {
+      setSelectedProducts((current) => [...current, {
+        ...product,
+        qty: 1,
+        discount: 0,
+        movementMode: "meters" as MovementSelectionMode,
+        deliveryMode: product.deliveryMode ?? "singlePiece",
+        cutLengths: product.cutLengths ?? [],
+      }]);
+    }
+    setMessage(`${product.name} əlavə edildi.`);
+    setBarcodeInput("");
+    window.setTimeout(() => barcodeInputRef.current?.focus(), 0);
   };
   const updateProduct = (id: number, patch: Partial<ProductLine>) => {
     const previousProduct = selectedProducts.find((item) => item.id === id);
@@ -2240,6 +2277,15 @@ export default function DocumentCreatePanel({
       showToast(successMessage, { tone: "success", title: "Sənəd" });
       window.dispatchEvent(new CustomEvent("arix:products-updated"));
       window.dispatchEvent(new CustomEvent("arix:documents-updated"));
+      if (!isEditing && quickSale) {
+        setSelectedProducts([]);
+        setDocumentPayments([]);
+        setDocumentPaidAmount("0");
+        setCounterpartyId("");
+        setSaleRollSelection(null);
+        setSaleRollMeasurements([]);
+        window.setTimeout(() => barcodeInputRef.current?.focus(), 0);
+      }
       if (isEditing) onSaved?.();
       return response.data;
     } catch (error) {
@@ -2355,7 +2401,7 @@ export default function DocumentCreatePanel({
               <I.Chevron className="h-4 w-4" />
             </button>
             <button type="button" onClick={saveDocument} disabled={saving} className={cx("surface-primary h-10 flex-1 rounded-xl px-5 text-sm font-semibold sm:flex-none", saving && "opacity-70")}>
-              {saving ? "Saxlanır..." : "Saxlamaq"}
+              {saving ? "Saxlanır..." : quickSale ? "Satışı tamamla" : "Saxlamaq"}
             </button>
             <button type="button" onClick={requestClose} className={cx("flex h-10 w-10 items-center justify-center rounded-xl border", border, isDark ? "hover:bg-white/10" : "hover:bg-slate-50")} aria-label="Bağla">
               <I.X className="h-5 w-5" />
@@ -2440,7 +2486,7 @@ export default function DocumentCreatePanel({
           <main className={cx("min-h-0 overflow-auto p-4 sm:p-6", isMoney && "lg:col-span-2")}>
             <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h2 className="text-3xl font-semibold tracking-normal">{meta.title} #</h2>
+                <h2 className="text-3xl font-semibold tracking-normal">{quickSale ? "Sürətli satış" : meta.title} #</h2>
                 <div className={cx("mt-1 h-px w-56 border-b border-dashed", border)} />
               </div>
               {kind === "movement" && (
@@ -2538,6 +2584,33 @@ export default function DocumentCreatePanel({
 
                 {activeTab === "products" ? (
                   <>
+                    {quickSale && (
+                      <form
+                        onSubmit={(event) => { event.preventDefault(); scanProduct(); }}
+                        className={cx("mb-4 rounded-2xl border p-4", border, isDark ? "bg-indigo-400/5" : "bg-indigo-50/70")}
+                      >
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-semibold">Barkod oxut</div>
+                            <div className={cx("mt-0.5 text-xs", muted)}>Skaner Enter göndərdikdə məhsul səbətə əlavə olunur; təkrar oxutma miqdarı artırır.</div>
+                          </div>
+                          <span className="rounded-full bg-emerald-500/12 px-2.5 py-1 text-xs font-semibold text-emerald-700">Skaner hazırdır</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            ref={barcodeInputRef}
+                            autoFocus
+                            value={barcodeInput}
+                            onChange={(event) => setBarcodeInput(event.target.value)}
+                            placeholder="Barkod, SKU və ya məhsul kodu"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            className={cx("h-12 min-w-0 flex-1 rounded-xl border px-4 text-lg font-semibold outline-none focus:border-indigo-500", border, isDark ? "bg-slate-950/50" : "bg-white")}
+                          />
+                          <button type="submit" className="surface-primary h-12 rounded-xl px-5 text-sm font-semibold">Əlavə et</button>
+                        </div>
+                      </form>
+                    )}
                     <div className="mb-3 flex gap-2">
                       <div className={cx("flex h-11 flex-1 items-center gap-2 rounded-xl border px-3", border, soft, muted)}><I.Search className="h-5 w-5" />Sənəddə məhsul üzrə axtarış</div>
                       {kind === "inventory" && <button className={cx("h-11 rounded-xl border px-4 text-sm font-semibold text-indigo-600", border)}>Bütün məhsullar</button>}

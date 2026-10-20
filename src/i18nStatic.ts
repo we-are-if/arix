@@ -6,6 +6,13 @@ const ui = (az: string, tr: string, en: string, ru: string): Translation => ({ a
 // Text that still lives inside the older page components is translated here.
 // Business data such as product, company and employee names is intentionally excluded.
 export const staticUiTranslationsExtra: Record<string, Translation> = {
+  "Sürətli satış": ui("Sürətli satış", "Hızlı satış", "Quick sale", "Быстрая продажа"),
+  "Barkod oxut": ui("Ştrix-kod oxut", "Barkod okut", "Scan barcode", "Сканировать штрихкод"),
+  "Skaner Enter göndərdikdə məhsul səbətə əlavə olunur; təkrar oxutma miqdarı artırır.": ui("Skaner Enter göndərdikdə məhsul səbətə əlavə olunur; təkrar oxutma miqdarı artırır.", "Tarayıcı Enter gönderdiğinde ürün sepete eklenir; tekrar okutmak miktarı artırır.", "The item is added when the scanner sends Enter; scanning it again increases the quantity.", "Товар добавляется после Enter от сканера; повторное сканирование увеличивает количество."),
+  "Skaner hazırdır": ui("Skaner hazırdır", "Tarayıcı hazır", "Scanner ready", "Сканер готов"),
+  "Barkod, SKU və ya məhsul kodu": ui("Ştrix-kod, SKU və ya məhsul kodu", "Barkod, SKU veya ürün kodu", "Barcode, SKU or product code", "Штрихкод, SKU или код товара"),
+  "Satışı tamamla": ui("Satışı tamamla", "Satışı tamamla", "Complete sale", "Завершить продажу"),
+  "Bu barkoda uyğun məhsul tapılmadı.": ui("Bu ştrix-koda uyğun məhsul tapılmadı.", "Bu barkoda uygun ürün bulunamadı.", "No product matches this barcode.", "Товар с таким штрихкодом не найден."),
   "Bölmə icazələri": ui("Bölmə icazələri", "Bölüm izinleri", "Section permissions", "Права разделов"),
   "Rol standartını dəyişə və hər icazəni ayrıca seçə bilərsiniz.": ui("Rol standartını dəyişə və hər icazəni ayrıca seçə bilərsiniz.", "Rol varsayılanlarını değiştirebilir ve her izni ayrı seçebilirsiniz.", "You can change role defaults and select each permission separately.", "Можно изменить права роли и выбрать каждое разрешение отдельно."),
   "Ana səhifə": ui("Ana səhifə", "Ana sayfa", "Dashboard", "Главная"),

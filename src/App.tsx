@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { Navigate, Routes, Route, NavLink, useLocation } from "react-router-dom";
+import { Navigate, Routes, Route, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import AriXLogo from "./components/AriXLogo";
 import Dashboard from "./pages/Dashboard";
@@ -294,6 +294,7 @@ export default function App() {
   );
 
   const contactsActive = location.pathname.startsWith("/contacts");
+  const navigate = useNavigate();
   const companyActive = location.pathname.startsWith("/company");
   const can = (permission: string) => currentEmployee?.role.toLocaleLowerCase("az") === "sahib" || Boolean(currentEmployee?.permissions?.includes(permission));
   const companySections: Array<{ to: string; label: string; section: CompanySection; permission: string }> = [
@@ -575,6 +576,7 @@ export default function App() {
               <div className="space-y-1">
                 <MobileDrawerLink to="/" label={t("nav.home")} icon={<I.Home className="h-full w-full" />} />
                 {can("products.view") && <MobileDrawerLink to="/products" label={t("nav.products")} icon={<I.Package className="h-full w-full" />} />}
+                {can("documents.create") && <MobileDrawerLink to="/quick-sale" label={t("nav.quickSale")} icon={<I.Receipt className="h-full w-full" />} />}
                 {can("documents.view") && <MobileDrawerLink to="/product-activity" label={t("nav.productActivity")} icon={<I.Activity className="h-full w-full" />} />}
                 {can("money.view") && <MobileDrawerLink to="/money-activity" label={t("nav.moneyActivity")} icon={<I.Wallet className="h-full w-full" />} />}
                 {can("counterparties.view") && <div className={cx("px-3 pb-1 pt-3 text-xs font-semibold uppercase", isDark ? "text-slate-500" : "text-slate-400")}>{t("nav.counterparties")}</div>}
@@ -626,6 +628,9 @@ export default function App() {
                 </li>
                 {can("products.view") && <li>
                   <NavItem to="/products" label={t("nav.products")} icon={<I.Package className="h-full w-full" />} />
+                </li>}
+                {can("documents.create") && <li>
+                  <NavItem to="/quick-sale" label={t("nav.quickSale")} icon={<I.Receipt className="h-full w-full" />} />
                 </li>}
                 {can("documents.view") && <li>
                   <NavItem to="/product-activity" label={t("nav.productActivity")} icon={<I.Activity className="h-full w-full" />} />
@@ -746,6 +751,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={guard("dashboard.view", <Dashboard colors={colors} />)} />
             <Route path="/products" element={guard("products.view", <Products isDark={isDark} />)} />
+            <Route path="/quick-sale" element={guard("documents.create", <DocumentCreatePanel kind="sale" quickSale isDark={isDark} onClose={() => navigate("/product-activity")} />)} />
             <Route path="/product-activity" element={guard("documents.view", <ProductActivity isDark={isDark} />)} />
             <Route path="/money-activity" element={guard("money.view", <MoneyActivity isDark={isDark} />)} />
             <Route path="/online-collections/*" element={<Navigate to="/company/payment-integrations" replace />} />
