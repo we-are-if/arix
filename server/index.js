@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createCipheriv, createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { XMLValidator } from "fast-xml-parser";
+import nodemailer from "nodemailer";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
@@ -82,7 +83,17 @@ const COMPANY_JOIN_CODE = String(process.env.ARIX_COMPANY_JOIN_CODE ?? "").trim(
 const AUTH_REQUIRED = process.env.ARIX_AUTH_REQUIRED === "1" || Boolean(GOOGLE_CLIENT_ID);
 const SESSION_COOKIE = "arix_session";
 const SESSION_TTL_MS = Math.max(60 * 60 * 1000, Number(process.env.ARIX_SESSION_TTL_HOURS ?? 168) * 60 * 60 * 1000);
+const SMTP_HOST = String(process.env.ARIX_SMTP_HOST ?? "").trim();
+const SMTP_PORT = Number(process.env.ARIX_SMTP_PORT ?? 587);
+const SMTP_SECURE = process.env.ARIX_SMTP_SECURE === "1";
+const SMTP_USER = String(process.env.ARIX_SMTP_USER ?? "").trim();
+const SMTP_PASS = String(process.env.ARIX_SMTP_PASS ?? "");
+const SMTP_FROM = String(process.env.ARIX_SMTP_FROM ?? SMTP_USER).trim();
 const googleAuthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+const mailTransport = SMTP_HOST && SMTP_USER && SMTP_PASS && SMTP_FROM
+  ? nodemailer.createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_SECURE, auth: { user: SMTP_USER, pass: SMTP_PASS } })
+  : null;
+const mailRateLimits = new Map();
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
@@ -441,6 +452,42 @@ function parseBody(req, limit = 1_000_000) {
     });
     req.on("error", reject);
   });
+}
+
+async function handleDocumentEmail(req, res) {
+  if (req.method !== "POST") return notFound(res);
+  if (!mailTransport) {
+    return send(res, 503, { error: "E-poçt göndərişi konfiqurasiya edilməyib. ARIX_SMTP_HOST, ARIX_SMTP_USER, ARIX_SMTP_PASS və ARIX_SMTP_FROM ayarlarını əlavə edin." });
+  }
+  const rateKey = String(req.authUser?.id ?? req.socket.remoteAddress ?? "anonymous");
+  const now = Date.now();
+  const recent = (mailRateLimits.get(rateKey) ?? []).filter((sentAt) => now - sentAt < 60_000);
+  if (recent.length >= 10) return send(res, 429, { error: "Bir dəqiqədə ən çox 10 sənəd göndərilə bilər." });
+  const body = await parseBody(req, 16_000_000);
+  const to = String(body.to ?? "").trim();
+  const subject = String(body.subject ?? "AriX sənədi").replace(/[\r\n]+/g, " ").trim().slice(0, 180);
+  const filename = String(body.filename ?? "arix-document.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120);
+  const pdfBase64 = String(body.pdfBase64 ?? "").replace(/^data:application\/pdf;base64,/, "");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return send(res, 400, { error: "Düzgün alıcı e-poçtu daxil edin." });
+  if (!pdfBase64 || !/^[A-Za-z0-9+/=\r\n]+$/.test(pdfBase64)) return send(res, 400, { error: "PDF əlavəsi etibarsızdır." });
+  const attachment = Buffer.from(pdfBase64, "base64");
+  if (attachment.length === 0 || attachment.length > 10_000_000) return send(res, 413, { error: "PDF əlavəsi 10 MB-dan kiçik olmalıdır." });
+  if (attachment.subarray(0, 5).toString("ascii") !== "%PDF-") return send(res, 400, { error: "Əlavə PDF formatında deyil." });
+  try {
+    await mailTransport.sendMail({
+      from: SMTP_FROM,
+      to,
+      subject,
+      text: "Sənəd AriX Panel üzərindən göndərildi.",
+      attachments: [{ filename, content: attachment, contentType: "application/pdf" }],
+    });
+  } catch (error) {
+    console.error("Document email delivery failed", error);
+    return send(res, 502, { error: "E-poçt serveri sənədi göndərə bilmədi. SMTP ayarlarını yoxlayın." });
+  }
+  recent.push(now);
+  mailRateLimits.set(rateKey, recent);
+  return send(res, 200, { ok: true });
 }
 
 const PERMISSION_CATALOG = [
@@ -3892,6 +3939,7 @@ async function handleApiRequest(req, res) {
       "product-ledger": ["products.view", "products.manage"],
       "landed-costs": ["products.view", "products.manage"],
       documents: ["documents.view", "documents.create"],
+      "document-email": ["documents.view", "documents.view"],
       "e-documents": ["documents.view", "documents.edit"],
       counterparties: ["counterparties.view", "counterparties.manage"],
       "customer-prices": ["counterparties.view", "counterparties.manage"],
@@ -3928,6 +3976,7 @@ async function handleApiRequest(req, res) {
     if (parts[1] === "e-documents") return await handleEDocuments(req, res, url, parts.slice(1));
     if (parts[1] === "exchange-rates") return await handleExchangeRates(req, res, url);
     if (parts[1] === "documents") return await handleDocuments(req, res);
+    if (parts[1] === "document-email") return await handleDocumentEmail(req, res);
     if (parts[1] === "trash") return await handleTrash(req, res, url, parts.slice(1));
     if (parts[1] === "stock-containers") return await handleStockContainers(req, res);
     if (parts[1] === "movement-suggestions") return await handleMovementSuggestions(req, res);

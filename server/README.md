@@ -95,6 +95,8 @@ Data is persisted to `server/data/arix.sqlite` with WAL journaling and full sync
 
 Online collection provider credentials are encrypted with AES-256-GCM before persistence. Production deployments should set `ARIX_CREDENTIAL_SECRET`; local development creates an ignored key file under `server/data`.
 
+Document PDFs are generated in the browser from the selected print form. `POST /api/document-email` sends that PDF as an attachment when `ARIX_SMTP_HOST`, `ARIX_SMTP_PORT`, `ARIX_SMTP_USER`, `ARIX_SMTP_PASS`, and `ARIX_SMTP_FROM` are configured. SMTP secrets are read from the server environment and are never persisted in SQLite or returned to the client.
+
 External provider payments are idempotent by `providerId + externalId`. Settled payments are matched by customer id, current-account code, VKN/TCKN, document number, e-mail or phone. Exact matches create a cash-in document and reduce the customer balance; unmatched payments wait for manual matching. Refunds and chargebacks restore the balance through a linked cash-out document.
 
 ## Current Account Cards

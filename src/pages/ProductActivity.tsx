@@ -5,6 +5,8 @@ import DocumentCreatePanel, { type ApiDocumentDraft, type DocumentCreateKind } f
 import EDocumentWorkflowDialog, { type EDocumentType } from "../components/EDocumentWorkflowDialog";
 import { arixPrintBaseCss, renderArixPrintFooter, renderArixPrintHeader } from "../print/arixPrintTemplate";
 import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type PrintFormKey, type PrintSettings } from "../print/printSettings";
+import { blobToBase64, downloadBlob, htmlDocumentToPdf } from "../pdf";
+import { showToast } from "../toast";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -141,6 +143,7 @@ type ApiDocument = {
   fromAccount?: string;
   toAccount?: string;
   counterpartyName?: string;
+  counterpartyEmail?: string;
   counterpartyEInvoiceRegistered?: boolean;
   author?: string;
   total?: number;
@@ -1140,23 +1143,34 @@ const buildDocumentPrintHtml = (
 </html>`;
 };
 
-const openDocumentPrint = (
+const buildDocumentPrintMarkup = (
+  row: ActivityRow,
+  products: ProductLine[],
+  document: ApiDocument | undefined,
+  options: DocumentPrintOptions,
+  printSettings: PrintSettings,
+) => options.formMode === "customs"
+    ? renderCustomsPrintHtml(row, document, products, printSettings)
+    : ["orderConfirmation", "proforma", "commercial", "packingList"].includes(options.formMode)
+      ? buildSalesExportPrintHtml(row, products, document, options, printSettings)
+      : buildDocumentPrintHtml(row, products, document, options, printSettings);
+
+const documentPdfFilename = (row: ActivityRow, options: DocumentPrintOptions) => {
+  const safeId = String(row.documentId || row.order || row.id).replace(/[^a-zA-Z0-9._-]+/g, "-");
+  return `arix-${options.formMode}-${safeId}.pdf`;
+};
+
+const createDocumentPdf = async (
   row: ActivityRow,
   products: ProductLine[],
   document: ApiDocument | undefined,
   options: DocumentPrintOptions,
   printSettings: PrintSettings,
 ) => {
-  const html = options.formMode === "customs"
-    ? renderCustomsPrintHtml(row, document, products, printSettings)
-    : ["orderConfirmation", "proforma", "commercial", "packingList"].includes(options.formMode)
-      ? buildSalesExportPrintHtml(row, products, document, options, printSettings)
-      : buildDocumentPrintHtml(row, products, document, options, printSettings);
-  const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
-  const popup = window.open(url, "_blank", "width=1100,height=850");
-  if (!popup) return false;
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  return true;
+  const filename = documentPdfFilename(row, options);
+  const html = buildDocumentPrintMarkup(row, products, document, options, printSettings);
+  const blob = await htmlDocumentToPdf(html, filename, options.paperMode);
+  return { blob, filename };
 };
 
 const documentKind = (type = ""): ActivityKind | null => {
@@ -2184,19 +2198,56 @@ function SmartPrintOptionsDialog({
     paperMode: hasCustomsSelection || isExportSale ? "landscape" : "portrait",
   });
   const [message, setMessage] = useState("");
+  const [email, setEmail] = useState(document?.counterpartyEmail ?? "");
+  const [deliveryBusy, setDeliveryBusy] = useState<"pdf" | "email" | null>(null);
 
   const setOption = <K extends keyof DocumentPrintOptions>(key: K, value: DocumentPrintOptions[K]) => {
     setOptions((current) => ({ ...current, [key]: value }));
     setMessage("");
   };
 
-  const createPdf = () => {
-    const ok = openDocumentPrint(row, products, document, options, printSettings);
-    if (!ok) {
-      setMessage("Brauzer yeni pəncərəni blokladı. Popup icazəsini açıb yenidən yoxla.");
-      return;
+  const createPdf = async () => {
+    setDeliveryBusy("pdf");
+    setMessage("");
+    try {
+      const result = await createDocumentPdf(row, products, document, options, printSettings);
+      downloadBlob(result.blob, result.filename);
+      showToast("PDF faylı yaradıldı.", { tone: "success", title: "PDF" });
+      onClose();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "PDF faylı yaradıla bilmədi.";
+      setMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: "PDF" });
+    } finally {
+      setDeliveryBusy(null);
     }
-    onClose();
+  };
+
+  const sendEmail = async () => {
+    if (!email.trim()) { setMessage("Alıcının e-poçt ünvanını daxil et."); return; }
+    setDeliveryBusy("email");
+    setMessage("");
+    try {
+      const result = await createDocumentPdf(row, products, document, options, printSettings);
+      await requestJson("/api/document-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          to: email.trim(),
+          subject: `${row.order} · AriX sənədi`,
+          filename: result.filename,
+          pdfBase64: await blobToBase64(result.blob),
+        }),
+      });
+      showToast("PDF alıcının e-poçtuna göndərildi.", { tone: "success", title: "E-poçt" });
+      onClose();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "E-poçt göndərilmədi.";
+      setMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: "E-poçt" });
+    } finally {
+      setDeliveryBusy(null);
+    }
   };
 
   const createExcel = () => {
@@ -2330,10 +2381,14 @@ function SmartPrintOptionsDialog({
           )}
         </div>
 
+        <label className="mt-4 block text-sm font-medium">
+          E-poçtla göndər
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="alici@example.com" className={cx("mt-1.5 h-11 w-full rounded-xl border bg-transparent px-3 outline-none", border)} />
+        </label>
         {message && <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700">{message}</div>}
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className={cx("text-xs", subtle)}>PDF yeni pəncərədə açılır; brauzerdə “Save as PDF” seçilə bilər.</div>
+          <div className={cx("text-xs", subtle)}>PDF birbaşa yüklənir və ya e-poçta əlavə olunur.</div>
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -2344,9 +2399,12 @@ function SmartPrintOptionsDialog({
               <I.Download className="h-4 w-4" />
               Excel yarat
             </button>
-            <button type="button" onClick={createPdf} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold">
-              <I.Printer className="h-4 w-4" />
-              PDF yarat
+            <button type="button" disabled={deliveryBusy !== null} onClick={() => void sendEmail()} className={cx("inline-flex h-11 items-center gap-2 rounded-xl border px-5 text-sm font-semibold", border, Boolean(deliveryBusy) && "opacity-50")}>
+              E-poçt
+            </button>
+            <button type="button" disabled={deliveryBusy !== null} onClick={() => void createPdf()} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">
+              <I.Download className="h-4 w-4" />
+              {deliveryBusy === "pdf" ? "Hazırlanır..." : "PDF yüklə"}
             </button>
           </div>
         </div>
@@ -2384,19 +2442,51 @@ export function PrintOptionsDialog({
     paperMode: hasCustomsSelection ? "landscape" : "portrait",
   });
   const [message, setMessage] = useState("");
+  const [email, setEmail] = useState(document?.counterpartyEmail ?? "");
+  const [deliveryBusy, setDeliveryBusy] = useState<"pdf" | "email" | null>(null);
 
   const setOption = <K extends keyof DocumentPrintOptions>(key: K, value: DocumentPrintOptions[K]) => {
     setOptions((current) => ({ ...current, [key]: value }));
     setMessage("");
   };
 
-  const createPdf = () => {
-    const ok = openDocumentPrint(row, products, document, options, printSettings);
-    if (!ok) {
-      setMessage("Brauzer yeni pəncərəni blokladı. Popup icazəsini açıb yenidən yoxla.");
-      return;
+  const createPdf = async () => {
+    setDeliveryBusy("pdf");
+    setMessage("");
+    try {
+      const result = await createDocumentPdf(row, products, document, options, printSettings);
+      downloadBlob(result.blob, result.filename);
+      showToast("PDF faylı yaradıldı.", { tone: "success", title: "PDF" });
+      onClose();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "PDF faylı yaradıla bilmədi.";
+      setMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: "PDF" });
+    } finally {
+      setDeliveryBusy(null);
     }
-    onClose();
+  };
+
+  const sendEmail = async () => {
+    if (!email.trim()) { setMessage("Alıcının e-poçt ünvanını daxil et."); return; }
+    setDeliveryBusy("email");
+    setMessage("");
+    try {
+      const result = await createDocumentPdf(row, products, document, options, printSettings);
+      await requestJson("/api/document-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: email.trim(), subject: `${row.order} · AriX sənədi`, filename: result.filename, pdfBase64: await blobToBase64(result.blob) }),
+      });
+      showToast("PDF alıcının e-poçtuna göndərildi.", { tone: "success", title: "E-poçt" });
+      onClose();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "E-poçt göndərilmədi.";
+      setMessage(errorMessage);
+      showToast(errorMessage, { tone: "error", title: "E-poçt" });
+    } finally {
+      setDeliveryBusy(null);
+    }
   };
 
   const createExcel = () => {
@@ -2481,10 +2571,14 @@ export function PrintOptionsDialog({
           )}
         </div>
 
+        <label className="mt-4 block text-sm font-medium">
+          E-poçtla göndər
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="alici@example.com" className={cx("mt-1.5 h-11 w-full rounded-xl border bg-transparent px-3 outline-none", border)} />
+        </label>
         {message && <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700">{message}</div>}
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className={cx("text-xs", subtle)}>Açılan pəncərədə printer kimi “Save as PDF” seç.</div>
+          <div className={cx("text-xs", subtle)}>PDF birbaşa yüklənir və ya e-poçta əlavə olunur.</div>
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -2495,9 +2589,12 @@ export function PrintOptionsDialog({
               <I.Download className="h-4 w-4" />
               Excel yarat
             </button>
-            <button type="button" onClick={createPdf} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold">
-              <I.Printer className="h-4 w-4" />
-              PDF yarat
+            <button type="button" disabled={deliveryBusy !== null} onClick={() => void sendEmail()} className={cx("inline-flex h-11 items-center gap-2 rounded-xl border px-5 text-sm font-semibold", border, Boolean(deliveryBusy) && "opacity-50")}>
+              E-poçt
+            </button>
+            <button type="button" disabled={deliveryBusy !== null} onClick={() => void createPdf()} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">
+              <I.Download className="h-4 w-4" />
+              {deliveryBusy === "pdf" ? "Hazırlanır..." : "PDF yüklə"}
             </button>
           </div>
         </div>
