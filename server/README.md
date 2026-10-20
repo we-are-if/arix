@@ -91,7 +91,7 @@ Financial accounts represent real company IBAN, cash, and store accounts. Bank a
 - `POST /api/e-documents/registry/import`
 - `POST /api/e-documents/sync`
 
-Data is persisted to `server/data/db.json`. The app starts with empty business data: no demo products, customers, suppliers, documents, or collections. POS commission settings remain as configuration data.
+Data is persisted to `server/data/arix.sqlite` with WAL journaling and full synchronous durability. On first start, the legacy `server/data/db.json` is validated, archived under `server/data/backups`, and imported once; the original JSON remains untouched. SQLite backups are created daily and the latest 14 are retained. Mutating API requests are serialized in-process so concurrent users cannot overwrite one another's read-modify-write operations. The app starts with empty business data only when neither SQLite nor a legacy JSON database exists.
 
 Online collection provider credentials are encrypted with AES-256-GCM before persistence. Production deployments should set `ARIX_CREDENTIAL_SECRET`; local development creates an ignored key file under `server/data`.
 

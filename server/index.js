@@ -19,6 +19,7 @@ import {
   upsertDocumentJournal,
 } from "./accounting.js";
 import { normalizeCounterparty, validateCounterparty } from "./counterparties.js";
+import { createSQLiteStateStore } from "./database.js";
 import {
   capabilityLabels,
   normalizeProviderConnections,
@@ -73,6 +74,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
 const DB_PATH = join(DATA_DIR, "db.json");
+const SQLITE_PATH = join(DATA_DIR, "arix.sqlite");
 const CREDENTIAL_KEY_PATH = join(DATA_DIR, "payment-credentials.key");
 const PORT = Number(process.env.API_PORT ?? 8787);
 const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID ?? "").trim();
@@ -86,6 +88,7 @@ const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:5173",
   ...String(process.env.ARIX_ALLOWED_ORIGINS ?? "").split(",").map((item) => item.trim()).filter(Boolean),
 ]);
+const stateStore = createSQLiteStateStore({ dataDir: DATA_DIR, jsonPath: DB_PATH, sqlitePath: SQLITE_PATH });
 
 const defaultAuthUsers = [
   { id: "arif", name: "Arif Mahmud", role: "Sahib", email: "arifmd@icloud.com", active: true, companyId: "ersa-folyo", googleSubject: null },
@@ -384,27 +387,15 @@ function normalizeDb(db) {
 }
 
 async function ensureDb() {
-  await mkdir(DATA_DIR, { recursive: true });
-  try {
-    const raw = await readFile(DB_PATH, "utf8");
-    const db = normalizeDb(JSON.parse(raw));
-    await writeDb(db);
-    return db;
-  } catch {
-    const db = normalizeDb(structuredClone(seedDb));
-    await writeDb(db);
-    return db;
-  }
+  return stateStore.initialize(seedDb, normalizeDb);
 }
 
 async function readDb() {
-  const raw = await readFile(DB_PATH, "utf8");
-  return normalizeDb(JSON.parse(raw));
+  return stateStore.read();
 }
 
 async function writeDb(db) {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(DB_PATH, `${JSON.stringify(db, null, 2)}\n`, "utf8");
+  return stateStore.write(db);
 }
 
 function applyCors(req, res) {
@@ -3873,7 +3864,7 @@ const initialDb = await ensureDb();
 rebuildLotAccounting(initialDb, { recordAudit: false });
 await writeDb(initialDb);
 
-const server = createServer(async (req, res) => {
+async function handleApiRequest(req, res) {
   try {
     applyCors(req, res);
     if (req.method === "OPTIONS") return send(res, 204, {});
@@ -3881,7 +3872,7 @@ const server = createServer(async (req, res) => {
     const parts = url.pathname.split("/").filter(Boolean);
 
     if (parts[0] !== "api") return notFound(res);
-    if (parts[1] === "health") return send(res, 200, { ok: true, service: "arix-api", time: new Date().toISOString() });
+    if (parts[1] === "health") return send(res, 200, { ok: true, service: "arix-api", storage: stateStore.status(), time: new Date().toISOString() });
     if (parts[1] === "auth") return await handleAuth(req, res, parts.slice(1));
 
     const authDb = await readDb();
@@ -3950,8 +3941,35 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     send(res, 500, { error: error instanceof Error ? error.message : "Server error" });
   }
+}
+
+let mutationQueue = Promise.resolve();
+
+function enqueueMutation(task) {
+  const result = mutationQueue.then(task, task);
+  mutationQueue = result.catch(() => undefined);
+  return result;
+}
+
+const server = createServer((req, res) => {
+  const method = String(req.method ?? "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    void handleApiRequest(req, res);
+    return;
+  }
+  void enqueueMutation(() => handleApiRequest(req, res));
 });
 
 server.listen(PORT, () => {
   console.log(`AriX API listening on http://localhost:${PORT}`);
 });
+
+const shutdown = () => {
+  server.close(() => {
+    stateStore.close();
+    process.exit(0);
+  });
+};
+
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);

@@ -15,6 +15,10 @@ dist-ssr
 .env.*
 !.env.example
 server/data/*.key
+server/data/*.sqlite
+server/data/*.sqlite-shm
+server/data/*.sqlite-wal
+server/data/backups/
 .audit.json
 ersafolyo-site/
 
