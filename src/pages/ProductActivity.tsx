@@ -5,7 +5,7 @@ import DocumentCreatePanel, { type ApiDocumentDraft, type DocumentCreateKind } f
 import EDocumentWorkflowDialog, { type EDocumentType } from "../components/EDocumentWorkflowDialog";
 import { arixPrintBaseCss, renderArixPrintFooter, renderArixPrintHeader } from "../print/arixPrintTemplate";
 import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type PrintFormKey, type PrintSettings } from "../print/printSettings";
-import { blobToBase64, downloadBlob, htmlDocumentToPdf } from "../pdf";
+import { blobToBase64, htmlDocumentToPdf } from "../pdf";
 import { showToast } from "../toast";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
@@ -1173,6 +1173,21 @@ const createDocumentPdf = async (
   return { blob, filename };
 };
 
+const openDocumentPrint = (
+  row: ActivityRow,
+  products: ProductLine[],
+  document: ApiDocument | undefined,
+  options: DocumentPrintOptions,
+  printSettings: PrintSettings,
+) => {
+  const html = buildDocumentPrintMarkup(row, products, document, options, printSettings);
+  const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+  const popup = window.open(url, "_blank", "width=1100,height=850");
+  if (!popup) return false;
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return true;
+};
+
 const documentKind = (type = ""): ActivityKind | null => {
   if (type === "sale" || type === "saleReturn") return "sale";
   if (type === "purchase" || type === "purchaseReturn") return "purchase";
@@ -2206,21 +2221,15 @@ function SmartPrintOptionsDialog({
     setMessage("");
   };
 
-  const createPdf = async () => {
-    setDeliveryBusy("pdf");
+  const createPdf = () => {
     setMessage("");
-    try {
-      const result = await createDocumentPdf(row, products, document, options, printSettings);
-      downloadBlob(result.blob, result.filename);
-      showToast("PDF faylı yaradıldı.", { tone: "success", title: "PDF" });
-      onClose();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "PDF faylı yaradıla bilmədi.";
+    if (!openDocumentPrint(row, products, document, options, printSettings)) {
+      const errorMessage = "Brauzer yeni pəncərəni blokladı. Popup icazəsini açıb yenidən yoxla.";
       setMessage(errorMessage);
-      showToast(errorMessage, { tone: "error", title: "PDF" });
-    } finally {
-      setDeliveryBusy(null);
+      showToast(errorMessage, { tone: "warning", title: "Çap önizləməsi" });
+      return;
     }
+    onClose();
   };
 
   const sendEmail = async () => {
@@ -2388,7 +2397,7 @@ function SmartPrintOptionsDialog({
         {message && <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700">{message}</div>}
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className={cx("text-xs", subtle)}>PDF birbaşa yüklənir və ya e-poçta əlavə olunur.</div>
+          <div className={cx("text-xs", subtle)}>Önizləmədə “Yazdır” və ya “PDF olaraq saxla” seç.</div>
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -2402,9 +2411,9 @@ function SmartPrintOptionsDialog({
             <button type="button" disabled={deliveryBusy !== null} onClick={() => void sendEmail()} className={cx("inline-flex h-11 items-center gap-2 rounded-xl border px-5 text-sm font-semibold", border, Boolean(deliveryBusy) && "opacity-50")}>
               E-poçt
             </button>
-            <button type="button" disabled={deliveryBusy !== null} onClick={() => void createPdf()} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">
-              <I.Download className="h-4 w-4" />
-              {deliveryBusy === "pdf" ? "Hazırlanır..." : "PDF yüklə"}
+            <button type="button" disabled={deliveryBusy !== null} onClick={createPdf} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">
+              <I.Printer className="h-4 w-4" />
+              Önizlə və çap et
             </button>
           </div>
         </div>
@@ -2450,21 +2459,15 @@ export function PrintOptionsDialog({
     setMessage("");
   };
 
-  const createPdf = async () => {
-    setDeliveryBusy("pdf");
+  const createPdf = () => {
     setMessage("");
-    try {
-      const result = await createDocumentPdf(row, products, document, options, printSettings);
-      downloadBlob(result.blob, result.filename);
-      showToast("PDF faylı yaradıldı.", { tone: "success", title: "PDF" });
-      onClose();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "PDF faylı yaradıla bilmədi.";
+    if (!openDocumentPrint(row, products, document, options, printSettings)) {
+      const errorMessage = "Brauzer yeni pəncərəni blokladı. Popup icazəsini açıb yenidən yoxla.";
       setMessage(errorMessage);
-      showToast(errorMessage, { tone: "error", title: "PDF" });
-    } finally {
-      setDeliveryBusy(null);
+      showToast(errorMessage, { tone: "warning", title: "Çap önizləməsi" });
+      return;
     }
+    onClose();
   };
 
   const sendEmail = async () => {
@@ -2578,7 +2581,7 @@ export function PrintOptionsDialog({
         {message && <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-700">{message}</div>}
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className={cx("text-xs", subtle)}>PDF birbaşa yüklənir və ya e-poçta əlavə olunur.</div>
+          <div className={cx("text-xs", subtle)}>Önizləmədə “Yazdır” və ya “PDF olaraq saxla” seç.</div>
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
@@ -2592,9 +2595,9 @@ export function PrintOptionsDialog({
             <button type="button" disabled={deliveryBusy !== null} onClick={() => void sendEmail()} className={cx("inline-flex h-11 items-center gap-2 rounded-xl border px-5 text-sm font-semibold", border, Boolean(deliveryBusy) && "opacity-50")}>
               E-poçt
             </button>
-            <button type="button" disabled={deliveryBusy !== null} onClick={() => void createPdf()} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">
-              <I.Download className="h-4 w-4" />
-              {deliveryBusy === "pdf" ? "Hazırlanır..." : "PDF yüklə"}
+            <button type="button" disabled={deliveryBusy !== null} onClick={createPdf} className="surface-primary inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold disabled:opacity-50">
+              <I.Printer className="h-4 w-4" />
+              Önizlə və çap et
             </button>
           </div>
         </div>
