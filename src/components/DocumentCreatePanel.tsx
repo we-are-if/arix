@@ -1082,14 +1082,12 @@ export default function DocumentCreatePanel({
   onClose,
   editingDocument,
   onSaved,
-  quickSale = false,
 }: {
   kind: DocumentCreateKind;
   isDark: boolean;
   onClose: () => void;
   editingDocument?: ApiDocument | null;
   onSaved?: () => void;
-  quickSale?: boolean;
 }) {
   const meta = documentTypes.find((item) => item.id === kind) ?? documentTypes[0];
   const isMoney = meta.group === "money";
@@ -2277,15 +2275,6 @@ export default function DocumentCreatePanel({
       showToast(successMessage, { tone: "success", title: "Sənəd" });
       window.dispatchEvent(new CustomEvent("arix:products-updated"));
       window.dispatchEvent(new CustomEvent("arix:documents-updated"));
-      if (!isEditing && quickSale) {
-        setSelectedProducts([]);
-        setDocumentPayments([]);
-        setDocumentPaidAmount("0");
-        setCounterpartyId("");
-        setSaleRollSelection(null);
-        setSaleRollMeasurements([]);
-        window.setTimeout(() => barcodeInputRef.current?.focus(), 0);
-      }
       if (isEditing) onSaved?.();
       return response.data;
     } catch (error) {
@@ -2401,7 +2390,7 @@ export default function DocumentCreatePanel({
               <I.Chevron className="h-4 w-4" />
             </button>
             <button type="button" onClick={saveDocument} disabled={saving} className={cx("surface-primary h-10 flex-1 rounded-xl px-5 text-sm font-semibold sm:flex-none", saving && "opacity-70")}>
-              {saving ? "Saxlanır..." : quickSale ? "Satışı tamamla" : "Saxlamaq"}
+              {saving ? "Saxlanır..." : "Saxlamaq"}
             </button>
             <button type="button" onClick={requestClose} className={cx("flex h-10 w-10 items-center justify-center rounded-xl border", border, isDark ? "hover:bg-white/10" : "hover:bg-slate-50")} aria-label="Bağla">
               <I.X className="h-5 w-5" />
@@ -2486,7 +2475,7 @@ export default function DocumentCreatePanel({
           <main className={cx("min-h-0 overflow-auto p-4 sm:p-6", isMoney && "lg:col-span-2")}>
             <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h2 className="text-3xl font-semibold tracking-normal">{quickSale ? "Sürətli satış" : meta.title} #</h2>
+                <h2 className="text-3xl font-semibold tracking-normal">{meta.title} #</h2>
                 <div className={cx("mt-1 h-px w-56 border-b border-dashed", border)} />
               </div>
               {kind === "movement" && (
@@ -2584,7 +2573,7 @@ export default function DocumentCreatePanel({
 
                 {activeTab === "products" ? (
                   <>
-                    {quickSale && (
+                    {kind === "sale" && saleMode === "regular" && (
                       <form
                         onSubmit={(event) => { event.preventDefault(); scanProduct(); }}
                         className={cx("mb-4 rounded-2xl border p-4", border, isDark ? "bg-indigo-400/5" : "bg-indigo-50/70")}

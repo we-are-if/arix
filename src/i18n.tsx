@@ -31,7 +31,6 @@ const dictionaries: Record<AppLanguage, Record<string, string>> = {
   az: {
     "nav.home": "Ana səhifə",
     "nav.products": "Məhsullar və xidmətlər",
-    "nav.quickSale": "Sürətli satış",
     "nav.productActivity": "Məhsul fəaliyyəti",
     "nav.moneyActivity": "Pul fəaliyyəti",
     "nav.onlineCollections": "Onlayn ödənişlər",
@@ -194,7 +193,6 @@ const dictionaries: Record<AppLanguage, Record<string, string>> = {
   tr: {
     "nav.home": "Ana sayfa",
     "nav.products": "Ürünler ve hizmetler",
-    "nav.quickSale": "Hızlı satış",
     "nav.productActivity": "Ürün hareketleri",
     "nav.moneyActivity": "Para hareketleri",
     "nav.onlineCollections": "Online tahsilat",
@@ -357,7 +355,6 @@ const dictionaries: Record<AppLanguage, Record<string, string>> = {
   en: {
     "nav.home": "Home",
     "nav.products": "Products and services",
-    "nav.quickSale": "Quick sale",
     "nav.productActivity": "Product activity",
     "nav.moneyActivity": "Money activity",
     "nav.onlineCollections": "Online collections",
@@ -520,7 +517,6 @@ const dictionaries: Record<AppLanguage, Record<string, string>> = {
   ru: {
     "nav.home": "Главная",
     "nav.products": "Товары и услуги",
-    "nav.quickSale": "Быстрая продажа",
     "nav.productActivity": "Движение товаров",
     "nav.moneyActivity": "Движение денег",
     "nav.onlineCollections": "Онлайн-платежи",
