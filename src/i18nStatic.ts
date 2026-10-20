@@ -6,6 +6,15 @@ const ui = (az: string, tr: string, en: string, ru: string): Translation => ({ a
 // Text that still lives inside the older page components is translated here.
 // Business data such as product, company and employee names is intentionally excluded.
 export const staticUiTranslationsExtra: Record<string, Translation> = {
+  "Cari ekstre": ui("Cari ekstre", "Cari ekstre", "Account statement", "Выписка по счету"),
+  "Borc xatırlatma": ui("Borc xatırlatma", "Borç hatırlatma", "Debt reminders", "Напоминания о долге"),
+  "Cari hesab ekstresi": ui("Cari hesab ekstresi", "Cari hesap ekstresi", "Account statement", "Выписка по счету"),
+  "Borc xatırlatmaları": ui("Borc xatırlatmaları", "Borç hatırlatmaları", "Debt reminders", "Напоминания о долге"),
+  "Vergi və KDV hesabatı": ui("Vergi və KDV hesabatı", "Vergi ve KDV raporu", "Tax and VAT report", "Отчет по налогам и НДС"),
+  "Müştəri seç": ui("Müştəri seç", "Müşteri seç", "Select customer", "Выберите клиента"),
+  "Ekstre üçün müştəri seç": ui("Ekstre üçün müştəri seç", "Ekstre için müşteri seçin", "Select a customer for the statement", "Выберите клиента для выписки"),
+  "Gecikmiş borcu olan müştəri yoxdur": ui("Gecikmiş borcu olan müştəri yoxdur", "Vadesi geçmiş borcu olan müşteri yok", "No customers have overdue debt", "Нет клиентов с просроченной задолженностью"),
+  "Vergisiz məbləğ": ui("Vergisiz məbləğ", "Vergisiz tutar", "Amount before tax", "Сумма без налога"),
   "Son ödəmə": ui("Son ödəmə", "Son ödeme", "Due date", "Срок оплаты"),
   "Vaxtı çatmayıb": ui("Vaxtı çatmayıb", "Vadesi gelmedi", "Not yet due", "Срок не наступил"),
   "1–30 gün": ui("1–30 gün", "1–30 gün", "1–30 days", "1–30 дней"),

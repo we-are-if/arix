@@ -56,11 +56,16 @@ type ApiDocument = {
   documentDate?: string;
   createdAt?: string;
   counterpartyName?: string;
+  counterpartyId?: string | number | null;
+  dueDate?: string;
   account?: string;
   fromAccount?: string;
   toAccount?: string;
   amount?: number;
   total?: number;
+  taxExclusiveTotal?: number;
+  taxTotal?: number;
+  withholdingTotal?: number;
   paid?: number;
   relationshipType?: "debtPayment" | "landedCost";
   costAllocations?: Array<{ amount?: number; category?: string; containerNumber?: string }>;
@@ -70,6 +75,7 @@ type ApiDocument = {
     total?: number;
     status?: string;
   };
+  payments?: Array<{ amount?: number; date?: string; method?: string; account?: string }>;
   lines?: ApiDocumentLine[];
   bondedStock?: {
     summary?: {
@@ -89,16 +95,36 @@ type ApiCounterparty = {
   name: string;
   balance?: number;
   status?: string;
+  phone?: string;
+  email?: string;
 };
 
-type ReportView = "overview" | "sales" | "stock" | "money" | "counterparties" | "cost";
+type AgingRow = {
+  counterpartyId: number;
+  name: string;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  daysOver90: number;
+  total: number;
+  overdue: number;
+  openDocumentCount: number;
+  overdueDocumentCount: number;
+};
+
+type ReportView = "overview" | "sales" | "purchases" | "stock" | "money" | "counterparties" | "statement" | "reminders" | "tax" | "cost";
 
 const reportViews: Array<{ id: ReportView; label: string }> = [
   { id: "overview", label: "İcmal" },
   { id: "sales", label: "Satış" },
+  { id: "purchases", label: "Alış" },
   { id: "stock", label: "Stok" },
   { id: "money", label: "Pul" },
   { id: "counterparties", label: "Kontragent" },
+  { id: "statement", label: "Cari ekstre" },
+  { id: "reminders", label: "Borc xatırlatma" },
+  { id: "tax", label: "Vergi" },
   { id: "cost", label: "Maya" },
 ];
 
@@ -193,6 +219,8 @@ export default function Reports({ isDark }: { isDark: boolean }) {
   const [products, setProducts] = useState<ApiProduct[]>([]);
   const [documents, setDocuments] = useState<ApiDocument[]>([]);
   const [counterparties, setCounterparties] = useState<ApiCounterparty[]>([]);
+  const [aging, setAging] = useState<AgingRow[]>([]);
+  const [selectedCounterpartyId, setSelectedCounterpartyId] = useState("");
   const [view, setView] = useState<ReportView>("overview");
   const [query, setQuery] = useState("");
   const [period, setPeriod] = useState("year");
@@ -203,20 +231,23 @@ export default function Reports({ isDark }: { isDark: boolean }) {
     const load = async () => {
       setLoading(true);
       try {
-        const [productPayload, documentPayload, counterpartyPayload] = await Promise.all([
+        const [productPayload, documentPayload, counterpartyPayload, agingPayload] = await Promise.all([
           requestJson<{ data: ApiProduct[] }>("/api/products"),
           requestJson<{ data: ApiDocument[] }>("/api/documents"),
           requestJson<{ data: ApiCounterparty[] }>("/api/counterparties"),
+          requestJson<{ data: AgingRow[] }>("/api/counterparties/aging?kind=customer"),
         ]);
         if (!alive) return;
         setProducts(Array.isArray(productPayload.data) ? productPayload.data : []);
         setDocuments(Array.isArray(documentPayload.data) ? documentPayload.data : []);
         setCounterparties(Array.isArray(counterpartyPayload.data) ? counterpartyPayload.data : []);
+        setAging(Array.isArray(agingPayload.data) ? agingPayload.data : []);
       } catch {
         if (!alive) return;
         setProducts([]);
         setDocuments([]);
         setCounterparties([]);
+        setAging([]);
       } finally {
         if (alive) setLoading(false);
       }
@@ -364,9 +395,42 @@ export default function Reports({ isDark }: { isDark: boolean }) {
       .slice(0, 12);
   }, [periodDocuments, query, report.recentDocuments]);
 
+  const customerOptions = useMemo(() => counterparties.filter((item) => item.kind === "customer"), [counterparties]);
+  const selectedCounterparty = customerOptions.find((item) => String(item.id) === selectedCounterpartyId);
+  const statementRows = useMemo(() => {
+    if (!selectedCounterpartyId) return [];
+    const transactions: Array<{ date: Date; document: string; detail: string; debit: number; credit: number }> = [];
+    documents
+      .filter((item) => String(item.counterpartyId ?? "") === selectedCounterpartyId && ["sale", "saleReturn"].includes(item.type ?? "") && item.posted !== false)
+      .forEach((item) => {
+        const isReturn = item.type === "saleReturn";
+        transactions.push({ date: docDate(item), document: `${typeLabel(item.type)} #${String(item.id ?? "").slice(0, 8)}`, detail: item.account ?? "", debit: isReturn ? 0 : docAmount(item), credit: isReturn ? docAmount(item) : 0 });
+        (item.payments ?? []).forEach((payment, index) => transactions.push({
+          date: payment.date ? new Date(payment.date) : docDate(item),
+          document: `Ödəniş #${index + 1}`,
+          detail: [payment.method, payment.account].filter(Boolean).join(" · "),
+          debit: 0,
+          credit: Math.abs(Number(payment.amount ?? 0)),
+        }));
+      });
+    let balance = 0;
+    return transactions.sort((a, b) => a.date.getTime() - b.date.getTime()).map((item) => {
+      balance += item.debit - item.credit;
+      return { ...item, balance };
+    });
+  }, [documents, selectedCounterpartyId]);
+
   const handleExport = () => {
     const rows: Array<Array<string | number>> =
-      view === "stock"
+      view === "statement"
+        ? [["Tarix", "Sənəd", "Açıqlama", "Debet", "Kredit", "Balans"], ...statementRows.map((row) => [
+            row.date.toLocaleDateString("az-Latn-AZ"), row.document, row.detail, money(row.debit), money(row.credit), money(row.balance),
+          ])]
+        : view === "reminders"
+          ? [["Müştəri", "Cari", "1-30", "31-60", "61-90", "90+", "Gecikmiş", "Cəmi"], ...aging.map((row) => [
+              row.name, money(row.current), money(row.days1To30), money(row.days31To60), money(row.days61To90), money(row.daysOver90), money(row.overdue), money(row.total),
+            ])]
+      : view === "stock"
         ? [["Məhsul", "Kod", "Antrepo", "Depo", "Miqdar", "Dəyər"], ...report.topProducts.map(({ product, qty, value }) => [
             product.name,
             product.code || product.sku || "",
@@ -410,6 +474,12 @@ export default function Reports({ isDark }: { isDark: boolean }) {
             <p className={cx("mt-1 max-w-2xl text-sm", ui.subtle)}>Satış, stok, pul axını, kontragent borcu və maya riskləri bir ekranda toplanır.</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
+            {view === "statement" && (
+              <select value={selectedCounterpartyId} onChange={(event) => setSelectedCounterpartyId(event.target.value)} className={cx("h-11 min-w-[220px] rounded-xl border px-3 text-sm outline-none", ui.control)}>
+                <option value="">Müştəri seç</option>
+                {customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+              </select>
+            )}
             <label className={cx("flex h-11 min-w-[260px] items-center gap-2 rounded-xl border px-3", ui.control)}>
               <I.Search className={cx("h-4 w-4", ui.subtle)} />
               <input
@@ -534,8 +604,14 @@ export default function Reports({ isDark }: { isDark: boolean }) {
                 <StockReportTable rows={report.topProducts} isDark={isDark} />
               ) : view === "counterparties" ? (
                 <CustomerReportTable rows={report.topCustomers} isDark={isDark} />
+              ) : view === "statement" ? (
+                <StatementReportTable rows={statementRows} customerName={selectedCounterparty?.name ?? ""} isDark={isDark} />
+              ) : view === "reminders" ? (
+                <ReminderReportTable rows={aging} counterparties={customerOptions} isDark={isDark} />
+              ) : view === "tax" ? (
+                <TaxReportTable rows={periodDocuments.filter((item) => ["sale", "purchase", "saleReturn", "purchaseReturn"].includes(item.type ?? ""))} isDark={isDark} />
               ) : (
-                <DocumentReportTable rows={filteredDocuments} isDark={isDark} />
+                <DocumentReportTable rows={view === "purchases" ? filteredDocuments.filter((item) => item.type === "purchase") : view === "sales" ? filteredDocuments.filter((item) => item.type === "sale") : view === "money" ? filteredDocuments.filter((item) => ["cashIn", "cashOut", "cashTransfer"].includes(item.type ?? "")) : filteredDocuments} isDark={isDark} />
               )}
             </section>
 
@@ -575,11 +651,75 @@ function periodLabel(period: string) {
 
 function viewTitle(view: ReportView) {
   if (view === "sales") return "Satış sənədləri";
+  if (view === "purchases") return "Alış sənədləri";
   if (view === "stock") return "Stok dəyəri yüksək məhsullar";
   if (view === "money") return "Pul hərəkətləri";
   if (view === "counterparties") return "Müştəri performansı";
+  if (view === "statement") return "Cari hesab ekstresi";
+  if (view === "reminders") return "Borc xatırlatmaları";
+  if (view === "tax") return "Vergi və KDV hesabatı";
   if (view === "cost") return "Maya və xərc bağlantıları";
   return "Son əməliyyatlar";
+}
+
+function StatementReportTable({ rows, customerName, isDark }: { rows: Array<{ date: Date; document: string; detail: string; debit: number; credit: number; balance: number }>; customerName: string; isDark: boolean }) {
+  const ui = makeUI(isDark);
+  if (!customerName) return <EmptyState text="Ekstre üçün müştəri seç" isDark={isDark} />;
+  if (!rows.length) return <EmptyState text="Bu müştərinin cari əməliyyatı yoxdur" isDark={isDark} />;
+  return (
+    <div className="overflow-auto rounded-xl border border-slate-200/70">
+      <table className="min-w-full whitespace-nowrap text-sm">
+        <thead className={ui.tableHead}><tr>{["Tarix", "Sənəd", "Açıqlama", "Debet", "Kredit", "Balans"].map((head) => <th key={head} className={cx("px-4 py-3 text-left text-xs font-semibold", ["Debet", "Kredit", "Balans"].includes(head) && "text-right")}>{head}</th>)}</tr></thead>
+        <tbody>{rows.map((row, index) => <tr key={`${row.document}-${index}`} className={cx("border-t", ui.row)}>
+          <td className="px-4 py-3">{row.date.toLocaleDateString("az-Latn-AZ")}</td><td className="px-4 py-3 font-semibold">{row.document}</td><td className="px-4 py-3">{row.detail || "-"}</td>
+          <td className="px-4 py-3 text-right tabular-nums">{row.debit ? `${money(row.debit)} ₼` : "-"}</td><td className="px-4 py-3 text-right tabular-nums text-emerald-600">{row.credit ? `${money(row.credit)} ₼` : "-"}</td><td className="px-4 py-3 text-right font-semibold tabular-nums">{money(row.balance)} ₼</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReminderReportTable({ rows, counterparties, isDark }: { rows: AgingRow[]; counterparties: ApiCounterparty[]; isDark: boolean }) {
+  const ui = makeUI(isDark);
+  const overdueRows = rows.filter((row) => row.overdue > 0).sort((a, b) => b.daysOver90 - a.daysOver90 || b.overdue - a.overdue);
+  const remind = (row: AgingRow, channel: "whatsapp" | "email") => {
+    const customer = counterparties.find((item) => Number(item.id) === row.counterpartyId);
+    const text = `Hörmətli ${row.name}, ${money(row.overdue)} ₼ gecikmiş borcunuz görünür. Zəhmət olmasa ödəniş vəziyyətini yoxlayın.`;
+    if (channel === "whatsapp") {
+      const phone = String(customer?.phone ?? "").replace(/\D/g, "");
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    } else {
+      window.location.href = `mailto:${customer?.email ?? ""}?subject=${encodeURIComponent("Cari hesab borc xatırlatması")}&body=${encodeURIComponent(text)}`;
+    }
+  };
+  if (!overdueRows.length) return <EmptyState text="Gecikmiş borcu olan müştəri yoxdur" isDark={isDark} />;
+  return (
+    <div className="overflow-auto rounded-xl border border-slate-200/70">
+      <table className="min-w-[1050px] w-full text-sm">
+        <thead className={ui.tableHead}><tr>{["Müştəri", "1–30", "31–60", "61–90", "90+", "Gecikmiş", "Sənəd", "Əməl"].map((head) => <th key={head} className={cx("px-4 py-3 text-left text-xs font-semibold", !["Müştəri", "Əməl"].includes(head) && "text-right")}>{head}</th>)}</tr></thead>
+        <tbody>{overdueRows.map((row) => <tr key={row.counterpartyId} className={cx("border-t", ui.row)}>
+          <td className="px-4 py-3 font-semibold">{row.name}</td><td className="px-4 py-3 text-right tabular-nums">{money(row.days1To30)}</td><td className="px-4 py-3 text-right tabular-nums">{money(row.days31To60)}</td><td className="px-4 py-3 text-right tabular-nums">{money(row.days61To90)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums text-rose-600">{money(row.daysOver90)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums">{money(row.overdue)} ₼</td><td className="px-4 py-3 text-right tabular-nums">{row.overdueDocumentCount}</td>
+          <td className="px-4 py-3"><div className="flex gap-2"><button type="button" onClick={() => remind(row, "whatsapp")} className="h-9 rounded-lg border border-emerald-300 px-3 text-xs font-semibold text-emerald-700">WhatsApp</button><button type="button" onClick={() => remind(row, "email")} className="h-9 rounded-lg border border-indigo-300 px-3 text-xs font-semibold text-indigo-700">E-poçt</button></div></td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function TaxReportTable({ rows, isDark }: { rows: ApiDocument[]; isDark: boolean }) {
+  const ui = makeUI(isDark);
+  if (!rows.length) return <EmptyState text="Vergi hesablanan sənəd yoxdur" isDark={isDark} />;
+  return (
+    <div className="overflow-auto rounded-xl border border-slate-200/70">
+      <table className="min-w-[900px] w-full text-sm">
+        <thead className={ui.tableHead}><tr>{["Tarix", "Sənəd", "Kontragent", "Vergisiz məbləğ", "KDV", "Tevkifat", "Yekun"].map((head) => <th key={head} className={cx("px-4 py-3 text-left text-xs font-semibold", !["Tarix", "Sənəd", "Kontragent"].includes(head) && "text-right")}>{head}</th>)}</tr></thead>
+        <tbody>{rows.map((row, index) => <tr key={String(row.id ?? index)} className={cx("border-t", ui.row)}>
+          <td className="px-4 py-3">{docDate(row).toLocaleDateString("az-Latn-AZ")}</td><td className="px-4 py-3 font-semibold">{typeLabel(row.type)} #{String(row.id ?? index + 1).slice(0, 8)}</td><td className="px-4 py-3">{row.counterpartyName || "-"}</td>
+          <td className="px-4 py-3 text-right tabular-nums">{money(row.taxExclusiveTotal ?? Math.max(0, docAmount(row) - Number(row.taxTotal ?? 0)))} ₼</td><td className="px-4 py-3 text-right tabular-nums">{money(Number(row.taxTotal ?? 0))} ₼</td><td className="px-4 py-3 text-right tabular-nums">{money(Number(row.withholdingTotal ?? 0))} ₼</td><td className="px-4 py-3 text-right font-semibold tabular-nums">{money(docAmount(row))} ₼</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+  );
 }
 
 function KpiCard({ label, value, caption, tone, isDark }: { label: string; value: string; caption: string; tone: "indigo" | "emerald" | "rose" | "sky" | "violet" | "amber"; isDark: boolean }) {
