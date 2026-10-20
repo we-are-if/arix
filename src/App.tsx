@@ -34,6 +34,7 @@ type CurrentEmployee = {
   picture?: string;
   companyId?: string;
   passwordChangeRequired?: boolean;
+  permissions?: string[];
 };
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -294,16 +295,18 @@ export default function App() {
 
   const contactsActive = location.pathname.startsWith("/contacts");
   const companyActive = location.pathname.startsWith("/company");
-  const companySections: Array<{ to: string; label: string; section: CompanySection }> = [
-    { to: "/company/settings", label: t("nav.settings"), section: "settings" },
-    { to: "/company/employees", label: t("nav.employees"), section: "employees" },
-    { to: "/company/stores", label: t("nav.stores"), section: "stores" },
-    { to: "/company/accounts", label: t("nav.accounts"), section: "accounts" },
-    { to: "/company/loyalty", label: t("nav.loyalty"), section: "loyalty" },
-    { to: "/company/print-forms", label: t("nav.printForms"), section: "printForms" },
-    { to: "/company/e-documents", label: t("nav.eDocuments"), section: "eDocuments" },
-    { to: "/company/payment-integrations", label: t("nav.paymentIntegrations"), section: "paymentIntegrations" },
-  ];
+  const can = (permission: string) => currentEmployee?.role.toLocaleLowerCase("az") === "sahib" || Boolean(currentEmployee?.permissions?.includes(permission));
+  const companySections: Array<{ to: string; label: string; section: CompanySection; permission: string }> = [
+    { to: "/company/settings", label: t("nav.settings"), section: "settings", permission: "company.view" },
+    { to: "/company/employees", label: t("nav.employees"), section: "employees", permission: "employees.manage" },
+    { to: "/company/stores", label: t("nav.stores"), section: "stores", permission: "company.view" },
+    { to: "/company/accounts", label: t("nav.accounts"), section: "accounts", permission: "company.view" },
+    { to: "/company/loyalty", label: t("nav.loyalty"), section: "loyalty", permission: "company.view" },
+    { to: "/company/print-forms", label: t("nav.printForms"), section: "printForms", permission: "company.view" },
+    { to: "/company/e-documents", label: t("nav.eDocuments"), section: "eDocuments", permission: "company.view" },
+    { to: "/company/payment-integrations", label: t("nav.paymentIntegrations"), section: "paymentIntegrations", permission: "company.view" },
+  ].filter((item) => can(item.permission)) as Array<{ to: string; label: string; section: CompanySection; permission: string }>;
+  const guard = (permission: string, content: React.ReactNode) => can(permission) ? content : <Navigate to="/" replace />;
   const SubNavItem = ({ to, label, icon }: { to: string; label: string; icon: React.ReactNode }) => (
     <NavLink
       to={to}
@@ -421,7 +424,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="relative">
-              <button
+              {can("documents.create") && <button
                 type="button"
                 onClick={() => {
                   setLanguageMenuOpen((value) => !value);
@@ -438,7 +441,7 @@ export default function App() {
                 <span className="hidden sm:inline">{currentLanguage.label}</span>
                 <span className="sm:hidden">{currentLanguage.short}</span>
                 <I.ChevronDown className={cx("h-3.5 w-3.5 transition-transform", languageMenuOpen && "rotate-180")} />
-              </button>
+              </button>}
               {languageMenuOpen && (
                 <div className={cx("surface-popover absolute right-0 top-12 z-50 w-52 rounded-2xl border p-2 shadow-xl", isDark ? "glass-panel-dark border-white/10" : "glass-panel border-white/70")}>
                   {languageOptions.map((item) => (
@@ -571,20 +574,20 @@ export default function App() {
               </button>
               <div className="space-y-1">
                 <MobileDrawerLink to="/" label={t("nav.home")} icon={<I.Home className="h-full w-full" />} />
-                <MobileDrawerLink to="/products" label={t("nav.products")} icon={<I.Package className="h-full w-full" />} />
-                <MobileDrawerLink to="/product-activity" label={t("nav.productActivity")} icon={<I.Activity className="h-full w-full" />} />
-                <MobileDrawerLink to="/money-activity" label={t("nav.moneyActivity")} icon={<I.Wallet className="h-full w-full" />} />
-                <div className={cx("px-3 pb-1 pt-3 text-xs font-semibold uppercase", isDark ? "text-slate-500" : "text-slate-400")}>{t("nav.counterparties")}</div>
-                <MobileDrawerLink nested to="/contacts/suppliers" label={t("nav.suppliers")} icon={<I.Supplier className="h-full w-full" />} />
-                <MobileDrawerLink nested to="/contacts/customers" label={t("nav.customers")} icon={<I.Customer className="h-full w-full" />} />
-                <div className={cx("px-3 pb-1 pt-3 text-xs font-semibold uppercase", isDark ? "text-slate-500" : "text-slate-400")}>{t("nav.company")}</div>
+                {can("products.view") && <MobileDrawerLink to="/products" label={t("nav.products")} icon={<I.Package className="h-full w-full" />} />}
+                {can("documents.view") && <MobileDrawerLink to="/product-activity" label={t("nav.productActivity")} icon={<I.Activity className="h-full w-full" />} />}
+                {can("money.view") && <MobileDrawerLink to="/money-activity" label={t("nav.moneyActivity")} icon={<I.Wallet className="h-full w-full" />} />}
+                {can("counterparties.view") && <div className={cx("px-3 pb-1 pt-3 text-xs font-semibold uppercase", isDark ? "text-slate-500" : "text-slate-400")}>{t("nav.counterparties")}</div>}
+                {can("counterparties.view") && <MobileDrawerLink nested to="/contacts/suppliers" label={t("nav.suppliers")} icon={<I.Supplier className="h-full w-full" />} />}
+                {can("counterparties.view") && <MobileDrawerLink nested to="/contacts/customers" label={t("nav.customers")} icon={<I.Customer className="h-full w-full" />} />}
+                {companySections.length > 0 && <div className={cx("px-3 pb-1 pt-3 text-xs font-semibold uppercase", isDark ? "text-slate-500" : "text-slate-400")}>{t("nav.company")}</div>}
                 {companySections.map((item) => (
                   <MobileDrawerLink key={item.to} nested to={item.to} label={item.label} icon={<I.Company className="h-full w-full" />} />
                 ))}
                 <div className={cx("my-2 border-t", isDark ? "border-white/10" : "border-slate-200")} />
-                <MobileDrawerLink to="/accounting" label={t("nav.financeActivity")} icon={<I.Chart className="h-full w-full" />} />
-                <MobileDrawerLink to="/reports" label={t("nav.reports")} icon={<I.Reports className="h-full w-full" />} />
-                <MobileDrawerLink to="/trash" label={t("nav.trash")} icon={<I.Trash className="h-full w-full" />} />
+                {can("accounting.view") && <MobileDrawerLink to="/accounting" label={t("nav.financeActivity")} icon={<I.Chart className="h-full w-full" />} />}
+                {can("reports.view") && <MobileDrawerLink to="/reports" label={t("nav.reports")} icon={<I.Reports className="h-full w-full" />} />}
+                {can("trash.manage") && <MobileDrawerLink to="/trash" label={t("nav.trash")} icon={<I.Trash className="h-full w-full" />} />}
               </div>
             </nav>
           </aside>
@@ -603,7 +606,7 @@ export default function App() {
           <div className={cx("flex h-full max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden rounded-2xl border md:max-h-[calc(100vh-8rem)] md:min-h-[calc(100vh-8rem)]", colors.card)}>
             <nav className="flex flex-1 flex-col overflow-y-auto p-3">
               <div className="relative">
-              <button
+              {can("documents.create") && <button
                 type="button"
                 onClick={() => setCreateMenuOpen((value) => !value)}
                 className={cx(
@@ -615,22 +618,22 @@ export default function App() {
               >
                 <I.FilePlus className={cx("shrink-0", sidebarCollapsed ? "h-6 w-6" : "h-5 w-5")} />
                 {!sidebarCollapsed && <span className="text-sm font-medium">{t("action.createDocument")}</span>}
-              </button>
+              </button>}
               </div>
               <ul className="mt-3 space-y-1 text-sm">
                 <li>
                   <NavItem to="/" label={t("nav.home")} icon={<I.Home className="h-full w-full" />} />
                 </li>
-                <li>
+                {can("products.view") && <li>
                   <NavItem to="/products" label={t("nav.products")} icon={<I.Package className="h-full w-full" />} />
-                </li>
-                <li>
+                </li>}
+                {can("documents.view") && <li>
                   <NavItem to="/product-activity" label={t("nav.productActivity")} icon={<I.Activity className="h-full w-full" />} />
-                </li>
-                <li>
+                </li>}
+                {can("money.view") && <li>
                   <NavItem to="/money-activity" label={t("nav.moneyActivity")} icon={<I.Wallet className="h-full w-full" />} />
-                </li>
-                <li>
+                </li>}
+                {can("counterparties.view") && <li>
                   <button
                     type="button"
                     onClick={() => setContactsOpen((v) => !v)}
@@ -667,8 +670,8 @@ export default function App() {
                       </div>
                     )
                   )}
-                </li>
-                <li>
+                </li>}
+                {companySections.length > 0 && <li>
                   <button
                     type="button"
                     onClick={() => setCompanyOpen((value) => !value)}
@@ -707,19 +710,19 @@ export default function App() {
                       </div>
                     )
                   )}
-                </li>
+                </li>}
                 <li>
                   <DisabledNavItem label={t("nav.cashShifts")} icon={<I.Receipt className="h-full w-full" />} />
                 </li>
-                <li>
+                {can("accounting.view") && <li>
                   <NavItem to="/accounting" label={t("nav.financeActivity")} icon={<I.Chart className="h-full w-full" />} />
-                </li>
-                <li>
+                </li>}
+                {can("reports.view") && <li>
                   <NavItem to="/reports" label={t("nav.reports")} icon={<I.Reports className="h-full w-full" />} />
-                </li>
-                <li>
+                </li>}
+                {can("trash.manage") && <li>
                   <NavItem to="/trash" label={t("nav.trash")} icon={<I.Trash className="h-full w-full" />} />
-                </li>
+                </li>}
               </ul>
               <button
                 type="button"
@@ -741,23 +744,23 @@ export default function App() {
         {/* Content */}
         <main className="min-w-0 space-y-6">
           <Routes>
-            <Route path="/" element={<Dashboard colors={colors} />} />
-            <Route path="/products" element={<Products isDark={isDark} />} />
-            <Route path="/product-activity" element={<ProductActivity isDark={isDark} />} />
-            <Route path="/money-activity" element={<MoneyActivity isDark={isDark} />} />
+            <Route path="/" element={guard("dashboard.view", <Dashboard colors={colors} />)} />
+            <Route path="/products" element={guard("products.view", <Products isDark={isDark} />)} />
+            <Route path="/product-activity" element={guard("documents.view", <ProductActivity isDark={isDark} />)} />
+            <Route path="/money-activity" element={guard("money.view", <MoneyActivity isDark={isDark} />)} />
             <Route path="/online-collections/*" element={<Navigate to="/company/payment-integrations" replace />} />
             {companySections.map((item) => (
               <Route
                 key={item.to}
                 path={item.to}
-                element={<Company isDark={isDark} section={item.section} />}
+                element={guard(item.permission, <Company isDark={isDark} section={item.section} />)}
               />
             ))}
-            <Route path="/reports" element={<Reports isDark={isDark} />} />
-            <Route path="/accounting" element={<Accounting isDark={isDark} />} />
-            <Route path="/trash" element={<Trash isDark={isDark} />} />
-            <Route path="/contacts/suppliers" element={<Counterparties isDark={isDark} kind="suppliers" />} />
-            <Route path="/contacts/customers" element={<Counterparties isDark={isDark} kind="customers" />} />
+            <Route path="/reports" element={guard("reports.view", <Reports isDark={isDark} />)} />
+            <Route path="/accounting" element={guard("accounting.view", <Accounting isDark={isDark} />)} />
+            <Route path="/trash" element={guard("trash.manage", <Trash isDark={isDark} />)} />
+            <Route path="/contacts/suppliers" element={guard("counterparties.view", <Counterparties isDark={isDark} kind="suppliers" />)} />
+            <Route path="/contacts/customers" element={guard("counterparties.view", <Counterparties isDark={isDark} kind="customers" />)} />
           </Routes>
         </main>
       </div>
@@ -781,11 +784,11 @@ export default function App() {
         />
       )}
 
-      <nav className={cx("fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[80] grid grid-cols-5 gap-1 rounded-[26px] border p-1.5 shadow-[0_18px_46px_rgba(15,23,42,.22)] backdrop-blur-xl md:hidden", isDark ? "border-white/10 bg-slate-950/92" : "border-white/80 bg-white/95")}>
+      <nav className={cx("fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[80] grid grid-flow-col auto-cols-fr gap-1 rounded-[26px] border p-1.5 shadow-[0_18px_46px_rgba(15,23,42,.22)] backdrop-blur-xl md:hidden", isDark ? "border-white/10 bg-slate-950/92" : "border-white/80 bg-white/95")}>
         <BottomNavItem to="/" label={t("nav.home")} icon={<I.Home className="h-full w-full" />} />
-        <BottomNavItem to="/products" label={t("nav.products")} icon={<I.Package className="h-full w-full" />} />
-        <BottomNavItem to="/product-activity" label={t("nav.stock")} icon={<I.Activity className="h-full w-full" />} />
-        <BottomNavItem to="/money-activity" label={t("nav.money")} icon={<I.Wallet className="h-full w-full" />} />
+        {can("products.view") && <BottomNavItem to="/products" label={t("nav.products")} icon={<I.Package className="h-full w-full" />} />}
+        {can("documents.view") && <BottomNavItem to="/product-activity" label={t("nav.stock")} icon={<I.Activity className="h-full w-full" />} />}
+        {can("money.view") && <BottomNavItem to="/money-activity" label={t("nav.money")} icon={<I.Wallet className="h-full w-full" />} />}
         <button
           type="button"
           onClick={openMobileMenu}

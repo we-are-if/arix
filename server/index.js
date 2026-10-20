@@ -452,6 +452,54 @@ function parseBody(req, limit = 1_000_000) {
   });
 }
 
+const PERMISSION_CATALOG = [
+  { key: "dashboard.view", group: "dashboard", action: "view" },
+  { key: "products.view", group: "products", action: "view" },
+  { key: "products.manage", group: "products", action: "manage" },
+  { key: "documents.view", group: "documents", action: "view" },
+  { key: "documents.create", group: "documents", action: "create" },
+  { key: "documents.edit", group: "documents", action: "edit" },
+  { key: "documents.delete", group: "documents", action: "delete" },
+  { key: "money.view", group: "money", action: "view" },
+  { key: "money.manage", group: "money", action: "manage" },
+  { key: "counterparties.view", group: "counterparties", action: "view" },
+  { key: "counterparties.manage", group: "counterparties", action: "manage" },
+  { key: "company.view", group: "company", action: "view" },
+  { key: "company.manage", group: "company", action: "manage" },
+  { key: "employees.manage", group: "employees", action: "manage" },
+  { key: "accounting.view", group: "accounting", action: "view" },
+  { key: "accounting.manage", group: "accounting", action: "manage" },
+  { key: "reports.view", group: "reports", action: "view" },
+  { key: "trash.manage", group: "trash", action: "manage" },
+];
+const ALL_PERMISSIONS = PERMISSION_CATALOG.map((item) => item.key);
+const ROLE_PERMISSIONS = {
+  "sahib": ALL_PERMISSIONS,
+  "admin": ALL_PERMISSIONS,
+  "administrator": ALL_PERMISSIONS,
+  "rəhbər": ALL_PERMISSIONS,
+  "satış rəhbəri": ["dashboard.view", "products.view", "documents.view", "documents.create", "documents.edit", "money.view", "counterparties.view", "counterparties.manage", "reports.view"],
+  "anbar əməliyyatları": ["dashboard.view", "products.view", "products.manage", "documents.view", "documents.create", "documents.edit", "reports.view"],
+  "maliyyə": ["dashboard.view", "products.view", "documents.view", "money.view", "money.manage", "counterparties.view", "company.view", "accounting.view", "accounting.manage", "reports.view"],
+  "əməkdaş": ["dashboard.view", "products.view", "documents.view", "counterparties.view"],
+};
+
+function normalizedRole(role) {
+  return String(role ?? "əməkdaş").trim().toLocaleLowerCase("az");
+}
+
+function effectivePermissions(user) {
+  if (!user) return AUTH_REQUIRED ? [] : ALL_PERMISSIONS;
+  const role = normalizedRole(user.role);
+  if (role === "sahib" || role === "admin" || role === "administrator") return ALL_PERMISSIONS;
+  const source = Array.isArray(user.permissions) ? user.permissions : (ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS["əməkdaş"]);
+  return [...new Set(source.filter((permission) => ALL_PERMISSIONS.includes(permission)))];
+}
+
+function hasPermission(user, permission) {
+  return effectivePermissions(user).includes(permission);
+}
+
 function publicAuthUser(user) {
   if (!user) return null;
   return {
@@ -461,6 +509,7 @@ function publicAuthUser(user) {
     email: user.email,
     picture: user.picture || "",
     companyId: user.companyId,
+    permissions: effectivePermissions(user),
     passwordChangeRequired: Boolean(user.passwordChangeRequired),
   };
 }
@@ -478,6 +527,7 @@ function publicEmployee(user) {
     lastLoginAt: user.lastLoginAt || null,
     passwordEnabled: Boolean(user.passwordHash),
     passwordChangeRequired: Boolean(user.passwordChangeRequired),
+    permissions: effectivePermissions(user),
   };
 }
 
@@ -515,8 +565,7 @@ function createInviteCode() {
 }
 
 function canManageEmployees(user) {
-  const role = String(user?.role ?? "").toLocaleLowerCase("az");
-  return role === "sahib" || role === "admin" || role === "administrator" || role === "rəhbər";
+  return hasPermission(user, "employees.manage");
 }
 
 function sessionHash(token) {
@@ -754,6 +803,10 @@ async function handleEmployees(req, res, parts) {
   if (!canManageEmployees(req.authUser)) return send(res, 403, { error: "Əməkdaşları idarə etmək üçün rəhbər icazəsi lazımdır." });
   const id = decodeURIComponent(parts[1] ?? "");
 
+  if (req.method === "GET" && id === "permission-catalog") {
+    return send(res, 200, { data: PERMISSION_CATALOG, roleDefaults: ROLE_PERMISSIONS });
+  }
+
   if (req.method === "GET" && id === "join-code") {
     if (String(req.authUser.role).toLocaleLowerCase("az") !== "sahib") return send(res, 403, { error: "Şirkət kodunu yalnız sahib görə bilər." });
     return send(res, 200, { data: { configured: Boolean(db.companyJoinCode), code: db.companyJoinCode } });
@@ -790,6 +843,7 @@ async function handleEmployees(req, res, parts) {
     if (temporaryPassword.length < 8) return send(res, 400, { error: "İlkin şifrə ən az 8 simvol olmalıdır." });
     const employee = {
       id: randomUUID(), name, role, email, phone, active: true,
+      permissions: ROLE_PERMISSIONS[normalizedRole(role)] ?? ROLE_PERMISSIONS["əməkdaş"],
       companyId: req.authUser.companyId, googleSubject: null,
       inviteCodeHash: null,
       invitedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
@@ -813,6 +867,11 @@ async function handleEmployees(req, res, parts) {
     employee.email = email;
     employee.phone = String(body.phone ?? employee.phone ?? "").trim();
     employee.role = String(body.role ?? employee.role).trim() || "Əməkdaş";
+    if (Array.isArray(body.permissions)) {
+      employee.permissions = [...new Set(body.permissions.filter((permission) => ALL_PERMISSIONS.includes(permission)))];
+    } else if (!Array.isArray(employee.permissions) && body.role !== undefined) {
+      employee.permissions = ROLE_PERMISSIONS[normalizedRole(employee.role)] ?? ROLE_PERMISSIONS["əməkdaş"];
+    }
     employee.active = body.active === undefined ? employee.active !== false : body.active === true;
     let temporaryPassword = "";
     if (body.resetPassword === true) {
@@ -3829,6 +3888,39 @@ const server = createServer(async (req, res) => {
     const authUser = requestAuthUser(req, authDb);
     if (AUTH_REQUIRED && !authUser) return send(res, 401, { error: "Giriş sessiyası tələb olunur." });
     req.authUser = authUser;
+
+    const resourcePermissions = {
+      products: ["products.view", "products.manage"],
+      "product-price-history": ["products.view", "products.manage"],
+      "product-groups": ["products.view", "products.manage"],
+      categories: ["products.view", "products.manage"],
+      "stock-containers": ["products.view", "products.manage"],
+      "movement-suggestions": ["products.view", "products.manage"],
+      "sale-roll-suggestion": ["products.view", "products.manage"],
+      "inventory-lots": ["products.view", "products.manage"],
+      "product-ledger": ["products.view", "products.manage"],
+      "landed-costs": ["products.view", "products.manage"],
+      documents: ["documents.view", "documents.create"],
+      "e-documents": ["documents.view", "documents.edit"],
+      counterparties: ["counterparties.view", "counterparties.manage"],
+      "customer-prices": ["counterparties.view", "counterparties.manage"],
+      stores: ["company.view", "company.manage"],
+      "company-settings": ["company.view", "company.manage"],
+      "payment-integrations": ["company.view", "company.manage"],
+      "online-collections": ["money.view", "money.manage"],
+      accounting: ["accounting.view", "accounting.manage"],
+      trash: ["trash.manage", "trash.manage"],
+      employees: ["employees.manage", "employees.manage"],
+    };
+    const permissionPair = resourcePermissions[parts[1]];
+    if (permissionPair) {
+      let permission = req.method === "GET" ? permissionPair[0] : permissionPair[1];
+      if (parts[1] === "documents") {
+        if (req.method === "PATCH" || req.method === "PUT") permission = "documents.edit";
+        if (req.method === "DELETE") permission = "documents.delete";
+      }
+      if (!hasPermission(authUser, permission)) return send(res, 403, { error: "Bu əməliyyat üçün icazəniz yoxdur.", permission });
+    }
 
     if (parts[1] === "products") return await handleProducts(req, res, url, parts.slice(1));
     if (parts[1] === "employees") return await handleEmployees(req, res, parts.slice(1));

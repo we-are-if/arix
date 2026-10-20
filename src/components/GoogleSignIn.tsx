@@ -10,6 +10,7 @@ export type AuthUser = {
   picture?: string;
   companyId?: string;
   passwordChangeRequired?: boolean;
+  permissions?: string[];
 };
 
 type AuthConfig = {

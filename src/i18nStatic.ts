@@ -6,6 +6,22 @@ const ui = (az: string, tr: string, en: string, ru: string): Translation => ({ a
 // Text that still lives inside the older page components is translated here.
 // Business data such as product, company and employee names is intentionally excluded.
 export const staticUiTranslationsExtra: Record<string, Translation> = {
+  "Bölmə icazələri": ui("Bölmə icazələri", "Bölüm izinleri", "Section permissions", "Права разделов"),
+  "Rol standartını dəyişə və hər icazəni ayrıca seçə bilərsiniz.": ui("Rol standartını dəyişə və hər icazəni ayrıca seçə bilərsiniz.", "Rol varsayılanlarını değiştirebilir ve her izni ayrı seçebilirsiniz.", "You can change role defaults and select each permission separately.", "Можно изменить права роли и выбрать каждое разрешение отдельно."),
+  "Ana səhifə": ui("Ana səhifə", "Ana sayfa", "Dashboard", "Главная"),
+  "Məhsullar və stok": ui("Məhsullar və stok", "Ürünler ve stok", "Products and stock", "Товары и склад"),
+  "Pul fəaliyyəti": ui("Pul fəaliyyəti", "Para hareketleri", "Money activity", "Движение денег"),
+  "Kontragentlər": ui("Kontragentlər", "Cari hesaplar", "Counterparties", "Контрагенты"),
+  "Şirkət ayarları": ui("Şirkət ayarları", "Şirket ayarları", "Company settings", "Настройки компании"),
+  "Əməkdaşlar": ui("Əməkdaşlar", "Çalışanlar", "Employees", "Сотрудники"),
+  "Mühasibat": ui("Mühasibat", "Muhasebe", "Accounting", "Бухгалтерия"),
+  "Hesabatlar": ui("Hesabatlar", "Raporlar", "Reports", "Отчёты"),
+  "Silinənlər": ui("Silinənlər", "Silinenler", "Deleted items", "Удалённые"),
+  "Görmək": ui("Görmək", "Görüntüleme", "View", "Просмотр"),
+  "Yaratmaq": ui("Yaratmaq", "Oluşturma", "Create", "Создание"),
+  "Dəyişmək": ui("Dəyişmək", "Düzenleme", "Edit", "Изменение"),
+  "Silmək": ui("Silmək", "Silme", "Delete", "Удаление"),
+  "İdarə etmək": ui("İdarə etmək", "Yönetme", "Manage", "Управление"),
   "Şirkət / Şirkət parametrləri": ui("Şirkət / Şirkət parametrləri", "Şirket / Şirket ayarları", "Company / Company settings", "Компания / Настройки компании"),
   "Şirkət / Əməkdaşlar": ui("Şirkət / Əməkdaşlar", "Şirket / Çalışanlar", "Company / Employees", "Компания / Сотрудники"),
   "Şirkət / Mağazalar": ui("Şirkət / Mağazalar", "Şirket / Mağazalar", "Company / Stores", "Компания / Магазины"),
