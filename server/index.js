@@ -20,6 +20,7 @@ import {
   upsertDocumentJournal,
 } from "./accounting.js";
 import { normalizeCounterparty, validateCounterparty } from "./counterparties.js";
+import { calculateCounterpartyAging } from "./counterpartyAging.js";
 import { createSQLiteStateStore } from "./database.js";
 import {
   capabilityLabels,
@@ -1268,6 +1269,10 @@ async function handleCounterparties(req, res, url, parts) {
   const db = await readDb();
   const id = Number(parts[1]);
   const kind = url.searchParams.get("kind");
+
+  if (req.method === "GET" && parts[1] === "aging") {
+    return send(res, 200, calculateCounterpartyAging(db, kind === "supplier" ? "supplier" : "customer"));
+  }
 
   if (req.method === "GET" && parts.length === 1) {
     const data = kind ? db.counterparties.filter((item) => item.kind === kind) : db.counterparties;

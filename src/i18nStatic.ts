@@ -6,6 +6,12 @@ const ui = (az: string, tr: string, en: string, ru: string): Translation => ({ a
 // Text that still lives inside the older page components is translated here.
 // Business data such as product, company and employee names is intentionally excluded.
 export const staticUiTranslationsExtra: Record<string, Translation> = {
+  "Son ödəmə": ui("Son ödəmə", "Son ödeme", "Due date", "Срок оплаты"),
+  "Vaxtı çatmayıb": ui("Vaxtı çatmayıb", "Vadesi gelmedi", "Not yet due", "Срок не наступил"),
+  "1–30 gün": ui("1–30 gün", "1–30 gün", "1–30 days", "1–30 дней"),
+  "31–60 gün": ui("31–60 gün", "31–60 gün", "31–60 days", "31–60 дней"),
+  "61–90 gün": ui("61–90 gün", "61–90 gün", "61–90 days", "61–90 дней"),
+  "90+ gün": ui("90+ gün", "90+ gün", "90+ days", "90+ дней"),
   "Barkod oxut": ui("Ştrix-kod oxut", "Barkod okut", "Scan barcode", "Сканировать штрихкод"),
   "Skaner Enter göndərdikdə məhsul səbətə əlavə olunur; təkrar oxutma miqdarı artırır.": ui("Skaner Enter göndərdikdə məhsul səbətə əlavə olunur; təkrar oxutma miqdarı artırır.", "Tarayıcı Enter gönderdiğinde ürün sepete eklenir; tekrar okutmak miktarı artırır.", "The item is added when the scanner sends Enter; scanning it again increases the quantity.", "Товар добавляется после Enter от сканера; повторное сканирование увеличивает количество."),
   "Skaner hazırdır": ui("Skaner hazırdır", "Tarayıcı hazır", "Scanner ready", "Сканер готов"),

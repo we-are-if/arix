@@ -144,6 +144,7 @@ export type ApiDocumentDraft = {
   posted?: boolean;
   workflowStatus?: DocumentWorkflowStatus;
   documentDate?: string;
+  dueDate?: string;
   createdAt?: string;
   account?: string;
   financialAccountId?: string;
@@ -781,6 +782,11 @@ const documentDateInput = (value?: string) => {
   return toDateTimeInput(Number.isNaN(date.getTime()) ? new Date() : date);
 };
 
+const dueDateInput = (value?: string) => {
+  const date = value ? new Date(value) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  return (Number.isNaN(date.getTime()) ? new Date() : date).toISOString().slice(0, 10);
+};
+
 const workflowStatusFromDocument = (document?: ApiDocument | null): DocumentWorkflowStatus => {
   if (!document) return "new";
   if (document.workflowStatus) return document.workflowStatus;
@@ -1110,6 +1116,7 @@ export default function DocumentCreatePanel({
   const [saleRollMeasurements, setSaleRollMeasurements] = useState<SaleRollMeasurement[]>(editingDocument?.rollMeasurements ?? []);
   const [saleRollSelectionLoading, setSaleRollSelectionLoading] = useState(false);
   const [documentDate, setDocumentDate] = useState(() => documentDateInput(editingDocument?.documentDate ?? editingDocument?.createdAt));
+  const [dueDate, setDueDate] = useState(() => dueDateInput(editingDocument?.dueDate));
   const [availableProducts, setAvailableProducts] = useState<ProductLine[]>(productSeed);
   const [selectedProducts, setSelectedProducts] = useState<ProductLine[]>(() => mapDocumentLinesToProducts(editingDocument, productSeed));
   const selectedProductsRef = useRef(selectedProducts);
@@ -2193,6 +2200,7 @@ export default function DocumentCreatePanel({
         workflowStatus: documentStatus,
         status: posted ? "posted" : "draft",
         documentDate,
+        dueDate: usesDocumentTax ? dueDate : undefined,
         account: isMoney ? moneyAccount : kind === "movement" ? movementFromAccount : documentAccount,
         financialAccountId: isMoney ? moneyFinancialAccountId || undefined : undefined,
         bankMatchStatus: isMoney && moneyFinancialAccountId && ["cashIn", "cashOut"].includes(kind) ? "pending" : undefined,
@@ -2332,14 +2340,29 @@ export default function DocumentCreatePanel({
             </div>
           </div>
 
-          <label className="flex items-center gap-2">
-            <input
-              type="datetime-local"
-              value={documentDate}
-              onChange={(event) => setDocumentDate(event.target.value)}
-              className={cx("h-10 w-full rounded-xl border px-3 text-sm font-semibold outline-none sm:w-52", border, isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-700")}
-            />
-          </label>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <label className="flex items-center gap-2">
+              <span className={cx("hidden text-xs sm:inline", muted)}>Tarix</span>
+              <input
+                type="datetime-local"
+                value={documentDate}
+                onChange={(event) => setDocumentDate(event.target.value)}
+                className={cx("h-10 w-full rounded-xl border px-3 text-sm font-semibold outline-none sm:w-48", border, isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-700")}
+              />
+            </label>
+            {usesDocumentTax && (
+              <label className="flex items-center gap-2">
+                <span className={cx("hidden text-xs sm:inline", muted)}>Son ödəmə</span>
+                <input
+                  type="date"
+                  value={dueDate}
+                  min={documentDate.slice(0, 10)}
+                  onChange={(event) => setDueDate(event.target.value)}
+                  className={cx("h-10 w-full rounded-xl border px-3 text-sm font-semibold outline-none sm:w-36", border, isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-700")}
+                />
+              </label>
+            )}
+          </div>
 
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             {kind === "sale" && (

@@ -58,6 +58,26 @@ type Props = {
   kind: CounterpartyKind;
 };
 
+type AgingRow = {
+  counterpartyId: number;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  daysOver90: number;
+  total: number;
+  overdue: number;
+  openDocumentCount: number;
+  overdueDocumentCount: number;
+};
+
+type AgingTotals = Omit<AgingRow, "counterpartyId">;
+
+const emptyAgingTotals: AgingTotals = {
+  current: 0, days1To30: 0, days31To60: 0, days61To90: 0, daysOver90: 0,
+  total: 0, overdue: 0, openDocumentCount: 0, overdueDocumentCount: 0,
+};
+
 type CounterpartyRow = {
   id: number;
   name: string;
@@ -1687,15 +1707,27 @@ export default function Counterparties({ isDark, kind }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState<CounterpartyRow | null>(null);
+  const [agingTotals, setAgingTotals] = useState<AgingTotals>(emptyAgingTotals);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
 
   const rows = rowsByKind[kind];
   useEffect(() => {
     let cancelled = false;
-    requestJson<{ data: ApiCounterparty[] }>(`/api/counterparties?kind=${apiKindFor(kind)}`)
-      .then((payload) => {
+    Promise.all([
+      requestJson<{ data: ApiCounterparty[] }>(`/api/counterparties?kind=${apiKindFor(kind)}`),
+      requestJson<{ data: AgingRow[]; totals: AgingTotals }>(`/api/counterparties/aging?kind=${apiKindFor(kind)}`),
+    ])
+      .then(([payload, agingPayload]) => {
         if (cancelled || !Array.isArray(payload.data)) return;
-        setRowsByKind((prev) => ({ ...prev, [kind]: payload.data.map((item: ApiCounterparty) => mapApiCounterparty(item, kind)) }));
+        const agingById = new Map((agingPayload.data ?? []).map((item) => [item.counterpartyId, item]));
+        setRowsByKind((prev) => ({
+          ...prev,
+          [kind]: payload.data.map((item: ApiCounterparty) => {
+            const row = mapApiCounterparty(item, kind);
+            return { ...row, balance: agingById.get(row.id)?.total ?? row.balance };
+          }),
+        }));
+        setAgingTotals({ ...emptyAgingTotals, ...(agingPayload.totals ?? {}) });
       })
       .catch(() => undefined);
     return () => {
@@ -1904,6 +1936,21 @@ export default function Counterparties({ isDark, kind }: Props) {
           </div>
         </div>
       </div>
+
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
+        {[
+          ["Vaxtı çatmayıb", agingTotals.current, "text-slate-700"],
+          ["1–30 gün", agingTotals.days1To30, "text-amber-600"],
+          ["31–60 gün", agingTotals.days31To60, "text-orange-600"],
+          ["61–90 gün", agingTotals.days61To90, "text-rose-600"],
+          ["90+ gün", agingTotals.daysOver90, "text-red-700"],
+        ].map(([label, value, tone]) => (
+          <div key={String(label)} className={cx("rounded-2xl border p-4", card)}>
+            <div className={cx("text-xs font-semibold", subtle)}>{label}</div>
+            <div className={cx("mt-2 text-xl font-semibold tabular-nums", String(tone))}>{money(Number(value))} ₼</div>
+          </div>
+        ))}
+      </section>
 
       <div className={cx("flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border", card)}>
         <div className="min-h-0 flex-1 overflow-auto">
