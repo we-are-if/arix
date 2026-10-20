@@ -1180,7 +1180,29 @@ const openDocumentPrint = (
   options: DocumentPrintOptions,
   printSettings: PrintSettings,
 ) => {
-  const html = buildDocumentPrintMarkup(row, products, document, options, printSettings);
+  const sourceHtml = buildDocumentPrintMarkup(row, products, document, options, printSettings);
+  const isLandscape = options.formMode === "customs"
+    || (options.formMode !== "packingList" && options.paperMode === "landscape");
+  const previewCss = `
+    <style>
+      @media screen {
+        html { background: #e8ebf1; }
+        body { min-width: max-content; padding: 76px 24px 32px; background: #e8ebf1; }
+        .arix-preview-toolbar { position: fixed; z-index: 1000; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; padding: 10px 24px; border-bottom: 1px solid #d6dbe5; background: rgba(255,255,255,.96); box-shadow: 0 4px 18px rgba(15,23,42,.08); font: 600 14px/1.2 Arial, sans-serif; }
+        .arix-preview-toolbar button { min-height: 40px; border: 0; border-radius: 8px; padding: 0 18px; background: #4f46e5; color: #fff; font: inherit; cursor: pointer; }
+        .arix-preview-sheet { width: ${isLandscape ? "297mm" : "210mm"}; min-height: ${isLandscape ? "210mm" : "297mm"}; margin: 0 auto; padding: ${options.formMode === "customs" ? "9mm" : options.formMode === "packingList" || ["orderConfirmation", "proforma", "commercial"].includes(options.formMode) ? "10mm" : "11mm"}; background: #fff; box-shadow: 0 12px 35px rgba(15,23,42,.18); }
+      }
+      @media print {
+        .arix-preview-toolbar { display: none !important; }
+        .arix-preview-sheet { display: contents; }
+      }
+    </style>`;
+  const toolbar = `<div class="arix-preview-toolbar"><span>A4 çap önizləməsi</span><button type="button" onclick="window.print()">Yazdır / PDF saxla</button></div><main class="arix-preview-sheet">`;
+  const html = sourceHtml
+    .replace(/<script>[\s\S]*?window\.print\(\)[\s\S]*?<\/script>/gi, "")
+    .replace("</head>", `${previewCss}</head>`)
+    .replace("<body>", `<body>${toolbar}`)
+    .replace("</body>", "</main></body>");
   const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
   const popup = window.open(url, "_blank", "width=1100,height=850");
   if (!popup) return false;
