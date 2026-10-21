@@ -26,9 +26,12 @@ select {
 }
 .app-shell {
   min-height: 100vh;
-  padding: 92px 28px 48px;
-  background: #f4f6f8;
+  padding: 0;
+  background: #f5f7fb;
   transition: background 0.2s ease, color 0.2s ease;
+}
+.order-content {
+  padding: 24px 28px 48px;
 }
 .topbar,
 .page-head {
@@ -802,7 +805,7 @@ textarea {
   background-color: #10131a;
 }
 .app-shell.theme-dark {
-  background: #10131a;
+  background: #0f172a;
 }
 .theme-dark .topbar {
   background: rgba(20, 24, 33, 0.92);
@@ -909,7 +912,10 @@ textarea {
 }
 @media (max-width: 850px) {
   .app-shell {
-    padding: 76px 12px 100px;
+    padding: 0;
+  }
+  .order-content {
+    padding: 12px 12px 100px;
   }
   .topbar {
     height: 62px;

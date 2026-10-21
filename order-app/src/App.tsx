@@ -52,6 +52,11 @@ function loadGoogleScript() {
   return googleScriptPromise;
 }
 
+const HeaderIcon = {
+  Globe: (props: React.SVGProps<SVGSVGElement>) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18" /><path d="M12 3a15 15 0 0 0 0 18" /></svg>,
+  ChevronDown: (props: React.SVGProps<SVGSVGElement>) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m6 9 6 6 6-6" /></svg>,
+};
+
 const statusMeta: Record<Status, { label: string; tone: string }> = {
   new: { label: "Yeni", tone: "violet" }, preparing: { label: "Hazırlanır", tone: "amber" }, ready: { label: "Hazır", tone: "green" }, delivered: { label: "Təhvil verildi", tone: "gray" }, cancelled: { label: "Ləğv edildi", tone: "red" },
 };
@@ -108,19 +113,33 @@ export default function App() {
 
   return (
     <main className={`app-shell ${isDark ? "theme-dark" : ""}`}>
-      <header className="topbar">
-        <div className="brand"><AriXLogo className="header-logo" /><div><strong>AriX Panel</strong><small>Sifariş sistemi</small></div></div>
-        <div className="header-actions">
-          <div className="header-menu"><button className="header-control language-trigger" onClick={() => { setLanguageMenuOpen((value) => !value); setProfileMenuOpen(false); }}><span className="header-icon">◎</span><b>{languageOptions.find((option) => option.id === language)?.label}</b><em>{language.toUpperCase()}</em><span>⌄</span></button>{languageMenuOpen && <div className="header-popover language-popover">{languageOptions.map((option) => <button key={option.id} className={option.id === language ? "active" : ""} onClick={() => { setLanguage(option.id); setLanguageMenuOpen(false); }}><span>{option.short}</span><b>{option.label}</b>{option.id === language && <i>✓</i>}</button>)}</div>}</div>
-          <button className="header-control" onClick={() => setIsDark((current) => !current)} aria-label="Tema"><span>{isDark ? "☾" : "☀"}</span><b>{isDark ? "Dark" : "Light"}</b></button>
-          <div className="header-menu"><button className="profile-chip" onClick={() => { setProfileMenuOpen((value) => !value); setLanguageMenuOpen(false); }}><span>{session.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><div><b>{session.name}</b><small>{session.role}</small></div><i>⌄</i></button>{profileMenuOpen && <div className="header-popover profile-popover"><div className="profile-summary"><span>{session.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><div><b>{session.name}</b><small>{session.role}</small></div></div><button className="logout-button" onClick={logout}>{text.logout}</button></div>}</div>
+      <header className={`sticky top-0 z-40 border-b backdrop-blur ${isDark ? "glass-header-dark border-white/10" : "glass-header border-white/70"}`}>
+        <div className="flex w-full items-center justify-between px-3 py-3 sm:px-6">
+          <div className="flex items-center gap-3"><AriXLogo className="glass-logo h-11 w-11" /><div className="hidden text-lg font-semibold tracking-tight sm:block">AriX Panel</div></div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="relative">
+              <button type="button" onClick={() => { setLanguageMenuOpen((value) => !value); setProfileMenuOpen(false); }} className={`inline-flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`} aria-label="Dil" aria-expanded={languageMenuOpen}>
+                <HeaderIcon.Globe className="h-5 w-5" /><span className="hidden sm:inline">{languageOptions.find((item) => item.id === language)?.label}</span><span className="sm:hidden">{language.toUpperCase()}</span><HeaderIcon.ChevronDown className={`h-3.5 w-3.5 transition-transform ${languageMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {languageMenuOpen && <div className={`surface-popover absolute right-0 top-12 z-50 w-52 rounded-2xl border p-2 shadow-xl ${isDark ? "glass-panel-dark border-white/10" : "glass-panel border-white/70"}`}>{languageOptions.map((item) => <button key={item.id} type="button" onClick={() => { setLanguage(item.id); setLanguageMenuOpen(false); }} className={`flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition ${item.id === language ? "surface-nav-active text-indigo-700" : isDark ? "text-slate-300 hover:bg-white/7" : "text-slate-700 hover:bg-white/70"}`}><span className={`flex h-7 w-9 items-center justify-center rounded-lg text-xs font-bold ${item.id === language ? "bg-indigo-600 text-white" : isDark ? "bg-white/10" : "bg-slate-100"}`}>{item.short}</span><span className="flex-1 font-medium">{item.label}</span>{item.id === language && <span className="text-indigo-500">✓</span>}</button>)}</div>}
+            </div>
+            <button onClick={() => setIsDark((current) => !current)} className={`inline-flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`} aria-label="Tema">{isDark ? "🌙 Dark" : "☀️ Light"}</button>
+            <div className="relative">
+              <button type="button" onClick={() => { setProfileMenuOpen((value) => !value); setLanguageMenuOpen(false); }} className={`flex h-11 items-center gap-2 rounded-xl border px-2.5 transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/80"}`} aria-expanded={profileMenuOpen}>
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/12 text-xs font-bold text-indigo-600">{session.name.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div><div className="hidden min-w-0 text-left sm:block"><div className="truncate text-sm font-semibold leading-4">{session.name}</div><div className={`truncate text-[11px] leading-3.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>{session.role}</div></div><HeaderIcon.ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${profileMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {profileMenuOpen && <div className={`surface-popover absolute right-0 top-12 z-50 w-72 rounded-2xl border p-2 shadow-xl ${isDark ? "glass-panel-dark border-white/10" : "glass-panel border-white/70"}`}><div className={`rounded-xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50/80"}`}><div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-500/12 text-sm font-bold text-indigo-600">{session.name.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div><div className="min-w-0"><div className="truncate text-sm font-semibold">{session.name}</div><div className={`truncate text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{session.role}</div></div></div></div><button type="button" onClick={() => void logout()} className={`mt-2 flex h-10 w-full items-center justify-center rounded-xl text-sm font-semibold ${isDark ? "text-rose-200 hover:bg-rose-400/10" : "text-rose-600 hover:bg-rose-50"}`}>{text.logout}</button></div>}
+            </div>
+          </div>
         </div>
       </header>
+      <div className="order-content">
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError("")}>×</button></div>}
       <section className="page-head"><div><p className="eyebrow">{text.flow}</p><h1>{text.title}</h1><p>{text.subtitle}</p></div><div className="page-actions"><div className="summary"><b>{orders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length}</b><span>{text.active}</span></div><button className="primary" onClick={() => setCreateOpen(true)}>＋ {text.create}</button></div></section>
       <section className="board">
         {(["new", "preparing", "ready"] as BoardStatus[]).map((status) => <BoardColumn key={status} status={status} orders={grouped[status]} onOpen={setActiveOrder} language={language} />)}
       </section>
+      </div>
       {createOpen && <CreateOrder products={products} language={language} onClose={() => setCreateOpen(false)} onCreated={() => { setCreateOpen(false); void load(); }} />}
       {activeOrder && <OrderDetail order={activeOrder} language={language} onClose={() => setActiveOrder(null)} onChanged={(next) => { setActiveOrder(next); void load(); }} />}
     </main>
