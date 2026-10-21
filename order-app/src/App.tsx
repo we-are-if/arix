@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AriXLogo from "../../src/components/AriXLogo";
 
 type Product = { id: number; name: string; code?: string; sku?: string };
 type Match = { source: string; productId: number | null; productName: string; productCode: string; quantity: number | null; confidence: number; needsReview: boolean; alternatives: Array<{ id: number; name: string; code: string }> };
@@ -49,14 +50,6 @@ function loadGoogleScript() {
     document.head.appendChild(script);
   });
   return googleScriptPromise;
-}
-
-function AriXLogo({ className = "" }: { className?: string }) {
-  return <svg viewBox="20 12 70 76" className={className} aria-hidden="true">
-    <polygon points="30,80 46,20 70,20 54,80" fill="#34d399" />
-    <path d="M62 40 L84 62" stroke="#4f7ddc" strokeWidth={10} strokeLinecap="round" />
-    <path d="M84 40 L62 62" stroke="#4f7ddc" strokeWidth={10} strokeLinecap="round" />
-  </svg>;
 }
 
 const statusMeta: Record<Status, { label: string; tone: string }> = {
@@ -223,7 +216,7 @@ function Login({ onSuccess, language, setLanguage, isDark, setIsDark }: { onSucc
     finally { setBusy(false); }
   };
 
-  return <main className={`login ${isDark ? "theme-dark" : ""}`}><div className="login-wrap"><div className="login-tools"><label className="header-select"><span aria-hidden="true">◎</span><select aria-label="Dil" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>{languageOptions.map((option) => <option key={option.id} value={option.id}>{option.short} · {option.label}</option>)}</select></label><button className="header-control" onClick={() => setIsDark((current) => !current)}><span>{isDark ? "☾" : "☀"}</span><b>{isDark ? "Dark" : "Light"}</b></button></div><section className="login-card"><div className="login-brand"><div className="login-logo"><AriXLogo /></div><strong>AriX Panel</strong><small>Sifariş və anbar hazırlama sistemi</small></div><h1>{mode === "login" ? "Xoş gəldiniz" : "Şirkətə qoşulun"}</h1><p>{mode === "login" ? "AriX əməkdaş hesabınızla daxil olun." : "Məlumatlarınızı və şirkət dəvət kodunu daxil edin."}</p>
+  return <main className={`login ${isDark ? "theme-dark" : ""}`}><div className="login-wrap"><div className="login-tools"><label className="header-select"><select aria-label="Dil" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>{languageOptions.map((option) => <option key={option.id} value={option.id}>{option.short} · {option.label}</option>)}</select></label><button className="header-control login-theme" onClick={() => setIsDark((current) => !current)}>{isDark ? "Dark" : "Light"}</button></div><section className="login-card"><div className="login-brand"><div className="login-logo"><AriXLogo /></div><strong>AriX Panel</strong><small>Əməkdaş girişi</small></div>
     {pending ? <div className="pending-box"><b>Müraciət göndərildi</b><span>Şirkət sahibi təsdiqlədikdən sonra daxil ola bilərsiniz.</span></div> : mode === "login" ? <>
       <form onSubmit={passwordLogin}><label><span>E-poçt</span><input type="email" autoComplete="email" required value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} /></label><label><span>Şifrə</span><input type="password" autoComplete="current-password" required value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} /></label><button disabled={busy} className="primary full">Daxil ol</button></form>
       {config?.enabled && <><div className="separator"><span />və ya<span /></div><div ref={googleButton} className="google-button" /></>}
@@ -231,6 +224,7 @@ function Login({ onSuccess, language, setLanguage, isDark, setIsDark }: { onSucc
     </> : <form onSubmit={register}><button type="button" className="text-button back-link" onClick={() => { setMode("login"); setError(""); }}>← Girişə qayıt</button><label><span>Ad soyad</span><input required value={registration.name} onChange={(e) => setRegistration({ ...registration, name: e.target.value })} /></label><label><span>E-poçt</span><input type="email" required value={registration.email} onChange={(e) => setRegistration({ ...registration, email: e.target.value })} /></label><label><span>Şifrə</span><input type="password" minLength={8} required value={registration.password} onChange={(e) => setRegistration({ ...registration, password: e.target.value })} /></label><label><span>Dəvət kodu</span><input className="code-input" required value={registration.companyCode} onChange={(e) => setRegistration({ ...registration, companyCode: e.target.value.toUpperCase() })} /></label><button disabled={busy} className="primary full">Təsdiq üçün göndər</button></form>}
     {googleCredential && !pending && <form className="invite-box" onSubmit={(event) => { event.preventDefault(); void googleLogin(googleCredential, companyCode); }}><b>Bu Google hesabı sistemdə yoxdur</b><span>Şirkət dəvət kodunu daxil edin.</span><input className="code-input" required value={companyCode} onChange={(e) => setCompanyCode(e.target.value.toUpperCase())} placeholder="DƏVƏT KODU" /><button disabled={busy || !companyCode.trim()} className="primary full">Təsdiq üçün müraciət et</button></form>}
     {error && <p className="form-error">{error}</p>}
+    <div className="login-notice">Yalnız şirkət tərəfindən icazə verilmiş Google hesabları daxil ola bilər.</div>
   </section></div></main>;
 }
 

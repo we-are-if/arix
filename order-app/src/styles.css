@@ -577,32 +577,41 @@ textarea {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 30px;
 }
 .login-tools .header-select,
 .login-tools .header-control {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(18px);
+  height: 40px;
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+.login-tools .header-select {
+  padding: 0 12px;
+}
+.login-tools .header-select select {
+  min-width: 138px;
+}
+.login-tools .login-theme {
+  display: block;
+  width: auto;
+  padding: 0 16px;
+  font-size: 14px;
 }
 .login {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 32px 20px;
-  background:
-    radial-gradient(circle at 18% 12%, rgba(79, 125, 220, 0.12), transparent 32%),
-    radial-gradient(circle at 84% 84%, rgba(52, 211, 153, 0.12), transparent 30%),
-    #f4f6f8;
+  background: #f5f7fb;
 }
 .login-card {
   width: min(448px, 100%);
-  padding: 28px 28px 30px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.88);
+  padding: 24px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 28px;
-  box-shadow: 0 28px 85px rgba(27, 35, 52, 0.15);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
 }
 .login-brand {
   display: flex;
@@ -632,15 +641,8 @@ textarea {
   color: #758096;
   font-size: 13px;
 }
-.login h1 {
-  margin: 0 0 7px;
-  text-align: center;
-  font-size: 22px;
-}
-.login-card > p {
-  color: #7c8595;
-  margin: 0 0 24px;
-  text-align: center;
+.login-card label input {
+  height: 48px;
 }
 .separator {
   display: flex;
@@ -692,6 +694,12 @@ textarea {
 .invite-box span,
 .pending-box span {
   font-size: 13px;
+}
+.login-notice {
+  margin-top: 16px;
+  color: #64748b;
+  text-align: center;
+  font-size: 12px;
 }
 
 .theme-dark {
@@ -772,15 +780,21 @@ textarea {
   color: #c2baff;
 }
 .theme-dark.login {
-  background:
-    radial-gradient(circle at 18% 12%, rgba(79, 125, 220, 0.14), transparent 32%),
-    radial-gradient(circle at 84% 84%, rgba(52, 211, 153, 0.1), transparent 30%),
-    #10131a;
+  background: #0f172a;
 }
 .theme-dark .login-card {
-  background: rgba(25, 30, 40, 0.9);
-  border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 28px 85px rgba(0, 0, 0, 0.36);
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.48);
+}
+.theme-dark .login-tools .header-select,
+.theme-dark .login-tools .header-control {
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, 0.22);
+  color: #f1f5f9;
+}
+.theme-dark .login-notice {
+  color: #94a3b8;
 }
 @media (max-width: 850px) {
   .app-shell {
