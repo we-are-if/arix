@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Product = { id: number; name: string; code?: string; sku?: string };
 type Match = { source: string; productId: number | null; productName: string; productCode: string; quantity: number | null; confidence: number; needsReview: boolean; alternatives: Array<{ id: number; name: string; code: string }> };
@@ -7,16 +7,56 @@ type Order = { id: string; number: string; customerName: string; note?: string; 
 type Status = "new" | "preparing" | "ready" | "delivered" | "cancelled";
 type BoardStatus = "new" | "preparing" | "ready";
 type Session = { id: string; name: string; role: string };
+type AuthConfig = { enabled: boolean; googleClientId: string };
+type AuthResponse = { data?: Session; pending?: boolean };
+type GoogleCredentialResponse = { credential?: string };
+
+declare global {
+  interface Window {
+    google?: { accounts: { id: {
+      initialize: (options: { client_id: string; callback: (response: GoogleCredentialResponse) => void; auto_select?: boolean; cancel_on_tap_outside?: boolean; use_fedcm_for_prompt?: boolean }) => void;
+      renderButton: (parent: HTMLElement, options: Record<string, string | number | boolean>) => void;
+    } } };
+  }
+}
+
+let googleScriptPromise: Promise<void> | null = null;
+function loadGoogleScript() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (googleScriptPromise) return googleScriptPromise;
+  googleScriptPromise = new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Google giriş xidməti yüklənmədi."));
+    document.head.appendChild(script);
+  });
+  return googleScriptPromise;
+}
+
+function AriXLogo({ className = "" }: { className?: string }) {
+  return <svg viewBox="20 12 70 76" className={className} aria-hidden="true">
+    <polygon points="30,80 46,20 70,20 54,80" fill="#34d399" />
+    <path d="M62 40 L84 62" stroke="#4f7ddc" strokeWidth={10} strokeLinecap="round" />
+    <path d="M84 40 L62 62" stroke="#4f7ddc" strokeWidth={10} strokeLinecap="round" />
+  </svg>;
+}
 
 const statusMeta: Record<Status, { label: string; tone: string }> = {
   new: { label: "Yeni", tone: "violet" }, preparing: { label: "Hazırlanır", tone: "amber" }, ready: { label: "Hazır", tone: "green" }, delivered: { label: "Təhvil verildi", tone: "gray" }, cancelled: { label: "Ləğv edildi", tone: "red" },
 };
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: "include", headers: { "content-type": "application/json", ...(init?.headers ?? {}) }, ...init });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || "Əməliyyat alınmadı.");
-  return payload.data;
+  return payload;
+}
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await request<{ data: T }>(path, init)).data;
 }
 
 export default function App() {
@@ -95,9 +135,71 @@ function OrderDetail({ order, onClose, onChanged }: { order: Order; onClose: () 
 }
 
 function Login({ onSuccess }: { onSuccess: (user: Session) => void }) {
-  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState("");
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); setError(""); try { onSuccess(await api<Session>("/api/auth/password", { method: "POST", body: JSON.stringify({ email, password }) })); } catch (cause) { setError(cause instanceof Error ? cause.message : "Giriş alınmadı."); } };
-  return <main className="login"><form onSubmit={submit}><div className="brand login-brand"><span className="brand-mark">A</span><div><strong>AriX Sifariş</strong><small>Satış və anbar komandası</small></div></div><h1>Xoş gəldiniz</h1><p>AriX əməkdaş hesabınızla daxil olun.</p><label><span>E-poçt</span><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Şifrə</span><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <p className="form-error">{error}</p>}<button className="primary full">Daxil ol</button></form></main>;
+  const googleButton = useRef<HTMLDivElement | null>(null);
+  const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [login, setLogin] = useState({ email: "", password: "" });
+  const [registration, setRegistration] = useState({ name: "", email: "", password: "", companyCode: "" });
+  const [googleCredential, setGoogleCredential] = useState("");
+  const [companyCode, setCompanyCode] = useState("");
+  const [pending, setPending] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const googleLogin = useCallback(async (credential: string, inviteCode = "") => {
+    setBusy(true); setError("");
+    try {
+      const payload = await request<AuthResponse>("/api/auth/google", { method: "POST", body: JSON.stringify({ credential, companyCode: inviteCode }) });
+      if (payload.pending) { setPending(true); setGoogleCredential(""); return; }
+      if (payload.data) onSuccess(payload.data);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Google girişi alınmadı.";
+      if (message.toLocaleLowerCase("az").includes("dəvət kodu")) setGoogleCredential(credential);
+      setError(message);
+    } finally { setBusy(false); }
+  }, [onSuccess]);
+
+  useEffect(() => { api<AuthConfig>("/api/auth/config").then(setConfig).catch((cause) => setError(cause instanceof Error ? cause.message : "Giriş parametrləri alınmadı.")); }, []);
+  useEffect(() => {
+    if (mode !== "login" || !config?.enabled || !config.googleClientId || !googleButton.current) return;
+    let cancelled = false;
+    loadGoogleScript().then(() => {
+      if (cancelled || !googleButton.current || !window.google) return;
+      googleButton.current.replaceChildren();
+      window.google.accounts.id.initialize({ client_id: config.googleClientId, auto_select: false, cancel_on_tap_outside: true, use_fedcm_for_prompt: true, callback: (response) => { if (response.credential) void googleLogin(response.credential); } });
+      window.google.accounts.id.renderButton(googleButton.current, { type: "standard", theme: "outline", size: "large", text: "continue_with", shape: "rectangular", logo_alignment: "left", width: Math.min(360, googleButton.current.clientWidth || 360), locale: "az" });
+    }).catch((cause) => setError(cause instanceof Error ? cause.message : "Google giriş xidməti hazır deyil."));
+    return () => { cancelled = true; };
+  }, [config, googleLogin, mode]);
+
+  const passwordLogin = async (event: React.FormEvent) => {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      const payload = await request<AuthResponse>("/api/auth/password", { method: "POST", body: JSON.stringify(login) });
+      if (payload.pending) { setPending(true); return; }
+      if (payload.data) onSuccess(payload.data);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Giriş alınmadı.";
+      if (message.includes("hesab tapılmadı")) { setRegistration((current) => ({ ...current, email: login.email })); setMode("register"); setError(""); }
+      else setError(message);
+    } finally { setBusy(false); }
+  };
+  const register = async (event: React.FormEvent) => {
+    event.preventDefault(); setBusy(true); setError("");
+    try { const payload = await request<AuthResponse>("/api/auth/register", { method: "POST", body: JSON.stringify(registration) }); if (payload.pending) setPending(true); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Müraciət göndərilmədi."); }
+    finally { setBusy(false); }
+  };
+
+  return <main className="login"><section className="login-card"><div className="login-brand"><div className="login-logo"><AriXLogo /></div><strong>AriX Panel</strong><small>Sifariş və anbar hazırlama sistemi</small></div><h1>{mode === "login" ? "Xoş gəldiniz" : "Şirkətə qoşulun"}</h1><p>{mode === "login" ? "AriX əməkdaş hesabınızla daxil olun." : "Məlumatlarınızı və şirkət dəvət kodunu daxil edin."}</p>
+    {pending ? <div className="pending-box"><b>Müraciət göndərildi</b><span>Şirkət sahibi təsdiqlədikdən sonra daxil ola bilərsiniz.</span></div> : mode === "login" ? <>
+      <form onSubmit={passwordLogin}><label><span>E-poçt</span><input type="email" autoComplete="email" required value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} /></label><label><span>Şifrə</span><input type="password" autoComplete="current-password" required value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} /></label><button disabled={busy} className="primary full">Daxil ol</button></form>
+      {config?.enabled && <><div className="separator"><span />və ya<span /></div><div ref={googleButton} className="google-button" /></>}
+      <button className="text-button login-link" onClick={() => { setMode("register"); setError(""); }}>Hesabınız yoxdur? Qeydiyyatdan keçin</button>
+    </> : <form onSubmit={register}><button type="button" className="text-button back-link" onClick={() => { setMode("login"); setError(""); }}>← Girişə qayıt</button><label><span>Ad soyad</span><input required value={registration.name} onChange={(e) => setRegistration({ ...registration, name: e.target.value })} /></label><label><span>E-poçt</span><input type="email" required value={registration.email} onChange={(e) => setRegistration({ ...registration, email: e.target.value })} /></label><label><span>Şifrə</span><input type="password" minLength={8} required value={registration.password} onChange={(e) => setRegistration({ ...registration, password: e.target.value })} /></label><label><span>Dəvət kodu</span><input className="code-input" required value={registration.companyCode} onChange={(e) => setRegistration({ ...registration, companyCode: e.target.value.toUpperCase() })} /></label><button disabled={busy} className="primary full">Təsdiq üçün göndər</button></form>}
+    {googleCredential && !pending && <form className="invite-box" onSubmit={(event) => { event.preventDefault(); void googleLogin(googleCredential, companyCode); }}><b>Bu Google hesabı sistemdə yoxdur</b><span>Şirkət dəvət kodunu daxil edin.</span><input className="code-input" required value={companyCode} onChange={(e) => setCompanyCode(e.target.value.toUpperCase())} placeholder="DƏVƏT KODU" /><button disabled={busy || !companyCode.trim()} className="primary full">Təsdiq üçün müraciət et</button></form>}
+    {error && <p className="form-error">{error}</p>}
+  </section></main>;
 }
 
 function Modal({ title, subtitle, onClose, wide, children }: { title: string; subtitle: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
