@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:orders": "vite --config order-app/vite.config.ts",
     "api": "node server/index.js",
     "dev:api": "node --watch server/index.js",
     "test:server": "node --test server/*.test.js",
     "build": "tsc -b && vite build",
+    "build:orders": "tsc -p order-app/tsconfig.json && vite build --config order-app/vite.config.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },

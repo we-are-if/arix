@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
-    allowedHosts: ["ersarif", "ersarif.tail13f45d.ts.net", "dev.arix.az"],
+    allowedHosts: ["ersarif", "ersarif.tail13f45d.ts.net", "dev.arix.az", "order.arix.az"],
     proxy: {
       "/api": "http://localhost:8787",
     },

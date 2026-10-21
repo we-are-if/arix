@@ -21,6 +21,7 @@ import {
 } from "./accounting.js";
 import { normalizeCounterparty, validateCounterparty } from "./counterparties.js";
 import { calculateCounterpartyAging } from "./counterpartyAging.js";
+import { parseOrderText } from "./orderMatching.js";
 import { createSQLiteStateStore } from "./database.js";
 import {
   capabilityLabels,
@@ -350,6 +351,7 @@ function normalizeDb(db) {
   db.stockReservations ??= [];
   db.stockMovements ??= [];
   db.landedCostAdjustments ??= [];
+  db.orderBoard = Array.isArray(db.orderBoard) ? db.orderBoard : [];
   db.customerPrices ??= [];
   db.trash = Array.isArray(db.trash) ? db.trash : [];
   db.authUsers = Array.isArray(db.authUsers) && db.authUsers.length
@@ -1146,6 +1148,77 @@ async function handleProducts(req, res, url, parts) {
     db.productPriceHistory = db.productPriceHistory.filter((item) => Number(item.productId) !== id);
     await writeDb(db);
     return send(res, 200, { ok: true, data: publicTrashEntry(entry) });
+  }
+
+  return notFound(res);
+}
+
+async function handleOrderBoard(req, res, url, parts) {
+  const db = await readDb();
+  const id = String(parts[1] ?? "");
+
+  if (req.method === "GET" && parts.length === 1) {
+    const status = String(url.searchParams.get("status") ?? "");
+    const data = db.orderBoard
+      .filter((order) => !status || order.status === status)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return send(res, 200, { data });
+  }
+
+  if (req.method === "POST" && parts[1] === "match") {
+    const body = await parseBody(req);
+    return send(res, 200, { data: parseOrderText(body.text, db.products) });
+  }
+
+  if (req.method === "POST" && parts.length === 1) {
+    const body = await parseBody(req);
+    const customerName = String(body.customerName ?? "").trim();
+    const items = Array.isArray(body.items) ? body.items : parseOrderText(body.text, db.products);
+    if (!customerName) return send(res, 400, { error: "Müştəri adı məcburidir." });
+    if (!items.length) return send(res, 400, { error: "Ən az bir məhsul sətri olmalıdır." });
+    if (items.some((item) => !item.productId || !(Number(item.quantity) > 0))) return send(res, 400, { error: "Bütün məhsullar və metrajlar təsdiqlənməlidir." });
+    const now = new Date().toISOString();
+    const order = {
+      id: randomUUID(),
+      number: `ORD-${String(Date.now()).slice(-7)}`,
+      customerName,
+      note: String(body.note ?? "").trim(),
+      status: "new",
+      items: items.map((item) => ({ ...item, preparedQuantity: null })),
+      createdBy: req.authUser?.name ?? "Satışçı",
+      createdAt: now,
+      updatedAt: now,
+      history: [{ status: "new", at: now, by: req.authUser?.name ?? "Satışçı" }],
+    };
+    db.orderBoard.push(order);
+    await writeDb(db);
+    return send(res, 201, { data: order });
+  }
+
+  if (req.method === "PATCH" && id) {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const body = await parseBody(req);
+    const nextStatus = String(body.status ?? order.status);
+    const allowed = { new: ["preparing", "cancelled"], preparing: ["ready", "new", "cancelled"], ready: ["delivered", "preparing"], delivered: [], cancelled: ["new"] };
+    if (nextStatus !== order.status && !allowed[order.status]?.includes(nextStatus)) return send(res, 409, { error: "Bu mərhələ keçidi mümkün deyil." });
+    if (nextStatus === "ready") {
+      const items = Array.isArray(body.items) ? body.items : order.items;
+      if (items.some((item) => !(Number(item.preparedQuantity) > 0))) return send(res, 400, { error: "Hazır etməzdən əvvəl bütün faktiki metrajları yazın." });
+      order.items = items;
+    } else if (Array.isArray(body.items)) {
+      order.items = body.items;
+    }
+    if (nextStatus !== order.status) {
+      order.status = nextStatus;
+      order.history ??= [];
+      order.history.push({ status: nextStatus, at: new Date().toISOString(), by: req.authUser?.name ?? "Əməkdaş" });
+      if (nextStatus === "preparing") order.preparedBy = req.authUser?.name ?? "Anbar";
+      if (nextStatus === "ready") order.readyAt = new Date().toISOString();
+    }
+    order.updatedAt = new Date().toISOString();
+    await writeDb(db);
+    return send(res, 200, { data: order });
   }
 
   return notFound(res);
@@ -3955,6 +4028,7 @@ async function handleApiRequest(req, res) {
       accounting: ["accounting.view", "accounting.manage"],
       trash: ["trash.manage", "trash.manage"],
       employees: ["employees.manage", "employees.manage"],
+      orders: ["documents.view", "documents.create"],
     };
     const permissionPair = resourcePermissions[parts[1]];
     if (permissionPair) {
@@ -3967,6 +4041,7 @@ async function handleApiRequest(req, res) {
     }
 
     if (parts[1] === "products") return await handleProducts(req, res, url, parts.slice(1));
+    if (parts[1] === "orders") return await handleOrderBoard(req, res, url, parts.slice(1));
     if (parts[1] === "employees") return await handleEmployees(req, res, parts.slice(1));
     if (parts[1] === "product-price-history") return await handleProductPriceHistory(req, res, url);
     if (parts[1] === "product-groups") return await handleSimpleCollection(req, res, "productGroups");
