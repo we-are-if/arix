@@ -26,7 +26,9 @@ select {
 }
 .app-shell {
   min-height: 100vh;
-  padding: 24px 28px 48px;
+  padding: 92px 28px 48px;
+  background: #f4f6f8;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 .topbar,
 .page-head {
@@ -34,27 +36,29 @@ select {
   margin: auto;
 }
 .topbar {
+  position: fixed;
+  z-index: 30;
+  inset: 0 0 auto;
+  max-width: none;
   height: 72px;
+  padding: 0 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid #e6eaf0;
+  box-shadow: 0 8px 30px rgba(31, 38, 55, 0.05);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: #513eea;
-  color: #fff;
-  font-weight: 900;
-  font-size: 22px;
-  transform: skew(-8deg);
+.header-logo {
+  width: 44px;
+  height: 44px;
 }
 .brand div {
   display: flex;
@@ -72,12 +76,83 @@ select {
   align-items: center;
   gap: 12px;
 }
-.user-chip {
-  padding: 10px 14px;
+.header-select,
+.header-control,
+.profile-chip {
+  height: 46px;
   border: 1px solid #dfe3ea;
-  border-radius: 10px;
+  border-radius: 12px;
   background: white;
+  color: #263047;
+}
+.header-select {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+}
+.header-select select {
+  width: auto;
+  min-width: 122px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   font-size: 13px;
+  font-weight: 700;
+}
+.header-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 15px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.header-control b {
+  font-size: 13px;
+}
+.profile-chip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 7px 5px 8px;
+}
+.profile-chip > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #efedff;
+  color: #5541e9;
+  font-size: 12px;
+  font-weight: 800;
+}
+.profile-chip > div {
+  display: flex;
+  min-width: 105px;
+  flex-direction: column;
+}
+.profile-chip b {
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.profile-chip small {
+  color: #7a8497;
+  font-size: 10px;
+}
+.profile-chip button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-left: 1px solid #e4e7ed;
+  background: transparent;
+  color: #69758a;
+  cursor: pointer;
 }
 .primary,
 .secondary {
@@ -136,6 +211,11 @@ select {
 .summary span {
   font-size: 12px;
   color: #778196;
+}
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 .board {
   max-width: 1480px;
@@ -490,6 +570,20 @@ textarea {
   display: grid;
   place-items: center;
 }
+.login-wrap {
+  width: min(448px, 100%);
+}
+.login-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.login-tools .header-select,
+.login-tools .header-control {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px);
+}
 .login {
   min-height: 100vh;
   display: grid;
@@ -599,16 +693,145 @@ textarea {
 .pending-box span {
   font-size: 13px;
 }
+
+.theme-dark {
+  color: #e9edf7;
+  background-color: #10131a;
+}
+.app-shell.theme-dark {
+  background: #10131a;
+}
+.theme-dark .topbar {
+  background: rgba(20, 24, 33, 0.92);
+  border-color: #2a303d;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22);
+}
+.theme-dark .brand small,
+.theme-dark .page-head p,
+.theme-dark .summary span,
+.theme-dark .card-top,
+.theme-dark .order-card footer,
+.theme-dark .source-line,
+.theme-dark .worker,
+.theme-dark .prep-row small,
+.theme-dark .prep-row span,
+.theme-dark .login-brand small,
+.theme-dark .login-card > p {
+  color: #929db1;
+}
+.theme-dark .header-select,
+.theme-dark .header-control,
+.theme-dark .profile-chip,
+.theme-dark input,
+.theme-dark textarea,
+.theme-dark select,
+.theme-dark .close {
+  background: #1b202b;
+  border-color: #343b49;
+  color: #e9edf7;
+}
+.theme-dark .profile-chip > span {
+  background: #322b69;
+  color: #b9afff;
+}
+.theme-dark .profile-chip button {
+  border-color: #343b49;
+  color: #aeb7c8;
+}
+.theme-dark .column {
+  background: #171b24;
+  border-color: #292f3b;
+}
+.theme-dark .column > header b,
+.theme-dark .order-card {
+  background: #202530;
+  border-color: #303746;
+  color: #e9edf7;
+}
+.theme-dark .order-card li,
+.theme-dark .order-card footer,
+.theme-dark .modal > header,
+.theme-dark .prep-row {
+  border-color: #303746;
+}
+.theme-dark .modal {
+  background: #191e28;
+  border-color: #353c4a;
+  color: #e9edf7;
+}
+.theme-dark .secondary {
+  background: #2b3240;
+  color: #e3e8f2;
+}
+.theme-dark .match-row,
+.theme-dark .prep-list {
+  border-color: #343b49;
+}
+.theme-dark .hint {
+  background: #28244a;
+  color: #c2baff;
+}
+.theme-dark.login {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(79, 125, 220, 0.14), transparent 32%),
+    radial-gradient(circle at 84% 84%, rgba(52, 211, 153, 0.1), transparent 30%),
+    #10131a;
+}
+.theme-dark .login-card {
+  background: rgba(25, 30, 40, 0.9);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 28px 85px rgba(0, 0, 0, 0.36);
+}
 @media (max-width: 850px) {
   .app-shell {
-    padding: 12px 12px 100px;
+    padding: 76px 12px 100px;
   }
   .topbar {
     height: 62px;
+    padding: 0 12px;
   }
   .brand small,
-  .user-chip {
+  .profile-chip > div,
+  .profile-chip button,
+  .header-select span {
     display: none;
+  }
+  .header-logo {
+    width: 38px;
+    height: 38px;
+  }
+  .brand {
+    gap: 5px;
+  }
+  .brand strong {
+    font-size: 15px;
+  }
+  .header-actions {
+    gap: 6px;
+  }
+  .header-select,
+  .header-control,
+  .profile-chip {
+    height: 40px;
+  }
+  .header-select {
+    padding: 0 8px;
+  }
+  .header-select select {
+    min-width: 42px;
+    max-width: 52px;
+    font-size: 12px;
+  }
+  .header-control {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .header-control b {
+    display: none;
+  }
+  .profile-chip {
+    padding: 3px;
   }
   .page-head {
     padding: 24px 3px 18px;
@@ -621,6 +844,12 @@ textarea {
   }
   .summary {
     display: none;
+  }
+  .page-actions {
+    align-self: flex-end;
+  }
+  .page-actions .primary {
+    white-space: nowrap;
   }
   .board {
     display: flex;

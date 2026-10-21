@@ -10,6 +10,21 @@ type Session = { id: string; name: string; role: string };
 type AuthConfig = { enabled: boolean; googleClientId: string };
 type AuthResponse = { data?: Session; pending?: boolean };
 type GoogleCredentialResponse = { credential?: string };
+type Language = "az" | "tr" | "en" | "ru";
+
+const languageOptions: Array<{ id: Language; short: string; label: string }> = [
+  { id: "az", short: "AZ", label: "Azərbaycan" },
+  { id: "tr", short: "TR", label: "Türkçe" },
+  { id: "en", short: "EN", label: "English" },
+  { id: "ru", short: "RU", label: "Русский" },
+];
+
+const copy = {
+  az: { title: "Sifarişlər", subtitle: "Satışdan gələn sifarişləri qarışıqlıq olmadan hazırlayın.", flow: "BU GÜNÜN AXINI", active: "aktiv sifariş", create: "Sifariş yarat", new: "Yeni", preparing: "Hazırlanır", ready: "Hazır", empty: "Burada sifariş yoxdur", rows: "sətir", logout: "Çıxış", customer: "Müştəri adı", note: "Qeyd", orderText: "Sifariş mətni", match: "Məhsulları uyğunlaşdır", matched: "Uyğunlaşdırılan məhsullar", changeText: "Mətni dəyiş", choose: "Məhsul seçin", send: "Sifarişi göndər", start: "Hazırlamağa başla", back: "Geri qaytar", done: "Hazırdır", edit: "Düzəliş et", delivered: "Təhvil verildi", preparingHint: "WhatsApp mətnini olduğu kimi yapışdırın", ordered: "Sifariş", preparedBy: "Hazırlayan" },
+  tr: { title: "Siparişler", subtitle: "Satıştan gelen siparişleri karışıklık olmadan hazırlayın.", flow: "BUGÜNÜN AKIŞI", active: "aktif sipariş", create: "Sipariş oluştur", new: "Yeni", preparing: "Hazırlanıyor", ready: "Hazır", empty: "Burada sipariş yok", rows: "satır", logout: "Çıkış", customer: "Müşteri adı", note: "Not", orderText: "Sipariş metni", match: "Ürünleri eşleştir", matched: "Eşleştirilen ürünler", changeText: "Metni değiştir", choose: "Ürün seçin", send: "Siparişi gönder", start: "Hazırlamaya başla", back: "Geri gönder", done: "Hazır", edit: "Düzenle", delivered: "Teslim edildi", preparingHint: "WhatsApp metnini olduğu gibi yapıştırın", ordered: "Sipariş", preparedBy: "Hazırlayan" },
+  en: { title: "Orders", subtitle: "Prepare incoming sales orders without confusion.", flow: "TODAY'S FLOW", active: "active orders", create: "Create order", new: "New", preparing: "Preparing", ready: "Ready", empty: "No orders here", rows: "lines", logout: "Sign out", customer: "Customer name", note: "Note", orderText: "Order text", match: "Match products", matched: "Matched products", changeText: "Edit text", choose: "Select product", send: "Send order", start: "Start preparing", back: "Move back", done: "Mark ready", edit: "Edit", delivered: "Delivered", preparingHint: "Paste the WhatsApp text as received", ordered: "Ordered", preparedBy: "Prepared by" },
+  ru: { title: "Заказы", subtitle: "Подготавливайте заказы без путаницы.", flow: "СЕГОДНЯШНИЙ ПОТОК", active: "активных заказов", create: "Создать заказ", new: "Новые", preparing: "Подготовка", ready: "Готово", empty: "Здесь нет заказов", rows: "строк", logout: "Выйти", customer: "Имя клиента", note: "Примечание", orderText: "Текст заказа", match: "Сопоставить товары", matched: "Сопоставленные товары", changeText: "Изменить текст", choose: "Выберите товар", send: "Отправить заказ", start: "Начать подготовку", back: "Вернуть", done: "Готово", edit: "Изменить", delivered: "Доставлено", preparingHint: "Вставьте текст WhatsApp без изменений", ordered: "Заказано", preparedBy: "Подготовил" },
+} satisfies Record<Language, Record<string, string>>;
 
 declare global {
   interface Window {
@@ -66,6 +81,12 @@ export default function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [error, setError] = useState("");
+  const [language, setLanguage] = useState<Language>(() => (localStorage.getItem("arix-order-language") as Language) || "az");
+  const [isDark, setIsDark] = useState(() => localStorage.getItem("arix-order-theme") === "dark");
+  const text = copy[language];
+
+  useEffect(() => { localStorage.setItem("arix-order-language", language); document.documentElement.lang = language; }, [language]);
+  useEffect(() => { localStorage.setItem("arix-order-theme", isDark ? "dark" : "light"); }, [isDark]);
 
   const load = useCallback(async () => {
     try {
@@ -84,57 +105,68 @@ export default function App() {
   }), [orders]);
 
   if (session === undefined) return <div className="center-state">Yüklənir…</div>;
-  if (!session) return <Login onSuccess={(user) => setSession(user)} />;
+  if (!session) return <Login language={language} setLanguage={setLanguage} isDark={isDark} setIsDark={setIsDark} onSuccess={(user) => setSession(user)} />;
+
+  const logout = async () => {
+    try { await request("/api/auth/logout", { method: "POST" }); } finally { setSession(null); }
+  };
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${isDark ? "theme-dark" : ""}`}>
       <header className="topbar">
-        <div className="brand"><span className="brand-mark">A</span><div><strong>AriX Sifariş</strong><small>Anbar hazırlama lövhəsi</small></div></div>
-        <div className="header-actions"><span className="user-chip">{session.name}</span><button className="primary" onClick={() => setCreateOpen(true)}>+ Sifariş yarat</button></div>
+        <div className="brand"><AriXLogo className="header-logo" /><div><strong>AriX Panel</strong><small>Sifariş sistemi</small></div></div>
+        <div className="header-actions">
+          <label className="header-select"><span aria-hidden="true">◎</span><select aria-label="Dil" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>{languageOptions.map((option) => <option key={option.id} value={option.id}>{option.short} · {option.label}</option>)}</select></label>
+          <button className="header-control" onClick={() => setIsDark((current) => !current)} aria-label="Tema"><span>{isDark ? "☾" : "☀"}</span><b>{isDark ? "Dark" : "Light"}</b></button>
+          <div className="profile-chip"><span>{session.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><div><b>{session.name}</b><small>{session.role}</small></div><button title={text.logout} onClick={logout}>↪</button></div>
+        </div>
       </header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError("")}>×</button></div>}
-      <section className="page-head"><div><p className="eyebrow">BU GÜNÜN AXINI</p><h1>Sifarişlər</h1><p>Satışdan gələn sifarişləri qarışıqlıq olmadan hazırlayın.</p></div><div className="summary"><b>{orders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length}</b><span>aktiv sifariş</span></div></section>
+      <section className="page-head"><div><p className="eyebrow">{text.flow}</p><h1>{text.title}</h1><p>{text.subtitle}</p></div><div className="page-actions"><div className="summary"><b>{orders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length}</b><span>{text.active}</span></div><button className="primary" onClick={() => setCreateOpen(true)}>＋ {text.create}</button></div></section>
       <section className="board">
-        {(["new", "preparing", "ready"] as BoardStatus[]).map((status) => <BoardColumn key={status} status={status} orders={grouped[status]} onOpen={setActiveOrder} />)}
+        {(["new", "preparing", "ready"] as BoardStatus[]).map((status) => <BoardColumn key={status} status={status} orders={grouped[status]} onOpen={setActiveOrder} language={language} />)}
       </section>
-      {createOpen && <CreateOrder products={products} onClose={() => setCreateOpen(false)} onCreated={() => { setCreateOpen(false); void load(); }} />}
-      {activeOrder && <OrderDetail order={activeOrder} onClose={() => setActiveOrder(null)} onChanged={(next) => { setActiveOrder(next); void load(); }} />}
+      {createOpen && <CreateOrder products={products} language={language} onClose={() => setCreateOpen(false)} onCreated={() => { setCreateOpen(false); void load(); }} />}
+      {activeOrder && <OrderDetail order={activeOrder} language={language} onClose={() => setActiveOrder(null)} onChanged={(next) => { setActiveOrder(next); void load(); }} />}
     </main>
   );
 }
 
-function BoardColumn({ status, orders, onOpen }: { status: BoardStatus; orders: Order[]; onOpen: (order: Order) => void }) {
+function BoardColumn({ status, orders, onOpen, language }: { status: BoardStatus; orders: Order[]; onOpen: (order: Order) => void; language: Language }) {
   const meta = statusMeta[status];
-  return <section className="column"><header><span className={`status-dot ${meta.tone}`} /><h2>{meta.label}</h2><b>{orders.length}</b></header><div className="cards">
-    {orders.length ? orders.map((order) => <button key={order.id} className="order-card" onClick={() => onOpen(order)}><div className="card-top"><span>{order.number}</span><time>{new Date(order.createdAt).toLocaleTimeString("az", { hour: "2-digit", minute: "2-digit" })}</time></div><h3>{order.customerName}</h3><ul>{order.items.slice(0, 4).map((item, index) => <li key={`${item.productId}-${index}`}><span>{item.productName}</span><b>{item.quantity} mt</b></li>)}</ul>{order.items.length > 4 && <small>+{order.items.length - 4} məhsul</small>}<footer><span>{order.createdBy}</span><span>{order.items.length} sətir</span></footer></button>) : <div className="empty"><span>✓</span><p>Burada sifariş yoxdur</p></div>}
+  const text = copy[language];
+  return <section className="column"><header><span className={`status-dot ${meta.tone}`} /><h2>{text[status]}</h2><b>{orders.length}</b></header><div className="cards">
+    {orders.length ? orders.map((order) => <button key={order.id} className="order-card" onClick={() => onOpen(order)}><div className="card-top"><span>{order.number}</span><time>{new Date(order.createdAt).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })}</time></div><h3>{order.customerName}</h3><ul>{order.items.slice(0, 4).map((item, index) => <li key={`${item.productId}-${index}`}><span>{item.productName}</span><b>{item.quantity} mt</b></li>)}</ul>{order.items.length > 4 && <small>+{order.items.length - 4} məhsul</small>}<footer><span>{order.createdBy}</span><span>{order.items.length} {text.rows}</span></footer></button>) : <div className="empty"><span>✓</span><p>{text.empty}</p></div>}
   </div></section>;
 }
 
-function CreateOrder({ products, onClose, onCreated }: { products: Product[]; onClose: () => void; onCreated: () => void }) {
+function CreateOrder({ products, onClose, onCreated, language }: { products: Product[]; onClose: () => void; onCreated: () => void; language: Language }) {
+  const ui = copy[language];
   const [customerName, setCustomerName] = useState(""); const [text, setText] = useState(""); const [note, setNote] = useState("");
   const [matches, setMatches] = useState<Match[]>([]); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const analyze = async () => { setBusy(true); setError(""); try { setMatches(await api<Match[]>("/api/orders/match", { method: "POST", body: JSON.stringify({ text }) })); } catch (cause) { setError(cause instanceof Error ? cause.message : "Uyğunlaşdırma alınmadı."); } finally { setBusy(false); } };
   const update = (index: number, patch: Partial<Match>) => setMatches((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch, needsReview: false } : item));
   const save = async () => { setBusy(true); setError(""); try { await api("/api/orders", { method: "POST", body: JSON.stringify({ customerName, note, items: matches }) }); onCreated(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Sifariş saxlanmadı."); } finally { setBusy(false); } };
-  return <Modal title="Yeni sifariş" subtitle="WhatsApp mətnini olduğu kimi yapışdırın" onClose={onClose} wide>
-    <div className="form-grid"><label><span>Müştəri adı</span><input autoFocus value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Məsələn, Abanoz Mobilya" /></label><label><span>Qeyd</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Çatdırılma və ya xüsusi qeyd" /></label></div>
-    {!matches.length ? <><label><span>Sifariş mətni</span><textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={"30 mt ERSA 528\nHG Beyaz Mat 21m\n00258 - 32 metre"} /></label><div className="hint">Hər məhsulu ayrıca sətirdə yazın. Kod, SKU və məhsul adı istifadə oluna bilər.</div><button className="primary full" disabled={!text.trim() || busy} onClick={analyze}>{busy ? "Yoxlanır…" : "Məhsulları uyğunlaşdır"}</button></> : <div className="match-list"><div className="match-head"><b>Uyğunlaşdırılan məhsullar</b><button className="text-button" onClick={() => setMatches([])}>Mətni dəyiş</button></div>{matches.map((item, index) => <div className={`match-row ${item.needsReview ? "review" : ""}`} key={`${item.source}-${index}`}><div className="source-line">“{item.source}” {item.needsReview && <em>Yoxlayın</em>}</div><select value={item.productId ?? ""} onChange={(e) => { const product = products.find((p) => p.id === Number(e.target.value)); if (product) update(index, { productId: product.id, productName: product.name, productCode: product.code || product.sku || "" }); }}><option value="">Məhsul seçin</option>{products.map((product) => <option key={product.id} value={product.id}>{product.code || product.sku} · {product.name}</option>)}</select><div className="meter-input"><input type="number" min="0.01" step="0.01" value={item.quantity ?? ""} onChange={(e) => update(index, { quantity: Number(e.target.value) })} /><span>mt</span></div></div>)}<button className="primary full" disabled={!customerName.trim() || matches.some((item) => !item.productId || !item.quantity) || busy} onClick={save}>{busy ? "Saxlanır…" : "Sifarişi göndər"}</button></div>}
+  return <Modal title={`${ui.new} ${ui.title.toLocaleLowerCase(language)}`} subtitle={ui.preparingHint} onClose={onClose} wide>
+    <div className="form-grid"><label><span>{ui.customer}</span><input autoFocus value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Abanoz Mobilya" /></label><label><span>{ui.note}</span><input value={note} onChange={(e) => setNote(e.target.value)} /></label></div>
+    {!matches.length ? <><label><span>{ui.orderText}</span><textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={"30 mt ERSA 528\nHG Beyaz Mat 21m\n00258 - 32 metre"} /></label><button className="primary full" disabled={!text.trim() || busy} onClick={analyze}>{busy ? "…" : ui.match}</button></> : <div className="match-list"><div className="match-head"><b>{ui.matched}</b><button className="text-button" onClick={() => setMatches([])}>{ui.changeText}</button></div>{matches.map((item, index) => <div className={`match-row ${item.needsReview ? "review" : ""}`} key={`${item.source}-${index}`}><div className="source-line">“{item.source}”</div><select value={item.productId ?? ""} onChange={(e) => { const product = products.find((p) => p.id === Number(e.target.value)); if (product) update(index, { productId: product.id, productName: product.name, productCode: product.code || product.sku || "" }); }}><option value="">{ui.choose}</option>{products.map((product) => <option key={product.id} value={product.id}>{product.code || product.sku} · {product.name}</option>)}</select><div className="meter-input"><input type="number" min="0.01" step="0.01" value={item.quantity ?? ""} onChange={(e) => update(index, { quantity: Number(e.target.value) })} /><span>mt</span></div></div>)}<button className="primary full" disabled={!customerName.trim() || matches.some((item) => !item.productId || !item.quantity) || busy} onClick={save}>{busy ? "…" : ui.send}</button></div>}
     {error && <p className="form-error">{error}</p>}
   </Modal>;
 }
 
-function OrderDetail({ order, onClose, onChanged }: { order: Order; onClose: () => void; onChanged: (order: Order) => void }) {
+function OrderDetail({ order, onClose, onChanged, language }: { order: Order; onClose: () => void; onChanged: (order: Order) => void; language: Language }) {
+  const ui = copy[language];
   const [items, setItems] = useState(order.items); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const changeStatus = async (status: Status) => { setBusy(true); setError(""); try { const next = await api<Order>(`/api/orders/${order.id}`, { method: "PATCH", body: JSON.stringify({ status, items }) }); onChanged(next); } catch (cause) { setError(cause instanceof Error ? cause.message : "Mərhələ dəyişmədi."); } finally { setBusy(false); } };
   return <Modal title={order.customerName} subtitle={`${order.number} · ${statusMeta[order.status].label}`} onClose={onClose}>
     {order.note && <div className="customer-note">{order.note}</div>}
-    <div className="prep-list">{items.map((item, index) => <div className="prep-row" key={`${item.productId}-${index}`}><div><small>{item.productCode}</small><strong>{item.productName}</strong><span>Sifariş: {item.quantity} mt</span></div>{order.status === "preparing" ? <label className="actual"><input type="number" min="0.01" step="0.01" value={item.preparedQuantity ?? ""} onChange={(e) => setItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, preparedQuantity: Number(e.target.value) } : row))} /><span>mt hazır</span></label> : order.status === "ready" ? <b className="prepared">{item.preparedQuantity} mt</b> : null}</div>)}</div>
-    {order.preparedBy && <p className="worker">Hazırlayan: <b>{order.preparedBy}</b></p>}{error && <p className="form-error">{error}</p>}
-    <div className="modal-actions">{order.status === "new" && <button className="primary full" disabled={busy} onClick={() => changeStatus("preparing")}>Hazırlamağa başla</button>}{order.status === "preparing" && <><button className="secondary" disabled={busy} onClick={() => changeStatus("new")}>Geri qaytar</button><button className="primary" disabled={busy || items.some((item) => !item.preparedQuantity)} onClick={() => changeStatus("ready")}>Hazırdır</button></>}{order.status === "ready" && <><button className="secondary" onClick={() => changeStatus("preparing")}>Düzəliş et</button><button className="primary" onClick={() => changeStatus("delivered")}>Təhvil verildi</button></>}</div>
+    <div className="prep-list">{items.map((item, index) => <div className="prep-row" key={`${item.productId}-${index}`}><div><small>{item.productCode}</small><strong>{item.productName}</strong><span>{ui.ordered}: {item.quantity} mt</span></div>{order.status === "preparing" ? <label className="actual"><input type="number" min="0.01" step="0.01" value={item.preparedQuantity ?? ""} onChange={(e) => setItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, preparedQuantity: Number(e.target.value) } : row))} /><span>mt</span></label> : order.status === "ready" ? <b className="prepared">{item.preparedQuantity} mt</b> : null}</div>)}</div>
+    {order.preparedBy && <p className="worker">{ui.preparedBy}: <b>{order.preparedBy}</b></p>}{error && <p className="form-error">{error}</p>}
+    <div className="modal-actions">{order.status === "new" && <button className="primary full" disabled={busy} onClick={() => changeStatus("preparing")}>{ui.start}</button>}{order.status === "preparing" && <><button className="secondary" disabled={busy} onClick={() => changeStatus("new")}>{ui.back}</button><button className="primary" disabled={busy || items.some((item) => !item.preparedQuantity)} onClick={() => changeStatus("ready")}>{ui.done}</button></>}{order.status === "ready" && <><button className="secondary" onClick={() => changeStatus("preparing")}>{ui.edit}</button><button className="primary" onClick={() => changeStatus("delivered")}>{ui.delivered}</button></>}</div>
   </Modal>;
 }
 
-function Login({ onSuccess }: { onSuccess: (user: Session) => void }) {
+function Login({ onSuccess, language, setLanguage, isDark, setIsDark }: { onSuccess: (user: Session) => void; language: Language; setLanguage: (language: Language) => void; isDark: boolean; setIsDark: (value: boolean | ((current: boolean) => boolean)) => void }) {
   const googleButton = useRef<HTMLDivElement | null>(null);
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -191,7 +223,7 @@ function Login({ onSuccess }: { onSuccess: (user: Session) => void }) {
     finally { setBusy(false); }
   };
 
-  return <main className="login"><section className="login-card"><div className="login-brand"><div className="login-logo"><AriXLogo /></div><strong>AriX Panel</strong><small>Sifariş və anbar hazırlama sistemi</small></div><h1>{mode === "login" ? "Xoş gəldiniz" : "Şirkətə qoşulun"}</h1><p>{mode === "login" ? "AriX əməkdaş hesabınızla daxil olun." : "Məlumatlarınızı və şirkət dəvət kodunu daxil edin."}</p>
+  return <main className={`login ${isDark ? "theme-dark" : ""}`}><div className="login-wrap"><div className="login-tools"><label className="header-select"><span aria-hidden="true">◎</span><select aria-label="Dil" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>{languageOptions.map((option) => <option key={option.id} value={option.id}>{option.short} · {option.label}</option>)}</select></label><button className="header-control" onClick={() => setIsDark((current) => !current)}><span>{isDark ? "☾" : "☀"}</span><b>{isDark ? "Dark" : "Light"}</b></button></div><section className="login-card"><div className="login-brand"><div className="login-logo"><AriXLogo /></div><strong>AriX Panel</strong><small>Sifariş və anbar hazırlama sistemi</small></div><h1>{mode === "login" ? "Xoş gəldiniz" : "Şirkətə qoşulun"}</h1><p>{mode === "login" ? "AriX əməkdaş hesabınızla daxil olun." : "Məlumatlarınızı və şirkət dəvət kodunu daxil edin."}</p>
     {pending ? <div className="pending-box"><b>Müraciət göndərildi</b><span>Şirkət sahibi təsdiqlədikdən sonra daxil ola bilərsiniz.</span></div> : mode === "login" ? <>
       <form onSubmit={passwordLogin}><label><span>E-poçt</span><input type="email" autoComplete="email" required value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} /></label><label><span>Şifrə</span><input type="password" autoComplete="current-password" required value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} /></label><button disabled={busy} className="primary full">Daxil ol</button></form>
       {config?.enabled && <><div className="separator"><span />və ya<span /></div><div ref={googleButton} className="google-button" /></>}
@@ -199,7 +231,7 @@ function Login({ onSuccess }: { onSuccess: (user: Session) => void }) {
     </> : <form onSubmit={register}><button type="button" className="text-button back-link" onClick={() => { setMode("login"); setError(""); }}>← Girişə qayıt</button><label><span>Ad soyad</span><input required value={registration.name} onChange={(e) => setRegistration({ ...registration, name: e.target.value })} /></label><label><span>E-poçt</span><input type="email" required value={registration.email} onChange={(e) => setRegistration({ ...registration, email: e.target.value })} /></label><label><span>Şifrə</span><input type="password" minLength={8} required value={registration.password} onChange={(e) => setRegistration({ ...registration, password: e.target.value })} /></label><label><span>Dəvət kodu</span><input className="code-input" required value={registration.companyCode} onChange={(e) => setRegistration({ ...registration, companyCode: e.target.value.toUpperCase() })} /></label><button disabled={busy} className="primary full">Təsdiq üçün göndər</button></form>}
     {googleCredential && !pending && <form className="invite-box" onSubmit={(event) => { event.preventDefault(); void googleLogin(googleCredential, companyCode); }}><b>Bu Google hesabı sistemdə yoxdur</b><span>Şirkət dəvət kodunu daxil edin.</span><input className="code-input" required value={companyCode} onChange={(e) => setCompanyCode(e.target.value.toUpperCase())} placeholder="DƏVƏT KODU" /><button disabled={busy || !companyCode.trim()} className="primary full">Təsdiq üçün müraciət et</button></form>}
     {error && <p className="form-error">{error}</p>}
-  </section></main>;
+  </section></div></main>;
 }
 
 function Modal({ title, subtitle, onClose, wide, children }: { title: string; subtitle: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
