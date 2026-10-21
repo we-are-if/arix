@@ -22,6 +22,7 @@ import {
 import { normalizeCounterparty, validateCounterparty } from "./counterparties.js";
 import { calculateCounterpartyAging } from "./counterpartyAging.js";
 import { parseOrderText } from "./orderMatching.js";
+import { defaultOrderCatalog } from "./orderCatalog.js";
 import { createSQLiteStateStore } from "./database.js";
 import {
   capabilityLabels,
@@ -352,6 +353,7 @@ function normalizeDb(db) {
   db.stockMovements ??= [];
   db.landedCostAdjustments ??= [];
   db.orderBoard = Array.isArray(db.orderBoard) ? db.orderBoard : [];
+  db.orderCatalog = Array.isArray(db.orderCatalog) && db.orderCatalog.length ? db.orderCatalog : structuredClone(defaultOrderCatalog);
   db.customerPrices ??= [];
   db.trash = Array.isArray(db.trash) ? db.trash : [];
   db.authUsers = Array.isArray(db.authUsers) && db.authUsers.length
@@ -1067,6 +1069,10 @@ async function handleProducts(req, res, url, parts) {
     return send(res, 200, { data: db.products.filter((item) => matchesSearch(item, q)) });
   }
 
+  if (req.method === "GET" && parts[1] === "catalog") {
+    return send(res, 200, { data: db.orderCatalog.filter((item) => item.active !== false) });
+  }
+
   if (req.method === "GET" && id) {
     const product = db.products.find((item) => item.id === id);
     return product ? send(res, 200, { data: product }) : notFound(res);
@@ -1167,13 +1173,13 @@ async function handleOrderBoard(req, res, url, parts) {
 
   if (req.method === "POST" && parts[1] === "match") {
     const body = await parseBody(req);
-    return send(res, 200, { data: parseOrderText(body.text, db.products) });
+    return send(res, 200, { data: parseOrderText(body.text, db.orderCatalog) });
   }
 
   if (req.method === "POST" && parts.length === 1) {
     const body = await parseBody(req);
     const customerName = String(body.customerName ?? "").trim();
-    const items = Array.isArray(body.items) ? body.items : parseOrderText(body.text, db.products);
+    const items = Array.isArray(body.items) ? body.items : parseOrderText(body.text, db.orderCatalog);
     if (!customerName) return send(res, 400, { error: "Müştəri adı məcburidir." });
     if (!items.length) return send(res, 400, { error: "Ən az bir məhsul sətri olmalıdır." });
     if (items.some((item) => !item.productId || !(Number(item.quantity) > 0))) return send(res, 400, { error: "Bütün məhsullar və metrajlar təsdiqlənməlidir." });

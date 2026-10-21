@@ -29,7 +29,7 @@ export default function App() {
 
   const load = useCallback(async () => {
     try {
-      const [orderData, productData] = await Promise.all([api<Order[]>("/api/orders"), api<Product[]>("/api/products")]);
+      const [orderData, productData] = await Promise.all([api<Order[]>("/api/orders"), api<Product[]>("/api/orders/catalog")]);
       setOrders(orderData); setProducts(productData);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Məlumat alınmadı."); }
   }, []);
