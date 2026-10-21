@@ -1163,6 +1163,10 @@ async function handleOrderBoard(req, res, url, parts) {
   const db = await readDb();
   const id = String(parts[1] ?? "");
 
+  if (req.method === "GET" && parts[1] === "catalog") {
+    return send(res, 200, { data: db.orderCatalog });
+  }
+
   if (req.method === "GET" && parts.length === 1) {
     const status = String(url.searchParams.get("status") ?? "");
     const data = db.orderBoard

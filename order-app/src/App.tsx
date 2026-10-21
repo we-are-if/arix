@@ -76,6 +76,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem("arix-order-language") as Language) || "az");
   const [isDark, setIsDark] = useState(() => localStorage.getItem("arix-order-theme") === "dark");
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const text = copy[language];
 
   useEffect(() => { localStorage.setItem("arix-order-language", language); document.documentElement.lang = language; }, [language]);
@@ -109,9 +111,9 @@ export default function App() {
       <header className="topbar">
         <div className="brand"><AriXLogo className="header-logo" /><div><strong>AriX Panel</strong><small>Sifariş sistemi</small></div></div>
         <div className="header-actions">
-          <label className="header-select"><span aria-hidden="true">◎</span><select aria-label="Dil" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>{languageOptions.map((option) => <option key={option.id} value={option.id}>{option.short} · {option.label}</option>)}</select></label>
+          <div className="header-menu"><button className="header-control language-trigger" onClick={() => { setLanguageMenuOpen((value) => !value); setProfileMenuOpen(false); }}><span className="header-icon">◎</span><b>{languageOptions.find((option) => option.id === language)?.label}</b><em>{language.toUpperCase()}</em><span>⌄</span></button>{languageMenuOpen && <div className="header-popover language-popover">{languageOptions.map((option) => <button key={option.id} className={option.id === language ? "active" : ""} onClick={() => { setLanguage(option.id); setLanguageMenuOpen(false); }}><span>{option.short}</span><b>{option.label}</b>{option.id === language && <i>✓</i>}</button>)}</div>}</div>
           <button className="header-control" onClick={() => setIsDark((current) => !current)} aria-label="Tema"><span>{isDark ? "☾" : "☀"}</span><b>{isDark ? "Dark" : "Light"}</b></button>
-          <div className="profile-chip"><span>{session.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><div><b>{session.name}</b><small>{session.role}</small></div><button title={text.logout} onClick={logout}>↪</button></div>
+          <div className="header-menu"><button className="profile-chip" onClick={() => { setProfileMenuOpen((value) => !value); setLanguageMenuOpen(false); }}><span>{session.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><div><b>{session.name}</b><small>{session.role}</small></div><i>⌄</i></button>{profileMenuOpen && <div className="header-popover profile-popover"><div className="profile-summary"><span>{session.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><div><b>{session.name}</b><small>{session.role}</small></div></div><button className="logout-button" onClick={logout}>{text.logout}</button></div>}</div>
         </div>
       </header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError("")}>×</button></div>}
