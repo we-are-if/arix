@@ -1412,6 +1412,8 @@ export default function App() {
   const [settingsMode, setSettingsMode] = useState<"settings" | "stock">("settings");
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [activeApprovalOrder, setActiveApprovalOrder] = useState<Order | null>(null);
+  const [approvalPreviewOnly, setApprovalPreviewOnly] = useState(false);
+  const [exportPreviewOrder, setExportPreviewOrder] = useState<Order | null>(null);
   const [approvalEditorIntent, setApprovalEditorIntent] = useState<"view" | "edit" | "approve">("view");
   const [pdfOrder, setPdfOrder] = useState<Order | null>(null);
   const [error, setError] = useState("");
@@ -2230,9 +2232,14 @@ export default function App() {
           </section>
         ) : pageTab === "forms" ? (
           <ApprovalFormsPage orders={approvalOrders} onOpen={(order) => {
+            setApprovalPreviewOnly(false);
             setApprovalEditorIntent("view");
             setActiveApprovalOrder(order);
-          }} onShowPdf={setPdfOrder} />
+          }} onShowPdf={(order) => {
+            const documentType = order.approvalForm?.documentType;
+            if (order.isExport || (documentType && documentType !== "domestic")) setExportPreviewOrder(order);
+            else setPdfOrder(order);
+          }} />
         ) : pageTab === "days" ? (
           <DailyArchive
             groups={deliveredByDay}
@@ -2335,8 +2342,10 @@ export default function App() {
           session={session}
           language={language}
           initialAction={approvalEditorIntent}
+          previewOnly={approvalPreviewOnly}
           onClose={() => {
             setActiveApprovalOrder(null);
+            setApprovalPreviewOnly(false);
             setApprovalEditorIntent("view");
           }}
           onSaved={(next) => {
@@ -2346,6 +2355,41 @@ export default function App() {
             if (next.approvalForm?.status === "approved" && next.approvalForm.archive?.path) setPdfOrder(next);
           }}
         />
+      )}
+      {exportPreviewOrder && (
+        <Modal
+          title="Belgeyi göster"
+          subtitle={`${exportPreviewOrder.customerName} · ${exportPreviewOrder.number}`}
+          onClose={() => setExportPreviewOrder(null)}
+          className="export-preview-picker"
+        >
+          <div className="export-preview-options">
+            {([
+              ["proforma", "Proforma Invoice", "Müşteriye gönderilen onay belgesi"],
+              ["commercial_invoice", "Commercial Invoice", "Sevkiyatın ticari faturası"],
+              ["packing_list", "Packing List", "Palet, ağırlık ve paket bilgileri"],
+            ] as const).map(([documentType, title, description]) => (
+              <button
+                type="button"
+                key={documentType}
+                onClick={() => {
+                  const approvalForm = exportPreviewOrder.approvalForm;
+                  if (!approvalForm) return;
+                  setActiveApprovalOrder({
+                    ...exportPreviewOrder,
+                    approvalForm: { ...approvalForm, documentType },
+                  });
+                  setApprovalPreviewOnly(true);
+                  setApprovalEditorIntent("view");
+                  setExportPreviewOrder(null);
+                }}
+              >
+                <FileText aria-hidden="true" />
+                <span><b>{title}</b><small>{description}</small></span>
+              </button>
+            ))}
+          </div>
+        </Modal>
       )}
       {pdfOrder && (
         <ApprovalPdfViewer
@@ -3450,10 +3494,12 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [error, setError] = useState("");
   const [pdfRendered, setPdfRendered] = useState(false);
+  const [nativePreviewLoaded, setNativePreviewLoaded] = useState(false);
   const [zoom, setZoom] = useState(1);
   const pagesRef = useRef<HTMLDivElement | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const filename = order.approvalForm?.archive?.filename || `${order.approvalForm?.number || order.number}.pdf`;
+  const directPdfUrl = `/api/orders/${order.id}/approval-form/pdf`;
   const nativeShare = Reflect.get(navigator, "share") as ((data: ShareData) => Promise<void>) | undefined;
   const nativeCanShare = Reflect.get(navigator, "canShare") as ((data: ShareData) => boolean) | undefined;
   const representativeName = (order.approvalForm?.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
@@ -3611,8 +3657,16 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
         }}
       >
         {error && <p className="form-error">{error}</p>}
-        {!error && !pdfRendered && <div className="orders-loading-state"><span />PDF yükleniyor…</div>}
-        <div className="approval-pdf-canvas-stage" style={{ width: `${zoom * 100}%` }} ref={pagesRef} aria-label={filename} />
+        {!error && !nativePreviewLoaded && !pdfRendered && <div className="orders-loading-state"><span />Belge açılıyor…</div>}
+        {!error && !pdfRendered && (
+          <iframe
+            className="approval-native-pdf"
+            src={directPdfUrl}
+            title={filename}
+            onLoad={() => setNativePreviewLoaded(true)}
+          />
+        )}
+        <div className={`approval-pdf-canvas-stage ${pdfRendered ? "is-ready" : ""}`} style={{ width: `${zoom * 100}%` }} ref={pagesRef} aria-label={filename} />
       </main>
     </section>
   );
@@ -7176,6 +7230,7 @@ function ApprovalFormEditor({
   session,
   language,
   initialAction = "view",
+  previewOnly = false,
   packingMode = false,
   onClose,
   onSaved,
@@ -7186,6 +7241,7 @@ function ApprovalFormEditor({
   session: Session;
   language: Language;
   initialAction?: "view" | "edit" | "approve";
+  previewOnly?: boolean;
   packingMode?: boolean;
   onClose: () => void;
   onSaved: (order: Order) => void;
@@ -7661,7 +7717,7 @@ function ApprovalFormEditor({
       onClose={onClose}
       wide
       showBack
-      className={`approval-modal ${isPackingTask ? "packing-task-only" : ""}`}
+      className={`approval-modal ${isPackingTask ? "packing-task-only" : ""} ${previewOnly && !editing ? "preview-only" : ""}`}
     >
       {isProforma && (
         <nav className="approval-document-switch" aria-label="Yurtdışı belge görünümü">

@@ -1215,7 +1215,16 @@ textarea {
 .day-order-section.carried > header .day-section-dot { background:#e7a514; }
 .approval-pdf-viewer > main { min-width:0; min-height:0; overflow:auto; padding:12px; touch-action:pan-x pan-y; overscroll-behavior:contain; }
 .approval-pdf-canvas-stage { display:grid; min-width:0; gap:12px; margin:0 auto; transform-origin:top center; }
+.approval-pdf-canvas-stage:not(.is-ready) { position:absolute; width:1px !important; height:1px; overflow:hidden; opacity:0; pointer-events:none; }
+.approval-native-pdf { display:block; width:100%; height:100%; min-height:calc(100dvh - 76px); border:0; background:#fff; }
 .approval-pdf-page { display:block; width:100%; height:auto; border:0; border-radius:6px; background:#fff; box-shadow:0 6px 26px rgba(24,32,51,.12); }
+.export-preview-options { display:grid; gap:10px; }
+.export-preview-options button { display:flex; width:100%; align-items:center; gap:12px; border:1px solid #dfe4ec; border-radius:8px; background:#fff; padding:14px; color:#20293a; text-align:left; cursor:pointer; }
+.export-preview-options button:hover { border-color:#5145e5; background:#f8f7ff; }
+.export-preview-options svg { width:22px; height:22px; flex:0 0 auto; color:#5145e5; }
+.export-preview-options span { display:grid; gap:3px; }
+.export-preview-options b { font-size:14px; }
+.export-preview-options small { color:#748096; font-size:11px; }
 .theme-dark .approval-pdf-viewer { background:#0f1420; }
 .theme-dark .approval-pdf-viewer > header { border-color:#30394a; background:#171d2a; }
 .theme-dark .approval-pdf-viewer > header > button, .theme-dark .approval-pdf-viewer nav button { border-color:#3a4558; background:#202838; color:#edf1f8; }
@@ -3596,6 +3605,10 @@ textarea {
 .packing-task-only .approval-editor { padding:0; overflow:visible; border:0; background:transparent; }
 .packing-task-only .approval-pallet-planner { padding:16px; }
 .approval-workspace { display:grid; grid-template-columns:minmax(0, 620px) minmax(560px,1fr); gap:20px; align-items:start; }
+.approval-modal.preview-only .approval-workspace { display:block; }
+.approval-modal.preview-only .approval-editor { display:none; }
+.approval-modal.preview-only .approval-paper-wrap { position:static; }
+.approval-modal.preview-only .approval-paper { margin-inline:auto; }
 .approval-document-switch { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin:0 0 12px; padding:4px; border:1px solid #dce2eb; border-radius:8px; background:#f1f4f8; }
 .approval-document-switch button { min-width:0; border:0; border-radius:6px; background:transparent; color:#667085; padding:10px 12px; font-size:12px; font-weight:800; cursor:pointer; }
 .approval-document-switch button.active { background:#fff; color:#4938e8; box-shadow:0 1px 4px rgb(16 24 40 / 10%); }
