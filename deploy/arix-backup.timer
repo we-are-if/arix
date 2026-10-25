@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AriX backup every night
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Europe/Istanbul
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

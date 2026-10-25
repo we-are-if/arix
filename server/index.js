@@ -1,12 +1,15 @@
 import "dotenv/config";
 import { createServer } from "node:http";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createCipheriv, createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { XMLValidator } from "fast-xml-parser";
 import nodemailer from "nodemailer";
+import webPush from "web-push";
 import { lotAccountingForProduct, rebuildLotAccounting } from "./lotAccounting.js";
 import { buildProductLedger } from "./productLedger.js";
 import { createAutomaticSaleRollSelection, validateAutomaticSaleRollSelection } from "./rollAllocation.js";
@@ -21,7 +24,7 @@ import {
 } from "./accounting.js";
 import { normalizeCounterparty, validateCounterparty } from "./counterparties.js";
 import { calculateCounterpartyAging } from "./counterpartyAging.js";
-import { parseOrderText } from "./orderMatching.js";
+import { defaultOrderAliases, parseOrderText } from "./orderMatching.js";
 import { defaultOrderCatalog } from "./orderCatalog.js";
 import { createSQLiteStateStore } from "./database.js";
 import {
@@ -76,7 +79,43 @@ import {
 } from "./eDocuments.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const FULL_ROLL_LENGTHS = new Set([100, 120, 130]);
+
+function isFullRollQuantity(value) {
+  const quantity = Number(value);
+  return Number.isFinite(quantity) && [...FULL_ROLL_LENGTHS].some((length) => Math.abs(quantity - length) < 0.000001);
+}
+
+function normalizeOrderCutAllowance(item, { infer = false } = {}) {
+  const quantity = Math.max(0, Number(item?.preparedQuantity ?? item?.quantity) || 0);
+  const explicitlyConfigured = item?.cutAllowanceApplied !== undefined;
+  const applied = explicitlyConfigured ? item.cutAllowanceApplied === true : infer && !isFullRollQuantity(quantity);
+  const pieceCount = applied ? Math.max(1, Math.trunc(Number(item?.cutPieceCount) || 1)) : 0;
+  const requestedPerPiece = Number(item?.cutAllowancePerPiece);
+  const perPieceMeters = applied ? Math.max(0, Math.min(5, Number.isFinite(requestedPerPiece) ? requestedPerPiece : 0.2)) : 0;
+  const allowanceMeters = Number((pieceCount * perPieceMeters).toFixed(3));
+  return {
+    cutAllowanceApplied: applied,
+    cutPieceCount: pieceCount,
+    cutAllowancePerPiece: perPieceMeters,
+    cutAllowanceMeters: allowanceMeters,
+    stockConsumptionQuantity: Number((quantity + allowanceMeters).toFixed(3)),
+  };
+}
 const DATA_DIR = join(__dirname, "data");
+const ORDER_UPLOAD_DIR = join(DATA_DIR, "order-uploads");
+const STOCK_IMPORT_DIR = join(DATA_DIR, "stock-imports");
+const ORDER_ARCHIVE_ROOT = String(
+  process.env.ARIX_ORDER_ARCHIVE_ROOT ?? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\YURT İÇİ",
+).trim();
+const EXPORT_ARCHIVE_ROOT = String(
+  process.env.ARIX_EXPORT_ARCHIVE_ROOT ?? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT",
+).trim();
+const EDGE_EXECUTABLE = String(
+  process.env.ARIX_EDGE_PATH ?? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+).trim();
+const execFileAsync = promisify(execFile);
 const DB_PATH = join(DATA_DIR, "db.json");
 const SQLITE_PATH = join(DATA_DIR, "arix.sqlite");
 const CREDENTIAL_KEY_PATH = join(DATA_DIR, "payment-credentials.key");
@@ -84,8 +123,12 @@ const PORT = Number(process.env.API_PORT ?? 8787);
 const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID ?? "").trim();
 const COMPANY_JOIN_CODE = String(process.env.ARIX_COMPANY_JOIN_CODE ?? "").trim().toUpperCase();
 const AUTH_REQUIRED = process.env.ARIX_AUTH_REQUIRED === "1" || Boolean(GOOGLE_CLIENT_ID);
+const VAPID_PUBLIC_KEY = String(process.env.ARIX_VAPID_PUBLIC_KEY ?? "").trim();
+const VAPID_PRIVATE_KEY = String(process.env.ARIX_VAPID_PRIVATE_KEY ?? "").trim();
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) webPush.setVapidDetails("mailto:info@arix.az", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const SESSION_COOKIE = "arix_session";
-const SESSION_TTL_MS = Math.max(60 * 60 * 1000, Number(process.env.ARIX_SESSION_TTL_HOURS ?? 168) * 60 * 60 * 1000);
+const SESSION_TTL_MS = Math.max(24 * 60 * 60 * 1000, Number(process.env.ARIX_SESSION_TTL_HOURS ?? 720) * 60 * 60 * 1000);
+const SESSION_SHORT_TTL_MS = 12 * 60 * 60 * 1000;
 const SMTP_HOST = String(process.env.ARIX_SMTP_HOST ?? "").trim();
 const SMTP_PORT = Number(process.env.ARIX_SMTP_PORT ?? 587);
 const SMTP_SECURE = process.env.ARIX_SMTP_SECURE === "1";
@@ -197,8 +240,14 @@ const validateStandardPrintTemplate = (template, key) => {
 };
 
 const defaultPrintSettings = {
-  companyName: "AriX",
-  brandSubtitle: "Sənəd sistemi",
+  companyName: "ERSAFOLYO MİMARLIK DEKORASYON SAN. TİC. LTD. ŞTİ.",
+  brandSubtitle: "MEHMET AKİF MH. BAHARİYE CD. NO:161",
+  addressLine: "KÜÇÜKÇEKMECE - İSTANBUL - 340000",
+  phone: "05332315488",
+  email: "info@ersafolyo.com",
+  website: "ersafolyo.com",
+  taxOffice: "HALKALI",
+  taxNumber: "3680541461",
   companyLogo: "",
   companyStamp: "",
   forms: {
@@ -314,6 +363,51 @@ seedDb.counterparties = [];
 seedDb.documents = [];
 seedDb.onlineCollections.collections = [];
 
+function normalizeSalesRepresentativeName(value) {
+  const name = String(value ?? "").trim().replace(/\s+/g, " ");
+  const lookup = name.toLocaleLowerCase("tr");
+  if (lookup.includes("serkan")) return "Serkan Şeremet";
+  if (lookup.includes("mustafa")) return "Mustafa Yazman";
+  return name;
+}
+
+function salesRepresentativeArchiveFolder(value) {
+  const normalized = normalizeSalesRepresentativeName(value).toLocaleLowerCase("tr");
+  if (normalized.includes("serkan")) return "Serkan";
+  if (normalized.includes("mustafa")) return "Mustafa";
+  return safeWindowsPathSegment(value);
+}
+
+function normalizedCustomerKey(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLocaleUpperCase("tr")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]+/g, " ").trim();
+}
+
+function exportCustomerFolder(value) {
+  const key = normalizedCustomerKey(value);
+  if (key.includes("RADIL EMIN")) return "ENDECOR";
+  if (key.includes("HERIVA KITCHEN")) return "HERIVA KITCHEN";
+  if (key.includes("MDOOR KAPAK")) return "MADOR KAPAK";
+  if (key.includes("DIKEY")) return "OSCAR COMPANY";
+  if (key.includes("SALEH BELED HABANA")) return "HABAN";
+  if (key.includes("OZKAN COMPANY")) return "OZKAN KAPAK COMPANY";
+  return safeWindowsPathSegment(value);
+}
+
+function findOrderCustomerByName(customers, value) {
+  const requested = String(value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("tr");
+  if (!requested) return undefined;
+  const exact = (customers ?? []).find(
+    (customer) => String(customer?.name ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("tr") === requested,
+  );
+  if (exact) return exact;
+  const prefixMatches = (customers ?? []).filter((customer) => {
+    const candidate = String(customer?.name ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("tr");
+    return candidate.startsWith(`${requested} `) || requested.startsWith(`${candidate} `);
+  });
+  return prefixMatches.length === 1 ? prefixMatches[0] : undefined;
+}
+
 function normalizeDb(db) {
   db.companySettings = {
     ...defaultCompanySettings,
@@ -344,6 +438,12 @@ function normalizeDb(db) {
         : defaultCompanySettings.exchangeSettings.symbols,
     },
   };
+  if (db.companySettings.printSettings.companyName === "AriX") {
+    db.companySettings.printSettings.companyName = defaultPrintSettings.companyName;
+  }
+  if (["", "Sənəd sistemi"].includes(db.companySettings.printSettings.brandSubtitle ?? "")) {
+    db.companySettings.printSettings.brandSubtitle = defaultPrintSettings.brandSubtitle;
+  }
   normalizeEDocumentStore(db);
   normalizeAccountingStore(db);
   db.stockContainers ??= [];
@@ -354,11 +454,83 @@ function normalizeDb(db) {
   db.landedCostAdjustments ??= [];
   db.orderBoard = Array.isArray(db.orderBoard) ? db.orderBoard : [];
   db.orderCatalog = Array.isArray(db.orderCatalog) && db.orderCatalog.length ? db.orderCatalog : structuredClone(defaultOrderCatalog);
+  db.orderAliases = Array.isArray(db.orderAliases) && db.orderAliases.length ? db.orderAliases : structuredClone(defaultOrderAliases);
+  db.orderCustomers = Array.isArray(db.orderCustomers) ? db.orderCustomers : [];
+  db.orderDays = Array.isArray(db.orderDays) ? db.orderDays : [];
+  db.orderTrash = Array.isArray(db.orderTrash) ? db.orderTrash : [];
+  db.orderStockMovements = Array.isArray(db.orderStockMovements) ? db.orderStockMovements : [];
+  db.pushSubscriptions = Array.isArray(db.pushSubscriptions) ? db.pushSubscriptions : [];
+  for (const customer of db.orderCustomers) {
+    customer.salesRepresentative = normalizeSalesRepresentativeName(customer.salesRepresentative);
+    customer.salesRepresentativeUserId = String(customer.salesRepresentativeUserId ?? "").trim();
+    if (customer.customerType === "foreign") {
+      customer.salesRepresentative = "Ekrem Tiryaki";
+      customer.salesRepresentativeUserId = "";
+      customer.folderName = exportCustomerFolder(customer.name);
+    }
+    if (customer.customerType === "foreign" && customer.priceLists && typeof customer.priceLists === "object") {
+      const depot = customer.priceLists.DEPO ?? customer.prices ?? {};
+      const antrepo = customer.priceLists.ANTREPO ?? {};
+      const transit = customer.priceLists.TRANSIT ?? {};
+      const combined = customer.priceLists.ANTREPO_TRANSIT ?? { ...transit, ...antrepo };
+      customer.priceLists = { DEPO: depot, ANTREPO_TRANSIT: combined };
+      customer.prices = depot;
+    }
+  }
+  for (const order of db.orderBoard) {
+    compactUnchangedAutomaticRollovers(order);
+    if (!order.businessDate) {
+      const createdAt = new Date(order.createdAt || Date.now());
+      order.businessDate = Number.isNaN(createdAt.getTime()) ? orderDayKey() : orderDayKey(createdAt);
+    }
+    if (order.approvalForm) {
+      order.approvalForm.salesRepresentative = normalizeSalesRepresentativeName(order.approvalForm.salesRepresentative);
+      order.approvalForm.salesRepresentativeUserId = String(order.approvalForm.salesRepresentativeUserId ?? "").trim();
+      delete order.approvalForm.priceFactor;
+    }
+  }
+  for (const parent of db.orderBoard) {
+    const children = db.orderBoard.filter((item) => String(item.parentOrderId || "") === String(parent.id));
+    if (children.length && (!parent.items || parent.items.length === 0)) {
+      parent.status = "fulfilled";
+      for (const child of children) {
+        if (child.status === "preparing" && child.items?.every((item) => Number(item.preparedQuantity) > 0)) child.status = "ready";
+      }
+    }
+  }
   db.customerPrices ??= [];
   db.trash = Array.isArray(db.trash) ? db.trash : [];
   db.authUsers = Array.isArray(db.authUsers) && db.authUsers.length
     ? db.authUsers.map((user) => ({ ...user, active: user.inviteCodeHash ? user.active === true : user.active !== false, companyId: user.companyId || "ersa-folyo", googleSubject: user.googleSubject || null }))
     : structuredClone(defaultAuthUsers);
+  db.permissionMigrations ??= {};
+  if (!db.permissionMigrations.salesApprovalSeparated) {
+    const affectedUserIds = new Set();
+    for (const user of db.authUsers) {
+      if (!["satış", "satis", "sales"].includes(normalizedRole(user.role))) continue;
+      if (!Array.isArray(user.permissions) || !user.permissions.includes("order_forms.approve")) continue;
+      user.permissions = user.permissions.filter((permission) => permission !== "order_forms.approve");
+      affectedUserIds.add(String(user.id));
+    }
+    if (affectedUserIds.size) {
+      db.authSessions = (Array.isArray(db.authSessions) ? db.authSessions : [])
+        .filter((session) => !affectedUserIds.has(String(session.userId)));
+    }
+    db.permissionMigrations.salesApprovalSeparated = new Date().toISOString();
+  }
+  if (!db.permissionMigrations.salesManagerApprovalRestored) {
+    const affectedUserIds = new Set();
+    for (const user of db.authUsers) {
+      if (normalizedRole(user.role) !== "satış rəhbəri") continue;
+      user.permissions = [...new Set([...(Array.isArray(user.permissions) ? user.permissions : ROLE_PERMISSIONS["satış rəhbəri"]), "order_forms.approve"])];
+      affectedUserIds.add(String(user.id));
+    }
+    if (affectedUserIds.size) {
+      db.authSessions = (Array.isArray(db.authSessions) ? db.authSessions : [])
+        .filter((session) => !affectedUserIds.has(String(session.userId)));
+    }
+    db.permissionMigrations.salesManagerApprovalRestored = new Date().toISOString();
+  }
   db.authSessions = (Array.isArray(db.authSessions) ? db.authSessions : [])
     .filter((session) => new Date(session.expiresAt).getTime() > Date.now());
   db.companyJoinCode = String(db.companyJoinCode || COMPANY_JOIN_CODE || createInviteCode()).trim().toUpperCase();
@@ -459,6 +631,54 @@ function parseBody(req, limit = 1_000_000) {
   });
 }
 
+const turkishMonthNames = [
+  "", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
+];
+
+function safeWindowsPathSegment(value) {
+  const segment = String(value ?? "").trim();
+  if (!segment || segment === "." || segment === ".." || /[<>:"/\\|?*\u0000-\u001f]/.test(segment)) return "";
+  return segment.replace(/[. ]+$/g, "").slice(0, 120);
+}
+
+function orderArchiveDateParts(date = new Date()) {
+  return {
+    year: String(date.getFullYear()),
+    month: turkishMonthNames[date.getMonth() + 1],
+    display: `${String(date.getDate()).padStart(2, "0")}.${String(date.getMonth() + 1).padStart(2, "0")}.${date.getFullYear()}`,
+  };
+}
+
+async function renderOrderApprovalPdf(html) {
+  const source = String(html ?? "");
+  if (!source || source.length > 5_000_000) throw new Error("PDF HTML məlumatı etibarsızdır.");
+  if (/<\s*(script|iframe|object|embed|link)\b/i.test(source) || /\son[a-z]+\s*=/i.test(source)) {
+    throw new Error("PDF HTML məlumatında icazəsiz element var.");
+  }
+  const jobDirectory = await mkdtemp(join(DATA_DIR, "approval-render-"));
+  const htmlPath = join(jobDirectory, "approval.html");
+  const pdfPath = join(jobDirectory, "approval.pdf");
+  try {
+    await writeFile(htmlPath, source, "utf8");
+    await execFileAsync(EDGE_EXECUTABLE, [
+      "--headless=new",
+      "--disable-gpu",
+      "--disable-extensions",
+      "--no-first-run",
+      "--no-pdf-header-footer",
+      `--user-data-dir=${join(jobDirectory, "profile")}`,
+      `--print-to-pdf=${pdfPath}`,
+      new URL(`file:///${htmlPath.replace(/\\/g, "/")}`).href,
+    ], { windowsHide: true, timeout: 45_000, maxBuffer: 2_000_000 });
+    const pdf = await readFile(pdfPath);
+    if (!pdf.length || pdf.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("Edge etibarlı PDF yarada bilmədi.");
+    return pdf;
+  } finally {
+    await rm(jobDirectory, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function handleDocumentEmail(req, res) {
   if (req.method !== "POST") return notFound(res);
   if (!mailTransport) {
@@ -499,10 +719,31 @@ const PERMISSION_CATALOG = [
   { key: "dashboard.view", group: "dashboard", action: "view" },
   { key: "products.view", group: "products", action: "view" },
   { key: "products.manage", group: "products", action: "manage" },
+  { key: "stock.adjust", group: "products", action: "stock_adjust" },
+  { key: "stock.writeoff", group: "products", action: "stock_writeoff" },
+  { key: "stock.transfer", group: "products", action: "stock_transfer" },
+  { key: "stock.purchase", group: "products", action: "stock_purchase" },
+  { key: "stock.loan_purchase", group: "products", action: "stock_loan_purchase" },
+  { key: "orders.view", group: "orders", action: "view" },
+  { key: "orders.view_all", group: "orders", action: "view_all" },
+  { key: "orders.create", group: "orders", action: "create" },
+  { key: "orders.edit", group: "orders", action: "edit" },
+  { key: "orders.prepare", group: "orders", action: "prepare" },
+  { key: "orders.rollback", group: "orders", action: "rollback" },
+  { key: "orders.despatch", group: "orders", action: "despatch" },
+  { key: "orders.deliver", group: "orders", action: "deliver" },
+  { key: "orders.delete", group: "orders", action: "delete" },
+  { key: "orders.days.view", group: "orders", action: "days_view" },
+  { key: "orders.days.manage", group: "orders", action: "days_manage" },
+  { key: "orders.audit.view", group: "orders", action: "audit_view" },
   { key: "documents.view", group: "documents", action: "view" },
   { key: "documents.create", group: "documents", action: "create" },
   { key: "documents.edit", group: "documents", action: "edit" },
   { key: "documents.delete", group: "documents", action: "delete" },
+  { key: "order_forms.view", group: "order_forms", action: "view" },
+  { key: "order_forms.view_all", group: "order_forms", action: "view_all" },
+  { key: "order_forms.edit", group: "order_forms", action: "edit" },
+  { key: "order_forms.approve", group: "order_forms", action: "approve" },
   { key: "money.view", group: "money", action: "view" },
   { key: "money.manage", group: "money", action: "manage" },
   { key: "counterparties.view", group: "counterparties", action: "view" },
@@ -521,20 +762,31 @@ const ROLE_PERMISSIONS = {
   "admin": ALL_PERMISSIONS,
   "administrator": ALL_PERMISSIONS,
   "rəhbər": ALL_PERMISSIONS,
-  "satış rəhbəri": ["dashboard.view", "products.view", "documents.view", "documents.create", "documents.edit", "money.view", "counterparties.view", "counterparties.manage", "reports.view"],
-  "anbar əməliyyatları": ["dashboard.view", "products.view", "products.manage", "documents.view", "documents.create", "documents.edit", "reports.view"],
+  "satış rəhbəri": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.create", "orders.edit", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.view_all", "order_forms.edit", "order_forms.approve", "money.view", "counterparties.view", "counterparties.manage", "reports.view"],
+  "satış": ["dashboard.view", "products.view", "orders.view", "orders.create", "orders.edit", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.edit", "counterparties.view", "counterparties.manage", "reports.view"],
+  "anbar əməliyyatları": ["dashboard.view", "products.view", "products.manage", "orders.view", "orders.view_all", "orders.edit", "orders.prepare", "documents.view", "documents.create", "documents.edit", "reports.view"],
+  "təhvilat": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.deliver", "documents.view"],
   "maliyyə": ["dashboard.view", "products.view", "documents.view", "money.view", "money.manage", "counterparties.view", "company.view", "accounting.view", "accounting.manage", "reports.view"],
-  "əməkdaş": ["dashboard.view", "products.view", "documents.view", "counterparties.view"],
+  "əməkdaş": ["dashboard.view", "products.view", "orders.view", "documents.view", "counterparties.view"],
 };
 
 function normalizedRole(role) {
   return String(role ?? "əməkdaş").trim().toLocaleLowerCase("az");
 }
 
+function orderWorkflowRole(user) {
+  const role = normalizedRole(user?.role);
+  if (role === "sahib") return "owner";
+  if (["satış", "satış rəhbəri", "satis", "sales"].includes(role)) return "sales";
+  if (["anbar əməliyyatları", "anbar", "anbardar", "depo", "depo görevlisi", "warehouse"].includes(role)) return "warehouse";
+  if (["təhvilat", "çatdırılma", "teslimat", "delivery"].includes(role)) return "delivery";
+  return "viewer";
+}
+
 function effectivePermissions(user) {
   if (!user) return AUTH_REQUIRED ? [] : ALL_PERMISSIONS;
   const role = normalizedRole(user.role);
-  if (role === "sahib" || role === "admin" || role === "administrator") return ALL_PERMISSIONS;
+  if (role === "sahib") return ALL_PERMISSIONS;
   const source = Array.isArray(user.permissions) ? user.permissions : (ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS["əməkdaş"]);
   return [...new Set(source.filter((permission) => ALL_PERMISSIONS.includes(permission)))];
 }
@@ -571,7 +823,197 @@ function publicEmployee(user) {
     passwordEnabled: Boolean(user.passwordHash),
     passwordChangeRequired: Boolean(user.passwordChangeRequired),
     permissions: effectivePermissions(user),
+    notificationPreferences: user.notificationPreferences ?? { inApp: true, push: true, events: {} },
   };
+}
+
+function notificationAllowed(user, type, channel = "inApp") {
+  const preferences = user?.notificationPreferences ?? {};
+  return preferences[channel] !== false && preferences.events?.[type] !== false;
+}
+
+function addOrderNotification(db, { order, recipient, type, title, message, actor }) {
+  if (order?.isTest || !recipient || recipient.active === false || String(recipient.id) === String(actor?.id || "")) return;
+  db.orderNotifications ??= [];
+  if (notificationAllowed(recipient, type, "inApp")) {
+    const existing = db.orderNotifications.find((item) => !item.readAt && item.orderId === order.id && item.type === type && item.recipientUserId === recipient.id);
+    const value = { id: existing?.id || randomUUID(), orderId: order.id, formNumber: order.approvalForm?.number || "", recipientUserId: recipient.id, recipientName: recipient.name, type, title, message, createdAt: new Date().toISOString(), createdBy: actor?.name || "AriX" };
+    if (existing) Object.assign(existing, value); else db.orderNotifications.push(value);
+  }
+  if (VAPID_PUBLIC_KEY && notificationAllowed(recipient, type, "push")) {
+    const payload = JSON.stringify({ title, body: message, orderId: order.id, type, url: "/" });
+    for (const item of (db.pushSubscriptions || []).filter((entry) => entry.userId === recipient.id)) {
+      void webPush.sendNotification(item.subscription, payload).catch(() => {});
+    }
+  }
+}
+
+function notifyUsers(db, order, users, type, title, message, actor) {
+  for (const recipient of [...new Map(users.filter(Boolean).map((user) => [user.id, user])).values()]) addOrderNotification(db, { order, recipient, type, title, message, actor });
+}
+
+function addDayCloseNotification(db, { recipient, date, title, message, actor }) {
+  if (!recipient || recipient.active === false) return;
+  const type = "day_closed";
+  const createdAt = new Date().toISOString();
+  db.orderNotifications ??= [];
+  if (notificationAllowed(recipient, type, "inApp")) {
+    const existing = db.orderNotifications.find((item) =>
+      !item.readAt && item.type === type && item.dayKey === date && item.recipientUserId === recipient.id,
+    );
+    const value = {
+      id: existing?.id || randomUUID(), orderId: "", formNumber: "", dayKey: date,
+      recipientUserId: recipient.id, recipientName: recipient.name, type, title, message,
+      createdAt, createdBy: actor?.name || "AriX",
+    };
+    if (existing) Object.assign(existing, value); else db.orderNotifications.push(value);
+  }
+  if (VAPID_PUBLIC_KEY && notificationAllowed(recipient, type, "push")) {
+    const payload = JSON.stringify({ title, body: message, type, dayKey: date, url: `/?day=${date}` });
+    for (const item of (db.pushSubscriptions || []).filter((entry) => entry.userId === recipient.id)) {
+      void webPush.sendNotification(item.subscription, payload, { TTL: 86_400, urgency: "high" }).catch(() => {});
+    }
+  }
+}
+
+function sendDayCloseNotifications(db, { date, nextDate, actor, automatic, orders }) {
+  const delivered = orders.filter((order) => order.status === "delivered");
+  const carried = orders.filter((order) => !["delivered", "fulfilled", "cancelled"].includes(order.status));
+  const ready = carried.filter((order) => order.status === "ready");
+  const waiting = carried.filter((order) => order.status !== "ready");
+  const metrics = delivered.reduce((total, order) => {
+    for (const item of order.items || []) {
+      const quantity = Math.max(0, Number(item.preparedQuantity ?? item.quantity) || 0);
+      const allowance = Math.max(0, Number(item.cutAllowanceMeters) || 0);
+      const hasCutAllowance = item.cutAllowanceApplied === true || Number(item.cutPieceCount) > 0 || allowance > 0;
+      if (hasCutAllowance) {
+        total.pieces += Math.max(1, Number(item.cutPieceCount) || 0);
+        total.pieceMeters += quantity;
+      } else {
+        total.rolls += Math.max(0, Number(item.preparedRollCount) || 0);
+        total.fullMeters += quantity;
+      }
+      total.allowance += allowance;
+      total.totalMeters += quantity + allowance;
+    }
+    return total;
+  }, { rolls: 0, pieces: 0, fullMeters: 0, pieceMeters: 0, allowance: 0, totalMeters: 0 });
+  const format = (value) => Number(value).toLocaleString("tr-TR", { maximumFractionDigits: 3 });
+  const dateLabel = new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "long" }).format(new Date(`${date}T12:00:00Z`));
+  const nextLabel = new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "long" }).format(new Date(`${nextDate}T12:00:00Z`));
+  const title = automatic ? `${dateLabel} iş günü otomatik kapatıldı` : `${dateLabel} iş günü kapatıldı`;
+  const actorLabel = automatic ? "Sistem tarafından otomatik kapatıldı" : `${actor.name} tarafından kapatıldı`;
+
+  for (const recipient of db.authUsers.filter((user) => user.active !== false)) {
+    const role = orderWorkflowRole(recipient);
+    let message = "";
+    if (role === "owner") {
+      message = `${actorLabel}. ${delivered.length} sipariş teslim edildi; ${ready.length} hazır, ${waiting.length} hazırlanmamış sipariş ${nextLabel} gününe devredildi. Teslim toplamı: ${format(metrics.rolls)} rulo, ${format(metrics.totalMeters)} mt.`;
+    } else if (role === "warehouse" || hasPermission(recipient, "orders.prepare")) {
+      message = `${actorLabel}. ${nextLabel} gününe ${ready.length} hazır ve ${waiting.length} hazırlanmayı bekleyen sipariş devredildi.`;
+    } else if (role === "delivery" || hasPermission(recipient, "orders.deliver")) {
+      message = `${actorLabel}. ${ready.length} hazır sipariş teslim edilmeden ${nextLabel} gününe devredildi.`;
+    } else {
+      const relevant = orders.filter((order) => orderActivityRecipients(db, order).some((user) => String(user.id) === String(recipient.id)));
+      if (!relevant.length) continue;
+      const ownDelivered = relevant.filter((order) => order.status === "delivered").length;
+      const ownCarried = relevant.filter((order) => !["delivered", "fulfilled", "cancelled"].includes(order.status)).length;
+      message = `${actorLabel}. Müşterilerinizden ${ownDelivered} sipariş teslim edildi, ${ownCarried} sipariş ${nextLabel} gününe devredildi.`;
+    }
+    addDayCloseNotification(db, { recipient, date, title, message, actor });
+  }
+}
+
+function orderActivityRecipients(db, order) {
+  const customer = (db.orderCustomers || []).find(
+    (item) =>
+      String(item.name || "").trim().toLocaleLowerCase("tr") ===
+      String(order.customerName || "").trim().toLocaleLowerCase("tr"),
+  );
+  const ids = new Set(
+    [
+      order.createdByUserId,
+      order.approvalForm?.salesRepresentativeUserId,
+      customer?.salesRepresentativeUserId,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  );
+  const names = new Set(
+    [
+      order.createdBy,
+      order.approvalForm?.salesRepresentative,
+      customer?.salesRepresentative,
+    ]
+      .map((value) => normalizeSalesRepresentativeName(value || ""))
+      .filter(Boolean),
+  );
+  return db.authUsers.filter(
+    (user) =>
+      orderWorkflowRole(user) === "owner" ||
+      ids.has(String(user.id)) ||
+      names.has(normalizeSalesRepresentativeName(user.name || "")),
+  );
+}
+
+function backfillTodayDeliveredNotifications(db, date = orderDayKey()) {
+  let created = 0;
+  for (const order of db.orderBoard || []) {
+    if (order.status !== "delivered" || !order.deliveredAt) continue;
+    const deliveryDate = order.businessDate || orderDayKey(new Date(order.deliveredAt));
+    if (deliveryDate !== date) continue;
+    const deliveredBy = String(order.deliveredBy || "Teslimat ekibi").trim();
+    const actor = (db.authUsers || []).find(
+      (user) =>
+        normalizeSalesRepresentativeName(user.name || "") ===
+        normalizeSalesRepresentativeName(deliveredBy),
+    );
+    for (const recipient of orderActivityRecipients(db, order)) {
+      if (actor && String(recipient.id) === String(actor.id)) continue;
+      const exists = (db.orderNotifications || []).some(
+        (item) =>
+          item.orderId === order.id &&
+          item.type === "order_delivered" &&
+          String(item.recipientUserId || "") === String(recipient.id),
+      );
+      if (exists) continue;
+      addOrderNotification(db, {
+        order,
+        recipient,
+        type: "order_delivered",
+        title: "Sipariş teslim edildi",
+        message: `${deliveredBy} tarafından teslim edildi · ${order.number} · ${order.customerName}`,
+        actor,
+      });
+      created += 1;
+    }
+  }
+  return created;
+}
+
+async function broadcastNotification(db, { title, message, type, actor }) {
+  db.orderNotifications ??= [];
+  db.pushSubscriptions ??= [];
+  const recipients = db.authUsers.filter((user) => user.active !== false && user.companyId === actor.companyId);
+  let pushed = 0;
+  const invalidEndpoints = new Set();
+  for (const recipient of recipients) {
+    if (notificationAllowed(recipient, type, "inApp")) {
+      db.orderNotifications.push({ id: randomUUID(), orderId: "", formNumber: "", recipientUserId: recipient.id, recipientName: recipient.name, type, title, message, createdAt: new Date().toISOString(), createdBy: actor.name || "AriX" });
+    }
+    if (!VAPID_PUBLIC_KEY || !notificationAllowed(recipient, type, "push")) continue;
+    const payload = JSON.stringify({ title, body: message, type, url: "/" });
+    for (const item of db.pushSubscriptions.filter((entry) => entry.userId === recipient.id)) {
+      try {
+        await webPush.sendNotification(item.subscription, payload, { TTL: 86_400, urgency: "high" });
+        pushed += 1;
+      } catch (error) {
+        if ([404, 410].includes(error?.statusCode)) invalidEndpoints.add(item.endpoint);
+      }
+    }
+  }
+  if (invalidEndpoints.size) db.pushSubscriptions = db.pushSubscriptions.filter((entry) => !invalidEndpoints.has(entry.endpoint));
+  return { recipients: recipients.length, pushed };
 }
 
 function passwordDigest(password, salt = randomBytes(16).toString("hex")) {
@@ -642,14 +1084,16 @@ function secureRequest(req) {
 
 function setSessionCookie(req, res, token, maxAgeSeconds) {
   const secure = secureRequest(req) ? "; Secure" : "";
-  res.setHeader("set-cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`);
+  const maxAge = Number.isFinite(maxAgeSeconds) ? `; Max-Age=${maxAgeSeconds}` : "";
+  res.setHeader("set-cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${maxAge}${secure}`);
 }
 
-function createSession(req, db, user) {
+function createSession(req, db, user, remember = false) {
   const token = randomBytes(32).toString("base64url");
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
-  db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(user.id) && new Date(session.expiresAt).getTime() > Date.now());
+  const ttl = remember ? SESSION_TTL_MS : SESSION_SHORT_TTL_MS;
+  const expiresAt = new Date(now.getTime() + ttl);
+  db.authSessions = db.authSessions.filter((session) => new Date(session.expiresAt).getTime() > Date.now());
   db.authSessions.push({
     id: randomUUID(),
     userId: user.id,
@@ -659,7 +1103,12 @@ function createSession(req, db, user) {
     ip: String(req.headers["x-forwarded-for"] ?? req.socket?.remoteAddress ?? "").split(",")[0].trim(),
     userAgent: String(req.headers["user-agent"] ?? "").slice(0, 300),
   });
-  return { token, expiresAt };
+  const userSessions = db.authSessions.filter((session) => String(session.userId) === String(user.id));
+  if (userSessions.length > 10) {
+    const keep = new Set(userSessions.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))).slice(0, 10).map((session) => session.id));
+    db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(user.id) || keep.has(session.id));
+  }
+  return { token, expiresAt, ttl, remember };
 }
 
 async function handleAuth(req, res, parts) {
@@ -691,9 +1140,9 @@ async function handleAuth(req, res, parts) {
     if (user.joinPending) return send(res, 202, { pending: true });
     if (user.active === false) return send(res, 403, { error: "Hesab aktiv deyil. Şirkət sahibinin təsdiqini gözləyin." });
     user.lastLoginAt = new Date().toISOString();
-    const session = createSession(req, db, user);
+    const session = createSession(req, db, user, body.remember === true);
     await writeDb(db);
-    setSessionCookie(req, res, session.token, Math.floor(SESSION_TTL_MS / 1000));
+    setSessionCookie(req, res, session.token, session.remember ? Math.floor(session.ttl / 1000) : null);
     return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
   }
 
@@ -810,9 +1259,9 @@ async function handleAuth(req, res, parts) {
     user.googleSubject = String(payload.sub);
     user.picture = String(payload.picture ?? user.picture ?? "");
     user.lastLoginAt = new Date().toISOString();
-    const session = createSession(req, db, user);
+    const session = createSession(req, db, user, body.remember === true);
     await writeDb(db);
-    setSessionCookie(req, res, session.token, Math.floor(SESSION_TTL_MS / 1000));
+    setSessionCookie(req, res, session.token, session.remember ? Math.floor(session.ttl / 1000) : null);
     return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
   }
 
@@ -824,9 +1273,9 @@ async function handleAuth(req, res, parts) {
       ?? db.authUsers.find((item) => item.active !== false);
     if (!user) return send(res, 403, { error: "Aktiv demo əməkdaş tapılmadı." });
     user.lastLoginAt = new Date().toISOString();
-    const session = createSession(req, db, user);
+    const session = createSession(req, db, user, body.remember === true);
     await writeDb(db);
-    setSessionCookie(req, res, session.token, Math.floor(SESSION_TTL_MS / 1000));
+    setSessionCookie(req, res, session.token, session.remember ? Math.floor(session.ttl / 1000) : null);
     return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
   }
 
@@ -910,6 +1359,13 @@ async function handleEmployees(req, res, parts) {
     employee.email = email;
     employee.phone = String(body.phone ?? employee.phone ?? "").trim();
     employee.role = String(body.role ?? employee.role).trim() || "Əməkdaş";
+    if (body.notificationPreferences && typeof body.notificationPreferences === "object") {
+      employee.notificationPreferences = {
+        inApp: body.notificationPreferences.inApp !== false,
+        push: body.notificationPreferences.push !== false,
+        events: Object.fromEntries(Object.entries(body.notificationPreferences.events || {}).map(([key, value]) => [String(key), value !== false])),
+      };
+    }
     if (Array.isArray(body.permissions)) {
       employee.permissions = [...new Set(body.permissions.filter((permission) => ALL_PERMISSIONS.includes(permission)))];
     } else if (!Array.isArray(employee.permissions) && body.role !== undefined) {
@@ -922,6 +1378,7 @@ async function handleEmployees(req, res, parts) {
       setPassword(employee, temporaryPassword, true);
       db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(employee.id));
     }
+    if (employee.active === false) db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(employee.id));
     await writeDb(db);
     return send(res, 200, { data: publicEmployee(employee), temporaryPassword });
   }
@@ -1069,7 +1526,7 @@ async function handleProducts(req, res, url, parts) {
     return send(res, 200, { data: db.products.filter((item) => matchesSearch(item, q)) });
   }
 
-  if (req.method === "GET" && parts[1] === "catalog") {
+  if (req.method === "GET" && parts[1] === "catalog" && parts.length === 2) {
     return send(res, 200, { data: db.orderCatalog.filter((item) => item.active !== false) });
   }
 
@@ -1159,50 +1616,1719 @@ async function handleProducts(req, res, url, parts) {
   return notFound(res);
 }
 
+function orderDayKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(value);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+function nextOrderDayKey(date) {
+  const value = new Date(`${date}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+}
+
+function isEffectiveClosedOrderDay(record) {
+  if (!record?.closed) return false;
+  if (!record.closedAt) return true;
+  return orderDayKey(new Date(record.closedAt)) >= String(record.date || "");
+}
+
+function activeOrderDayKey(db) {
+  let date = orderDayKey();
+  for (let index = 0; index < 370; index += 1) {
+    const record = db.orderDays.find((item) => item.date === date);
+    if (!isEffectiveClosedOrderDay(record)) return date;
+    date = nextOrderDayKey(date);
+  }
+  return date;
+}
+
+function orderRolloverSnapshot(order) {
+  return {
+    customerName: order.customerName,
+    note: order.note,
+    status: order.status,
+    items: structuredClone(Array.isArray(order.items) ? order.items : []),
+    originalItems: structuredClone(Array.isArray(order.originalItems) ? order.originalItems : []),
+    createdBy: order.createdBy,
+    preparedBy: order.preparedBy,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    readyAt: order.readyAt,
+    history: structuredClone(Array.isArray(order.history) ? order.history : []),
+    audit: structuredClone(Array.isArray(order.audit) ? order.audit : []),
+    despatchReady: order.despatchReady,
+    despatchNumber: order.despatchNumber,
+    despatchReadyAt: order.despatchReadyAt,
+    despatchReadyBy: order.despatchReadyBy,
+    deliveryNote: order.deliveryNote,
+    deliveredAt: order.deliveredAt,
+    deliveredBy: order.deliveredBy,
+    approvalForm: order.approvalForm ? structuredClone(order.approvalForm) : undefined,
+  };
+}
+
+function rolloverContentFingerprint(value) {
+  const snapshot = value?.snapshot ? structuredClone(value.snapshot) : orderRolloverSnapshot(value || {});
+  delete snapshot.updatedAt;
+  return JSON.stringify(snapshot);
+}
+
+function compactUnchangedAutomaticRollovers(order) {
+  const history = Array.isArray(order.rolloverHistory) ? order.rolloverHistory : [];
+  if (history.length < 2) return;
+  const compacted = [];
+  for (const entry of history) {
+    const previous = compacted[compacted.length - 1];
+    const isAutomaticContinuation = previous
+      && previous.toDate === entry.fromDate
+      && String(entry.by || "").toLocaleLowerCase("tr").includes("otomatik")
+      && rolloverContentFingerprint(previous) === rolloverContentFingerprint(entry);
+    if (isAutomaticContinuation) {
+      previous.toDate = entry.toDate;
+      previous.compactedAutomaticDates = [...(previous.compactedAutomaticDates || []), entry.fromDate];
+      continue;
+    }
+    compacted.push(entry);
+  }
+  order.rolloverHistory = compacted;
+}
+
+function closeOrderDay(db, date, actor, { automatic = false, now = new Date(), actorUser = null } = {}) {
+  const closedAt = now.toISOString();
+  let record = db.orderDays.find((item) => item.date === date);
+  if (!record) {
+    record = { date };
+    db.orderDays.push(record);
+  }
+  if (record.closed) return { record, carried: 0 };
+
+  let nextDate = nextOrderDayKey(date);
+  while (db.orderDays.some((item) => item.date === nextDate && isEffectiveClosedOrderDay(item))) {
+    nextDate = nextOrderDayKey(nextDate);
+  }
+  const dayOrders = db.orderBoard.filter((order) => order.businessDate === date);
+  let carried = 0;
+  for (const order of db.orderBoard) {
+    if (order.businessDate !== date || ["delivered", "fulfilled", "cancelled"].includes(order.status)) continue;
+    order.rolloverHistory ??= [];
+    const previousRollover = order.rolloverHistory[order.rolloverHistory.length - 1];
+    const unchangedAutomaticContinuation = automatic
+      && previousRollover?.toDate === date
+      && rolloverContentFingerprint(previousRollover) === rolloverContentFingerprint(order);
+    if (unchangedAutomaticContinuation) {
+      previousRollover.toDate = nextDate;
+      previousRollover.compactedAutomaticDates = [...(previousRollover.compactedAutomaticDates || []), date];
+    } else if (!order.rolloverHistory.some((entry) => entry.fromDate === date)) {
+      order.rolloverHistory.push({
+        fromDate: date,
+        toDate: nextDate,
+        at: closedAt,
+        by: actor,
+        snapshot: orderRolloverSnapshot(order),
+      });
+    }
+    order.businessDate = nextDate;
+    order.updatedAt = closedAt;
+    carried += 1;
+  }
+
+  record.closed = true;
+  record.closedAt = closedAt;
+  record.closedBy = actor;
+  record.updatedAt = closedAt;
+  record.updatedBy = actor;
+  record.automatic = automatic;
+  record.carriedCount = carried;
+  record.carriedToDate = nextDate;
+  sendDayCloseNotifications(db, {
+    date,
+    nextDate,
+    actor: actorUser || { id: "system", name: actor },
+    automatic,
+    orders: dayOrders,
+  });
+  return { record, carried };
+}
+
+async function closeExpiredOrderDays() {
+  return queueOrderMutation(async () => {
+    const db = await readDb();
+    const today = orderDayKey();
+    const dates = new Set(
+      db.orderBoard
+        .map((order) => String(order.businessDate || ""))
+        .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date < today),
+    );
+    for (const day of db.orderDays) {
+      if (!day.closed && day.date < today) dates.add(day.date);
+    }
+    const yesterday = new Date(`${today}T12:00:00Z`);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    dates.add(yesterday.toISOString().slice(0, 10));
+    let changed = false;
+    for (const date of [...dates].sort()) {
+      const existing = db.orderDays.find((item) => item.date === date);
+      if (existing?.closed) continue;
+      closeOrderDay(db, date, "Otomatik gün kapanışı", { automatic: true });
+      changed = true;
+    }
+    if (changed) await writeDb(db);
+  });
+}
+
+const orderEditorPresence = new Map();
+let orderMutationQueue = Promise.resolve();
+
+function queueOrderMutation(task) {
+  const run = orderMutationQueue.then(task, task);
+  orderMutationQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function touchOrderEditor(orderId, user, active = true) {
+  const key = String(orderId);
+  const current = orderEditorPresence.get(key) || new Map();
+  if (active) {
+    current.set(String(user?.id || user?.name || "unknown"), { id: user?.id, name: user?.name || "Əməkdaş", at: Date.now() });
+    orderEditorPresence.set(key, current);
+  } else {
+    current.delete(String(user?.id || user?.name || "unknown"));
+    if (!current.size) orderEditorPresence.delete(key);
+  }
+}
+
+function activeOrderEditors(orderId) {
+  const current = orderEditorPresence.get(String(orderId));
+  if (!current) return [];
+  const cutoff = Date.now() - 45_000;
+  for (const [key, editor] of current) {
+    if (editor.at < cutoff) current.delete(key);
+  }
+  if (!current.size) orderEditorPresence.delete(String(orderId));
+  return [...current.values()].map(({ id, name }) => ({ id, name }));
+}
+
+function orderWithPresence(order, user) {
+  const result = { ...order, activeEditors: activeOrderEditors(order.id) };
+  const isOwner = normalizedRole(user?.role) === "sahib";
+  if (String(result.deliveryPhoto || "").startsWith("data:image/")) {
+    result.deliveryPhoto = `/api/orders/delivery-photos/${order.id}`;
+  }
+  if (!isOwner && !hasPermission(user, "orders.audit.view")) delete result.audit;
+  if (!isOwner && !hasPermission(user, "documents.view")) {
+    if (hasPermission(user, "orders.deliver")) {
+      result.attachments = (result.attachments || []).filter((attachment) => attachment.kind === "deliveryProof");
+    } else delete result.attachments;
+  }
+  if (!isOwner && !hasPermission(user, "order_forms.view")) {
+    delete result.approvalForm;
+  } else if (!isOwner && result.approvalForm && !hasPermission(user, "order_forms.view_all")) {
+    const actorId = String(user?.id || "");
+    const actorName = normalizeSalesRepresentativeName(user?.name || "");
+    const assignedId = String(result.approvalForm.salesRepresentativeUserId || "");
+    const assignedName = normalizeSalesRepresentativeName(result.approvalForm.salesRepresentative || "");
+    if (assignedId ? assignedId !== actorId : assignedName !== actorName) delete result.approvalForm;
+  }
+  return result;
+}
+
+async function latestTcmbRate(currency, beforeDate) {
+  if (currency === "TRY") return { currency, rate: 1, date: beforeDate };
+  const cursor = new Date(`${beforeDate}T12:00:00Z`);
+  cursor.setUTCDate(cursor.getUTCDate() - 1);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const year = cursor.getUTCFullYear();
+    const month = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(cursor.getUTCDate()).padStart(2, "0");
+    const source = `https://www.tcmb.gov.tr/kurlar/${year}${month}/${day}${month}${year}.xml`;
+    try {
+      const response = await fetch(source, { headers: { accept: "application/xml" }, signal: AbortSignal.timeout(5000) });
+      if (response.ok) {
+        const xml = await response.text();
+        const block = xml.match(new RegExp(`<Currency[^>]+CurrencyCode=["']${currency}["'][\\s\\S]*?<\\/Currency>`));
+        const selling = block?.[0].match(/<BanknoteSelling>([^<]+)<\/BanknoteSelling>/)?.[1];
+        const rate = Number(selling);
+        if (Number.isFinite(rate) && rate > 0) return { currency, rate, date: `${year}-${month}-${day}`, source: "TCMB Efektif Satış" };
+      }
+    } catch {
+      // Holidays and temporary TCMB failures fall through to the previous publication day.
+    }
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  throw new Error("TCMB-də son yayımlanan məzənnə tapılmadı.");
+}
+
 async function handleOrderBoard(req, res, url, parts) {
   const db = await readDb();
+  db.orderNotifications ??= [];
   const id = String(parts[1] ?? "");
+  const workflowRole = orderWorkflowRole(req.authUser);
+  const canSell = workflowRole === "owner" || hasPermission(req.authUser, "orders.create") || hasPermission(req.authUser, "order_forms.edit");
+  const canPrepare = workflowRole === "owner" || workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare");
+  const canDeliver = workflowRole === "owner" || hasPermission(req.authUser, "orders.deliver");
+
+  if (req.method === "GET" && parts[1] === "print-settings") {
+    const settings = db.companySettings?.printSettings ?? defaultPrintSettings;
+    return send(res, 200, { data: {
+      companyName: settings.companyName,
+      brandSubtitle: settings.brandSubtitle,
+      addressLine: settings.addressLine,
+      phone: settings.phone,
+      email: settings.email,
+      website: settings.website,
+      taxOffice: settings.taxOffice,
+      taxNumber: settings.taxNumber,
+      companyLogo: settings.companyLogo,
+      companyStamp: settings.companyStamp,
+    } });
+  }
+
+  if (req.method === "GET" && parts[1] === "push-config") return send(res, 200, { data: { publicKey: VAPID_PUBLIC_KEY } });
+
+  if (req.method === "POST" && parts[1] === "push-subscriptions") {
+    const body = await parseBody(req);
+    const endpoint = String(body.subscription?.endpoint || "").trim();
+    if (!endpoint || !body.subscription?.keys) return send(res, 400, { error: "Bildirim aboneliği geçersizdir." });
+    db.pushSubscriptions = (db.pushSubscriptions || []).filter((item) => item.endpoint !== endpoint);
+    db.pushSubscriptions.push({ id: randomUUID(), endpoint, userId: req.authUser.id, subscription: body.subscription, createdAt: new Date().toISOString() });
+    await writeDb(db);
+    return send(res, 201, { data: { enabled: true } });
+  }
+
+  if (req.method === "POST" && parts[1] === "push-test") {
+    const subscriptions = (db.pushSubscriptions || []).filter((item) => item.userId === req.authUser.id);
+    let delivered = 0;
+    for (const item of subscriptions) {
+      try {
+        await webPush.sendNotification(item.subscription, JSON.stringify({ title: "AriX bildirim testi", body: "Bu cihaz bildirim almaya hazır.", type: "test", url: "/" }));
+        delivered += 1;
+      } catch (error) {
+        if ([404, 410].includes(error?.statusCode)) db.pushSubscriptions = db.pushSubscriptions.filter((entry) => entry.endpoint !== item.endpoint);
+      }
+    }
+    await writeDb(db);
+    return send(res, 200, { data: { delivered } });
+  }
+
+  if (req.method === "POST" && parts[1] === "notifications" && parts[2] === "broadcast") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "employees.manage")) {
+      return send(res, 403, { error: "Toplu bildirim göndermek için kullanıcı yönetimi yetkisi gerekir." });
+    }
+    const body = await parseBody(req);
+    const isTest = body.test === true;
+    const title = String(isTest ? "AriX test bildirimi" : body.title || "").trim().slice(0, 100);
+    const announcement = String(isTest ? "Bildirim sistemi çalışıyor." : body.message || "").trim().slice(0, 500);
+    if (!title || !announcement) return send(res, 400, { error: "Bildirim başlığı ve mesajı zorunludur." });
+    const message = `${announcement} · Gönderen: ${req.authUser?.name || "AriX"}`;
+    const result = await broadcastNotification(db, { title, message, type: isTest ? "broadcast_test" : "announcement", actor: req.authUser });
+    await writeDb(db);
+    return send(res, 201, { data: result });
+  }
+
+  if (req.method === "GET" && parts[1] === "notifications" && parts[2] === "history") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "employees.manage")) {
+      return send(res, 403, { error: "Bildirim geçmişini görmek için kullanıcı yönetimi yetkisi gerekir." });
+    }
+    const groups = new Map();
+    for (const item of [...(db.orderNotifications || [])]
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+      .slice(0, 1000)) {
+      const timestamp = new Date(item.createdAt || 0).getTime();
+      const timeBucket = Number.isFinite(timestamp) ? Math.floor(timestamp / 10_000) : 0;
+      const key = [item.type, item.title, item.message, item.createdBy, item.orderId, item.dayKey, timeBucket].join("|");
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          message: item.message,
+          createdAt: item.createdAt,
+          createdBy: item.createdBy || "AriX",
+          orderId: item.orderId || "",
+          dayKey: item.dayKey || "",
+          recipients: [],
+          readCount: 0,
+        };
+        groups.set(key, group);
+      }
+      if (item.recipientName && !group.recipients.includes(item.recipientName)) group.recipients.push(item.recipientName);
+      if (item.readAt) group.readCount += 1;
+      if (String(item.createdAt) > String(group.createdAt)) group.createdAt = item.createdAt;
+    }
+    const data = [...groups.values()]
+      .map((group) => ({ ...group, recipients: group.recipients.sort((left, right) => left.localeCompare(right, "tr")) }))
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+      .slice(0, 100);
+    return send(res, 200, { data });
+  }
+
+  if (req.method === "GET" && parts[1] === "notifications") {
+    const actorId = String(req.authUser?.id || "");
+    const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
+    const data = db.orderNotifications
+      .filter((item) => String(item.recipientUserId || "") === actorId || normalizeSalesRepresentativeName(item.recipientName || "") === actorName)
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+      .slice(0, 50);
+    return send(res, 200, { data });
+  }
+
+  if (req.method === "PATCH" && parts[1] === "notifications" && parts[2]) {
+    const notification = db.orderNotifications.find((item) => String(item.id) === String(parts[2]));
+    if (!notification) return notFound(res);
+    const actorId = String(req.authUser?.id || "");
+    const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
+    if (String(notification.recipientUserId || "") !== actorId && normalizeSalesRepresentativeName(notification.recipientName || "") !== actorName) return notFound(res);
+    notification.readAt = new Date().toISOString();
+    await writeDb(db);
+    return send(res, 200, { data: notification });
+  }
+
+  if (req.method === "POST" && parts[1] === "notifications" && parts[2] === "read-all") {
+    const actorId = String(req.authUser?.id || "");
+    const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
+    const readAt = new Date().toISOString();
+    let updated = 0;
+    for (const notification of db.orderNotifications) {
+      const belongsToActor = String(notification.recipientUserId || "") === actorId || normalizeSalesRepresentativeName(notification.recipientName || "") === actorName;
+      if (belongsToActor && !notification.readAt) {
+        notification.readAt = readAt;
+        updated += 1;
+      }
+    }
+    await writeDb(db);
+    return send(res, 200, { data: { updated, readAt } });
+  }
+
+  if (req.method === "GET" && parts[1] === "exchange-rate") {
+    const currency = String(url.searchParams.get("currency") || "USD").toUpperCase();
+    if (!["TRY", "USD", "EUR"].includes(currency)) return send(res, 400, { error: "Dəstəklənməyən valyuta." });
+    const requestedDate = String(url.searchParams.get("date") || new Date().toISOString().slice(0, 10));
+    try { return send(res, 200, { data: await latestTcmbRate(currency, requestedDate) }); }
+    catch (cause) { return send(res, 503, { error: cause instanceof Error ? cause.message : "TCMB məzənnəsi alınmadı." }); }
+  }
+
+  if (["GET", "HEAD"].includes(req.method) && parts[1] === "attachments" && parts[2]) {
+    const attachmentId = String(parts[2]);
+    const orders = [...(db.orderBoard || []), ...(db.orderTrash || [])];
+    const attachment = orders.flatMap((order) => order.attachments || []).find((item) => String(item.id) === attachmentId);
+    if (!attachment?.storageName) return notFound(res);
+    if (attachment.deletedAt && normalizedRole(req.authUser?.role) !== "sahib") return notFound(res);
+    try {
+      const file = await readFile(join(ORDER_UPLOAD_DIR, attachment.storageName));
+      const commonHeaders = {
+        "content-type": attachment.mimeType || "application/octet-stream",
+        "content-disposition": `${url.searchParams.get("download") === "1" ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(attachment.name || "document")}`,
+        "cache-control": "private, max-age=3600",
+        "x-content-type-options": "nosniff",
+        "accept-ranges": "bytes",
+        etag: `"${attachment.id}-${file.length}"`,
+      };
+      const range = String(req.headers.range || "").match(/^bytes=(\d*)-(\d*)$/);
+      if (range) {
+        const requestedStart = range[1] ? Number(range[1]) : null;
+        const requestedEnd = range[2] ? Number(range[2]) : null;
+        const start = requestedStart ?? Math.max(0, file.length - (requestedEnd || file.length));
+        const end = Math.min(file.length - 1, requestedStart === null ? file.length - 1 : (requestedEnd ?? file.length - 1));
+        if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= file.length) {
+          res.writeHead(416, { ...commonHeaders, "content-range": `bytes */${file.length}` });
+          res.end();
+          return;
+        }
+        const chunk = file.subarray(start, end + 1);
+        res.writeHead(206, { ...commonHeaders, "content-length": chunk.length, "content-range": `bytes ${start}-${end}/${file.length}` });
+        res.end(req.method === "HEAD" ? undefined : chunk);
+        return;
+      }
+      res.writeHead(200, { ...commonHeaders, "content-length": file.length });
+      res.end(req.method === "HEAD" ? undefined : file);
+      return;
+    } catch {
+      return notFound(res);
+    }
+  }
+
+  if (req.method === "GET" && parts[1] === "delivery-photos" && parts[2]) {
+    const orderId = String(parts[2]);
+    const order = [...(db.orderBoard || []), ...(db.orderTrash || [])].find((item) => String(item.id) === orderId);
+    if (!order?.deliveryPhoto) return notFound(res);
+    try {
+      if (order.deliveryPhotoStorageName) {
+        const file = await readFile(join(ORDER_UPLOAD_DIR, order.deliveryPhotoStorageName));
+        res.writeHead(200, { "content-type": order.deliveryPhotoMimeType || "image/jpeg", "content-length": file.length, "cache-control": "private, max-age=300", "x-content-type-options": "nosniff" });
+        res.end(file);
+        return;
+      }
+      const match = String(order.deliveryPhoto).match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+      if (!match) return notFound(res);
+      const file = Buffer.from(match[2], "base64");
+      res.writeHead(200, { "content-type": match[1], "content-length": file.length, "cache-control": "private, max-age=300", "x-content-type-options": "nosniff" });
+      res.end(file);
+      return;
+    } catch {
+      return notFound(res);
+    }
+  }
+
+  if (parts[1] === "day") {
+    if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, req.method === "GET" ? "orders.days.view" : "orders.days.manage")) {
+      return send(res, 403, { error: "Gün arxivinə baxmaq üçün icazəniz yoxdur." });
+    }
+    const date = String(url.searchParams.get("date") || orderDayKey()).trim();
+    const existing = db.orderDays.find((item) => item.date === date);
+    if (req.method === "GET") return send(res, 200, { data: existing ? { ...existing, closed: isEffectiveClosedOrderDay(existing) } : { date, closed: false } });
+    if (req.method === "POST") {
+      if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, "orders.days.manage")) return send(res, 403, { error: "Günü açıb bağlamaq üçün icazəniz yoxdur." });
+      const body = await parseBody(req);
+      const closed = body.closed === true;
+      const now = new Date().toISOString();
+      if (date > orderDayKey(new Date(now))) return send(res, 400, { error: "Gelecekteki bir iş günü kapatılamaz." });
+      const actor = req.authUser?.name ?? "Sahib";
+      let record = existing || { date };
+      if (closed) {
+        record = closeOrderDay(db, date, actor, { now: new Date(now), actorUser: req.authUser }).record;
+      } else {
+        record.closed = false;
+        record.updatedAt = now;
+        record.updatedBy = actor;
+        record.openedAt = now;
+        record.openedBy = actor;
+        if (!existing) db.orderDays.push(record);
+      }
+      await writeDb(db);
+      return send(res, 200, { data: record });
+    }
+    return notFound(res);
+  }
+
+  if (parts[1] === "trash") {
+    if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, "trash.manage")) return send(res, 403, { error: "Silinən sifarişləri idarə etmək üçün icazəniz yoxdur." });
+    db.orderTrash ??= [];
+    const trashId = String(parts[2] ?? "");
+    if (req.method === "GET" && !trashId) {
+      return send(res, 200, { data: [...db.orderTrash].sort((left, right) => String(right.deletedAt).localeCompare(String(left.deletedAt))).map((order) => orderWithPresence(order, req.authUser)) });
+    }
+    if (req.method === "POST" && trashId && parts[3] === "restore") {
+      const index = db.orderTrash.findIndex((item) => String(item.id) === trashId);
+      if (index < 0) return notFound(res);
+      const [order] = db.orderTrash.splice(index, 1);
+      delete order.deletedAt;
+      delete order.deletedBy;
+      order.updatedAt = new Date().toISOString();
+      order.audit ??= [];
+      order.audit.push({ id: randomUUID(), action: "restored", by: req.authUser?.name ?? "Sahib", userId: req.authUser?.id, at: order.updatedAt });
+      db.orderBoard.push(order);
+      await writeDb(db);
+      return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+    }
+    if (req.method === "DELETE" && trashId) {
+      const before = db.orderTrash.length;
+      db.orderTrash = db.orderTrash.filter((item) => String(item.id) !== trashId);
+      if (db.orderTrash.length === before) return notFound(res);
+      await writeDb(db);
+      return send(res, 200, { ok: true });
+    }
+    return notFound(res);
+  }
+
+  if (req.method === "GET" && parts[1] === "catalog" && parts[2] && parts[3] === "stock-history") {
+    const productId = Number(parts[2]);
+    const product = db.orderCatalog.find((item) => Number(item.id) === productId);
+    if (!product) return notFound(res);
+    db.stockTransactions ??= [];
+    return send(res, 200, { data: db.stockTransactions.filter((item) => Number(item.productId) === productId).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+  }
 
   if (req.method === "GET" && parts[1] === "catalog") {
-    return send(res, 200, { data: db.orderCatalog });
+    const reservedByProduct = new Map();
+    for (const order of db.orderBoard.filter((item) => !item.deletedAt && ["new", "preparing", "ready"].includes(item.status))) {
+      for (const item of (Array.isArray(order.items) ? order.items : [])) {
+        const productId = Number(item.productId);
+        if (!productId) continue;
+        const allowance = normalizeOrderCutAllowance(item);
+        reservedByProduct.set(productId, (reservedByProduct.get(productId) ?? 0) + allowance.stockConsumptionQuantity);
+      }
+    }
+    return send(res, 200, { data: db.orderCatalog.map((product) => {
+      const physicalQuantity = Number.isFinite(Number(product.physicalQuantity)) ? Number(product.physicalQuantity) : 0;
+      const reservedQuantity = reservedByProduct.get(Number(product.id)) ?? 0;
+      return { ...product, physicalQuantity, reservedQuantity, availableQuantity: physicalQuantity - reservedQuantity, rollCount: Math.max(0, Number(product.rollCount) || 0) };
+    }) });
+  }
+
+  if (req.method === "POST" && parts[1] === "catalog" && parts[2] && parts[3] === "stock-transaction") {
+    const productId = Number(parts[2]);
+    const product = db.orderCatalog.find((item) => Number(item.id) === productId);
+    if (!product) return notFound(res);
+    const body = await parseBody(req, 3_000_000);
+    const type = String(body.type || "");
+    const permissionByType = {
+      adjustment: "stock.adjust",
+      writeoff: "stock.writeoff",
+      transfer: "stock.transfer",
+      purchase: "stock.purchase",
+      loan_purchase: "stock.loan_purchase",
+    };
+    const requiredPermission = permissionByType[type];
+    if (!requiredPermission) return send(res, 400, { error: "Geçersiz stok işlem türü." });
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, requiredPermission)) return send(res, 403, { error: "Bu stok işlemi için yetkiniz yok." });
+    const quantity = Math.abs(Number(body.quantity));
+    const rollCount = Math.abs(Math.trunc(Number(body.rollCount || 0)));
+    if (type !== "transfer" && (!Number.isFinite(quantity) || quantity <= 0)) return send(res, 400, { error: "Geçerli bir metre miktarı girin." });
+    if (!String(body.note || "").trim()) return send(res, 400, { error: "İşlem açıklaması zorunludur." });
+    if (type === "transfer" && (!String(body.fromLocation || "").trim() || !String(body.toLocation || "").trim())) return send(res, 400, { error: "Çıkış ve hedef konumu zorunludur." });
+    const beforeQuantity = Number(product.physicalQuantity || 0);
+    const beforeRollCount = Number(product.rollCount || 0);
+    const direction = type === "writeoff" ? -1 : type === "transfer" ? 0 : 1;
+    const signedQuantity = direction * quantity;
+    const signedRollCount = direction * rollCount;
+    if (beforeQuantity + signedQuantity < 0 || beforeRollCount + signedRollCount < 0) return send(res, 400, { error: "İşlem stok miktarını sıfırın altına düşürüyor." });
+    const now = new Date().toISOString();
+    const documentNumber = `STK-${now.slice(0, 10).replaceAll("-", "")}-${String(Date.now()).slice(-6)}`;
+    let attachment = null;
+    const attachmentMatch = String(body.attachmentData || "").match(/^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/);
+    if (attachmentMatch) {
+      const file = Buffer.from(attachmentMatch[2], "base64");
+      if (file.length > 2_000_000) return send(res, 413, { error: "Stok evrakı en fazla 2 MB olabilir." });
+      await mkdir(STOCK_IMPORT_DIR, { recursive: true });
+      const safeName = String(body.attachmentName || "stok-evraki").replace(/[\\/:*?"<>|]/g, "_").slice(0, 120);
+      const archivedFile = `${documentNumber}-${safeName}`;
+      await writeFile(join(STOCK_IMPORT_DIR, archivedFile), file);
+      attachment = { name: safeName, mimeType: attachmentMatch[1], archivedFile, size: file.length };
+    }
+    product.physicalQuantity = beforeQuantity + signedQuantity;
+    product.rollCount = beforeRollCount + signedRollCount;
+    product.stockUpdatedAt = now;
+    product.stockUpdatedBy = req.authUser?.name ?? "Kullanıcı";
+    db.stockTransactions ??= [];
+    const transaction = {
+      id: randomUUID(), documentNumber, productId, productCode: product.code || product.sku || "", productName: product.name,
+      type, quantity, rollCount, signedQuantity, signedRollCount,
+      beforeQuantity, afterQuantity: product.physicalQuantity, beforeRollCount, afterRollCount: product.rollCount,
+      fromLocation: String(body.fromLocation || "").trim(), toLocation: String(body.toLocation || "").trim(),
+      counterparty: String(body.counterparty || "").trim(), note: String(body.note || "").trim().slice(0, 500),
+      loanOutstanding: type === "loan_purchase" ? quantity : 0, attachment,
+      createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "",
+    };
+    db.stockTransactions.unshift(transaction);
+    await writeDb(db);
+    return send(res, 201, { data: transaction, product });
+  }
+
+  if (req.method === "POST" && parts[1] === "catalog" && parts[2] === "stock-import") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "products.manage")) return send(res, 403, { error: "Stok içe aktarma yetkiniz yok." });
+    const body = await parseBody(req, 2_000_000);
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    if (!rows.length) return send(res, 400, { error: "Excel dosyasında stok satırı bulunamadı." });
+    const errors = [];
+    const updates = [];
+    let created = 0;
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index] ?? {};
+      const code = String(row.code ?? row.sku ?? "").trim().toLocaleLowerCase("tr");
+      if (!code) {
+        errors.push({ row: index + 2, code: "", error: "Ürün kodu boş." });
+        continue;
+      }
+      let product = db.orderCatalog.find((item) => [item.code, item.sku].some((value) => String(value ?? "").trim().toLocaleLowerCase("tr") === code));
+      if (!product) {
+        const originalCode = String(row.code ?? row.sku ?? "").trim();
+        product = {
+          id: db.orderCatalog.length ? Math.max(...db.orderCatalog.map((item) => Number(item.id) || 0)) + 1 : 1,
+          name: String(row.name ?? originalCode).trim() || originalCode,
+          code: originalCode,
+          sku: originalCode,
+          unit: "mt",
+        };
+        db.orderCatalog.push(product);
+        created += 1;
+      }
+      const physicalQuantity = Number(row.physicalQuantity);
+      const rollCount = Number(row.rollCount ?? 0);
+      if (!Number.isFinite(physicalQuantity) || !Number.isFinite(rollCount) || rollCount < 0) {
+        errors.push({ row: index + 2, code: row.code, error: "Metraj veya rulo sayısı geçersiz." });
+        continue;
+      }
+      updates.push({ product, physicalQuantity, rollCount: Math.trunc(rollCount) });
+    }
+    if (errors.length) return send(res, 400, { error: "Excel kontrolünde hata bulundu. Hiçbir stok değiştirilmedi.", details: errors });
+    const updatedAt = new Date().toISOString();
+    const sourceName = String(body.sourceName || "Stok sayım dosyası.xlsx").replace(/[\\/:*?"<>|]/g, "_").slice(0, 180);
+    const sourceDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.sourceDate)) ? String(body.sourceDate) : updatedAt.slice(0, 10);
+    let archivedFile = "";
+    const fileMatch = String(body.sourceFile || "").match(/^data:application\/(?:vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|octet-stream);base64,([A-Za-z0-9+/=]+)$/);
+    if (fileMatch) {
+      const file = Buffer.from(fileMatch[1], "base64");
+      if (file.length > 1_500_000) return send(res, 413, { error: "Stok sayım dosyası en fazla 1,5 MB olabilir." });
+      await mkdir(STOCK_IMPORT_DIR, { recursive: true });
+      archivedFile = `${updatedAt.replace(/[:.]/g, "-")}-${sourceName}`;
+      await writeFile(join(STOCK_IMPORT_DIR, archivedFile), file);
+    }
+    for (const update of updates) {
+      update.product.physicalQuantity = update.physicalQuantity;
+      update.product.rollCount = update.rollCount;
+      update.product.stockUpdatedAt = updatedAt;
+      update.product.stockUpdatedBy = req.authUser?.name ?? "Sahib";
+      update.product.stockSourceDate = sourceDate;
+      update.product.stockSourceName = sourceName;
+    }
+    db.stockImportHistory ??= [];
+    const history = { id: randomUUID(), sourceName, sourceDate, archivedFile, importedAt: updatedAt, importedBy: req.authUser?.name ?? "Kullanıcı", updated: updates.length, created };
+    db.stockImportHistory.unshift(history);
+    db.stockImportHistory = db.stockImportHistory.slice(0, 100);
+    await writeDb(db);
+    return send(res, 200, { data: { updated: updates.length, created, history } });
+  }
+
+  if (req.method === "GET" && parts[1] === "catalog" && parts[2] === "stock-import-history") {
+    return send(res, 200, { data: (db.stockImportHistory ?? []).slice(0, 20) });
+  }
+
+  if (req.method === "POST" && parts[1] === "catalog") {
+    const body = await parseBody(req);
+    const mayCreateFromOrder = body.fromOrderMatch === true && hasPermission(req.authUser, "orders.create");
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "products.manage") && !mayCreateFromOrder) return send(res, 403, { error: "Ürün oluşturma yetkiniz yok." });
+    const name = String(body.name ?? "").trim();
+    const code = String(body.code ?? body.sku ?? "").trim();
+    if (!name) return send(res, 400, { error: "Məhsul adı məcburidir." });
+    const requestedId = Number(body.id) || null;
+    const duplicateCode = code && db.orderCatalog.find((item) =>
+      Number(item.id) !== requestedId
+      && [item.code, item.sku].some((value) => String(value ?? "").trim().toLocaleLowerCase("tr") === code.toLocaleLowerCase("tr"))
+    );
+    if (duplicateCode) return send(res, 409, { error: `Bu məhsul kodu artıq istifadə olunur: ${code}` });
+    const existingProduct = requestedId ? db.orderCatalog.find((item) => Number(item.id) === requestedId) : null;
+    const product = {
+      id: requestedId || (db.orderCatalog.length ? Math.max(...db.orderCatalog.map((p) => Number(p.id) || 0)) + 1 : 1),
+      name,
+      code: code || `ERSA-${String(Date.now()).slice(-4)}`,
+      sku: code || `ERSA-${String(Date.now()).slice(-4)}`,
+      unit: String(body.unit ?? "mt").trim() || "mt",
+      type: "product",
+      active: body.active !== false,
+      physicalQuantity: Math.max(0, Number(body.physicalQuantity ?? existingProduct?.physicalQuantity) || 0),
+      rollCount: Math.max(0, Math.trunc(Number(body.rollCount ?? existingProduct?.rollCount) || 0)),
+    };
+    const existingIndex = db.orderCatalog.findIndex((p) => p.id === product.id);
+    if (existingIndex >= 0) db.orderCatalog[existingIndex] = product;
+    else db.orderCatalog.push(product);
+    await writeDb(db);
+    return send(res, 201, { data: product });
+  }
+
+  if (req.method === "DELETE" && parts[1] === "catalog" && parts[2]) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "products.manage")) return send(res, 403, { error: "Məhsul kataloqunu dəyişmək icazəniz yoxdur." });
+    const targetId = Number(parts[2]);
+    db.orderCatalog = db.orderCatalog.filter((p) => p.id !== targetId);
+    await writeDb(db);
+    return send(res, 200, { ok: true });
+  }
+
+  if (req.method === "GET" && parts[1] === "customers") {
+    const combined = [
+      ...db.orderCustomers,
+      ...(db.counterparties || []).map((c) => ({ id: `cp-${c.id}`, name: c.name, phone: c.phone || "", email: c.email || "", address: c.address || "", note: "Panel kontragenti", prices: {} }))
+    ];
+    const seen = new Set();
+    const unique = [];
+    for (const item of combined) {
+      const key = String(item.name || "").trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      unique.push(item);
+    }
+    return send(res, 200, { data: unique });
+  }
+
+  if (req.method === "POST" && parts[1] === "customers" && !parts[2]) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "counterparties.manage")) return send(res, 403, { error: "Müştəri siyahısını dəyişmək icazəniz yoxdur." });
+    const body = await parseBody(req);
+    const name = String(body.name ?? "").trim();
+    if (!name) return send(res, 400, { error: "Müştəri adı məcburidir." });
+    const customer = {
+      id: randomUUID(),
+      name,
+      phone: String(body.phone ?? "").trim(),
+      contact: String(body.contact ?? "").trim(),
+      salesRepresentative: normalizeSalesRepresentativeName(body.salesRepresentative),
+      salesRepresentativeUserId: String(body.salesRepresentativeUserId ?? "").trim(),
+      folderName: String(body.folderName ?? "").trim(),
+      addressLine1: String(body.addressLine1 ?? "").trim(),
+      addressLine2: String(body.addressLine2 ?? "").trim(),
+      address: String(body.address ?? [body.addressLine1, body.addressLine2].filter(Boolean).join(" · ") ?? "").trim(),
+      email: String(body.email ?? "").trim(),
+      note: String(body.note ?? "").trim(),
+      prices: {},
+      createdAt: new Date().toISOString(),
+    };
+    db.orderCustomers.push(customer);
+    await writeDb(db);
+    return send(res, 201, { data: customer });
+  }
+
+  if (req.method === "POST" && parts[1] === "customers" && parts[2] === "import") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "counterparties.manage")) return send(res, 403, { error: "Müştəri məlumatlarını idxal etmək icazəniz yoxdur." });
+    const body = await parseBody(req);
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+    let imported = 0;
+    let prices = 0;
+    for (const entry of entries) {
+      const name = String(entry.name ?? "").trim();
+      if (!name) continue;
+      const normalizedName = name.toLocaleLowerCase("tr");
+      let customer = db.orderCustomers.find((item) => String(item.name ?? "").trim().toLocaleLowerCase("tr") === normalizedName);
+      const normalizedPrices = Object.fromEntries(
+        Object.entries(entry.prices ?? {})
+          .map(([code, price]) => [String(code).trim().toLocaleUpperCase("tr"), Number(price)])
+          .filter(([code, price]) => code && Number.isFinite(price) && price >= 0),
+      );
+      const importedPriceLists = Object.fromEntries(
+        Object.entries(entry.priceLists ?? {}).map(([listName, listPrices]) => [
+          String(listName).trim().toLocaleUpperCase("tr"),
+          Object.fromEntries(
+            Object.entries(listPrices && typeof listPrices === "object" ? listPrices : {})
+              .map(([code, price]) => [String(code).trim().toLocaleUpperCase("tr"), Number(price)])
+              .filter(([code, price]) => code && Number.isFinite(price) && price > 0),
+          ),
+        ]),
+      );
+      const normalizedPriceLists = entry.customerType === "foreign"
+        ? {
+            DEPO: importedPriceLists.DEPO ?? normalizedPrices,
+            ANTREPO_TRANSIT: importedPriceLists.ANTREPO_TRANSIT
+              ?? { ...(importedPriceLists.TRANSIT ?? {}), ...(importedPriceLists.ANTREPO ?? {}) },
+          }
+        : importedPriceLists;
+      if (!customer) {
+        customer = { id: randomUUID(), name, phone: "", note: "Excel aktarımı", prices: {}, createdAt: new Date().toISOString() };
+        db.orderCustomers.push(customer);
+      }
+      customer.contact = String(entry.contact ?? customer.contact ?? "").trim();
+      customer.phone = String(entry.phone ?? customer.phone ?? "").trim();
+      customer.country = String(entry.country ?? customer.country ?? "").trim();
+      customer.customerType = entry.customerType === "foreign" ? "foreign" : (customer.customerType ?? "domestic");
+      customer.salesRepresentative = customer.customerType === "foreign"
+        ? "Ekrem Tiryaki"
+        : normalizeSalesRepresentativeName(entry.salesRepresentative ?? customer.salesRepresentative);
+      customer.salesRepresentativeUserId = customer.customerType === "foreign"
+        ? ""
+        : String(entry.salesRepresentativeUserId ?? customer.salesRepresentativeUserId ?? "").trim();
+      customer.folderName = customer.customerType === "foreign"
+        ? exportCustomerFolder(name)
+        : String(entry.folderName ?? customer.folderName ?? "").trim();
+      customer.addressLine1 = String(entry.addressLine1 ?? customer.addressLine1 ?? "").trim();
+      customer.addressLine2 = String(entry.addressLine2 ?? customer.addressLine2 ?? "").trim();
+      customer.address = String(entry.address ?? customer.address ?? "").trim();
+      customer.prices = { ...(customer.prices ?? {}), ...normalizedPrices };
+      customer.priceLists = entry.customerType === "foreign"
+        ? normalizedPriceLists
+        : { ...(customer.priceLists ?? {}), ...normalizedPriceLists };
+      customer.updatedAt = new Date().toISOString();
+      imported += 1;
+      prices += Object.values(normalizedPriceLists).reduce((total, list) => total + Object.keys(list).length, 0)
+        || Object.keys(normalizedPrices).length;
+    }
+    await writeDb(db);
+    return send(res, 200, { data: { imported, prices } });
+  }
+
+  if (req.method === "PATCH" && parts[1] === "customers" && parts[2]) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "counterparties.manage")) return send(res, 403, { error: "Müştəri məlumatlarını dəyişmək icazəniz yoxdur." });
+    const customer = db.orderCustomers.find((item) => String(item.id) === String(parts[2]));
+    if (!customer) return notFound(res);
+    const body = await parseBody(req);
+    if (body.prices && typeof body.prices === "object") {
+      customer.prices = Object.fromEntries(
+        Object.entries(body.prices)
+          .map(([code, price]) => [String(code).trim().toLocaleUpperCase("tr"), Number(price)])
+          .filter(([code, price]) => code && Number.isFinite(price) && price >= 0),
+      );
+    }
+    if (body.priceLists && typeof body.priceLists === "object" && customer.customerType === "foreign") {
+      const normalizePriceList = (list) => Object.fromEntries(
+        Object.entries(list && typeof list === "object" ? list : {})
+          .map(([code, price]) => [String(code).trim().toLocaleUpperCase("tr"), Number(price)])
+          .filter(([code, price]) => code && Number.isFinite(price) && price >= 0),
+      );
+      customer.priceLists = {
+        DEPO: normalizePriceList(body.priceLists.DEPO),
+        ANTREPO_TRANSIT: normalizePriceList(body.priceLists.ANTREPO_TRANSIT),
+      };
+      customer.prices = customer.priceLists.DEPO;
+    }
+    if (Object.hasOwn(body, "contact")) customer.contact = String(body.contact ?? "").trim();
+    if (Object.hasOwn(body, "salesRepresentative")) customer.salesRepresentative = normalizeSalesRepresentativeName(body.salesRepresentative);
+    if (Object.hasOwn(body, "salesRepresentativeUserId")) customer.salesRepresentativeUserId = String(body.salesRepresentativeUserId ?? "").trim();
+    if (Object.hasOwn(body, "folderName")) customer.folderName = customer.customerType === "foreign"
+      ? exportCustomerFolder(customer.name)
+      : String(body.folderName ?? "").trim();
+    if (Object.hasOwn(body, "addressLine1")) customer.addressLine1 = String(body.addressLine1 ?? "").trim();
+    if (Object.hasOwn(body, "addressLine2")) customer.addressLine2 = String(body.addressLine2 ?? "").trim();
+    if (Object.hasOwn(body, "addressLine1") || Object.hasOwn(body, "addressLine2")) {
+      customer.address = [customer.addressLine1, customer.addressLine2].filter(Boolean).join(" · ");
+    }
+    customer.updatedAt = new Date().toISOString();
+    await writeDb(db);
+    return send(res, 200, { data: customer });
+  }
+
+  if (req.method === "DELETE" && parts[1] === "customers" && parts[2]) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "counterparties.manage")) return send(res, 403, { error: "Müştəri silmək icazəniz yoxdur." });
+    const targetId = String(parts[2]);
+    db.orderCustomers = db.orderCustomers.filter((c) => c.id !== targetId);
+    await writeDb(db);
+    return send(res, 200, { ok: true });
+  }
+
+  if (req.method === "GET" && parts[1] === "aliases") {
+    return send(res, 200, { data: db.orderAliases });
+  }
+
+  if (req.method === "GET" && parts[1] === "approval-forms") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "order_forms.view")) {
+      return send(res, 403, { error: "Sifariş formalarını görmək üçün icazəniz yoxdur." });
+    }
+    const canViewAll = workflowRole === "owner" || hasPermission(req.authUser, "order_forms.view_all");
+    const actorId = String(req.authUser?.id || "");
+    const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
+    const data = db.orderBoard
+      .filter((order) => order.approvalForm && ["ready", "delivered"].includes(order.status))
+      .map((order) => {
+        const customerName = String(order.approvalForm?.customerName || order.customerName || "").trim().toLocaleLowerCase("tr");
+        const customer = (db.orderCustomers || []).find((item) => String(item.name || "").trim().toLocaleLowerCase("tr") === customerName);
+        return {
+          ...order,
+          approvalForm: {
+            ...order.approvalForm,
+            customerContact: order.approvalForm?.customerContact || customer?.contact || "",
+            salesRepresentative: order.approvalForm?.salesRepresentative || customer?.salesRepresentative || "",
+            salesRepresentativeUserId: order.approvalForm?.salesRepresentativeUserId || customer?.salesRepresentativeUserId || "",
+          },
+        };
+      })
+      .filter((order) => {
+        if (canViewAll) return true;
+        const assignedId = String(order.approvalForm?.salesRepresentativeUserId || "");
+        const assignedName = normalizeSalesRepresentativeName(order.approvalForm?.salesRepresentative || "");
+        return assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName);
+      })
+      .sort((left, right) => String(right.approvalForm?.updatedAt || right.updatedAt || "").localeCompare(String(left.approvalForm?.updatedAt || left.updatedAt || "")));
+    return send(res, 200, { data: data.map((order) => orderWithPresence(order, req.authUser)) });
+  }
+
+  if (req.method === "POST" && parts[1] === "aliases") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "company.manage")) return send(res, 403, { error: "Uyğunlaşdırma qaydalarını dəyişmək icazəniz yoxdur." });
+    const body = await parseBody(req);
+    if (Array.isArray(body.aliases)) {
+      const normalizedAliases = body.aliases.map((item) => ({
+        trigger: String(item?.trigger ?? "").trim().toLowerCase(),
+        replacement: String(item?.replacement ?? "").trim(),
+        category: String(item?.category ?? "custom").trim() || "custom",
+      }));
+      if (normalizedAliases.some((item) => !item.trigger || !item.replacement)) {
+        return send(res, 400, { error: "Bütün qısaltmalar və əvəz olunan sözlər doldurulmalıdır." });
+      }
+      db.orderAliases = normalizedAliases;
+    } else {
+      const trigger = String(body.trigger ?? "").trim().toLowerCase();
+      const replacement = String(body.replacement ?? "").trim();
+      if (!trigger || !replacement) return send(res, 400, { error: "Qısaltma və əvəz olunan söz məcburidir." });
+      const idx = db.orderAliases.findIndex((a) => a.trigger.toLowerCase() === trigger);
+      const entry = { trigger, replacement, category: body.category || "custom" };
+      if (idx >= 0) db.orderAliases[idx] = entry;
+      else db.orderAliases.push(entry);
+    }
+    await writeDb(db);
+    return send(res, 200, { data: db.orderAliases });
+  }
+
+  if (req.method === "DELETE" && parts[1] === "aliases" && parts[2]) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "company.manage")) return send(res, 403, { error: "Uyğunlaşdırma qaydalarını silmək icazəniz yoxdur." });
+    const trigger = decodeURIComponent(parts[2]).trim().toLowerCase();
+    db.orderAliases = db.orderAliases.filter((a) => a.trigger.toLowerCase() !== trigger);
+    await writeDb(db);
+    return send(res, 200, { data: db.orderAliases });
   }
 
   if (req.method === "GET" && parts.length === 1) {
     const status = String(url.searchParams.get("status") ?? "");
+    const canViewAllOrders = workflowRole === "owner" || workflowRole === "warehouse" || hasPermission(req.authUser, "orders.view_all");
+    const actorId = String(req.authUser?.id || "");
+    const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
     const data = db.orderBoard
       .filter((order) => !status || order.status === status)
+      .filter((order) => {
+        if (canViewAllOrders) return true;
+        if (String(order.createdByUserId || "") === actorId) return true;
+        if (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName) return true;
+        const assignedId = String(order.approvalForm?.salesRepresentativeUserId || "");
+        const assignedName = normalizeSalesRepresentativeName(order.approvalForm?.salesRepresentative || "");
+        if (assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName)) return true;
+        const customer = findOrderCustomerByName(db.orderCustomers, order.customerName);
+        const customerRepresentativeId = String(customer?.salesRepresentativeUserId || "");
+        const customerRepresentativeName = normalizeSalesRepresentativeName(customer?.salesRepresentative || "");
+        return customerRepresentativeId ? customerRepresentativeId === actorId : Boolean(customerRepresentativeName && customerRepresentativeName === actorName);
+      })
+      .filter((order) => workflowRole !== "delivery" || order.status === "delivered" || (order.status === "ready" && order.despatchReady === true))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-    return send(res, 200, { data });
+    return send(res, 200, { data: data.map((order) => orderWithPresence(order, req.authUser)) });
+  }
+
+  if (req.method === "GET" && parts[1] === "stock-movements") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "products.view") && !hasPermission(req.authUser, "orders.audit.view")) {
+      return send(res, 403, { error: "Stok hareketlerini görme yetkiniz yok." });
+    }
+    return send(res, 200, { data: [...db.orderStockMovements].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+  }
+
+  if (req.method === "GET" && parts[1] === "stock-documents") {
+    db.stockDocuments ??= [];
+    return send(res, 200, { data: [...db.stockDocuments].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) });
+  }
+
+  if (req.method === "GET" && parts[1] === "access-logs") {
+    if (normalizedRole(req.authUser?.role) !== "sahib") return send(res, 403, { error: "Erişim geçmişini yalnızca Sahib görebilir." });
+    db.orderAccessLogs ??= [];
+    return send(res, 200, { data: db.orderAccessLogs.slice(0, 1000) });
+  }
+
+  if (req.method === "POST" && parts[1] === "access-log") {
+    const body = await parseBody(req);
+    const action = ["page_view", "order_view", "app_open"].includes(String(body.action)) ? String(body.action) : "page_view";
+    const now = new Date().toISOString();
+    const forwarded = String(req.headers["cf-connecting-ip"] || req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+    const remoteAddress = forwarded || String(req.socket.remoteAddress || "");
+    const entry = {
+      id: randomUUID(), action, page: String(body.page || "").slice(0, 80),
+      orderId: String(body.orderId || "").slice(0, 80), orderNumber: String(body.orderNumber || "").slice(0, 80),
+      userId: req.authUser?.id || "", userName: req.authUser?.name || "Kullanıcı", role: req.authUser?.role || "",
+      ip: remoteAddress, userAgent: String(req.headers["user-agent"] || "").slice(0, 500), createdAt: now,
+    };
+    db.orderAccessLogs ??= [];
+    const latest = db.orderAccessLogs[0];
+    const duplicate = latest && latest.userId === entry.userId && latest.action === entry.action && latest.page === entry.page && latest.orderId === entry.orderId && Date.now() - new Date(latest.createdAt).getTime() < 15_000;
+    if (!duplicate) db.orderAccessLogs.unshift(entry);
+    db.orderAccessLogs = db.orderAccessLogs.slice(0, 5000);
+    if (!duplicate) await writeDb(db);
+    return send(res, 201, { data: duplicate ? latest : entry });
+  }
+
+  if (req.method === "POST" && parts[1] === "stock-documents") {
+    const body = await parseBody(req, 8_000_000);
+    const type = String(body.type || "");
+    const permissionByType = { adjustment: "stock.adjust", writeoff: "stock.writeoff", transfer: "stock.transfer", purchase: "stock.purchase", loan_purchase: "stock.loan_purchase" };
+    const requiredPermission = permissionByType[type];
+    if (!requiredPermission) return send(res, 400, { error: "Geçersiz stok evrakı türü." });
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, requiredPermission)) return send(res, 403, { error: "Bu stok evrakını oluşturma yetkiniz yok." });
+    const lines = Array.isArray(body.lines) ? body.lines : [];
+    if (!lines.length) return send(res, 400, { error: "Stok evrakına en az bir ürün ekleyin." });
+    if (!String(body.note || "").trim()) return send(res, 400, { error: "Evrak açıklaması zorunludur." });
+    if (type === "transfer" && (!String(body.fromLocation || "").trim() || !String(body.toLocation || "").trim())) return send(res, 400, { error: "Çıkış ve hedef konumu zorunludur." });
+    const normalizedLines = [];
+    for (const input of lines) {
+      const product = db.orderCatalog.find((item) => Number(item.id) === Number(input.productId));
+      if (!product) return send(res, 400, { error: "Evraktaki ürünlerden biri bulunamadı." });
+      const quantity = Math.abs(Number(input.quantity || 0));
+      const rollCount = Math.abs(Math.trunc(Number(input.rollCount || 0)));
+      if (type !== "transfer" && !(quantity > 0 || rollCount > 0)) return send(res, 400, { error: `${product.name} için metre veya rulo girin.` });
+      const direction = type === "writeoff" ? -1 : type === "transfer" ? 0 : 1;
+      const beforeQuantity = Number(product.physicalQuantity || 0);
+      const beforeRollCount = Number(product.rollCount || 0);
+      if (beforeQuantity + direction * quantity < 0 || beforeRollCount + direction * rollCount < 0) return send(res, 400, { error: `${product.name} işlemi stoğu sıfırın altına düşürüyor.` });
+      normalizedLines.push({ product, quantity, rollCount, direction, beforeQuantity, beforeRollCount });
+    }
+    const now = new Date().toISOString();
+    const documentNumber = `STK-${now.slice(0, 10).replaceAll("-", "")}-${String(Date.now()).slice(-6)}`;
+    const attachments = [];
+    for (const [index, input] of (Array.isArray(body.attachments) ? body.attachments : []).entries()) {
+      const match = String(input?.data || "").match(/^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/);
+      if (!match) continue;
+      const file = Buffer.from(match[2], "base64");
+      if (file.length > 2_000_000) return send(res, 413, { error: "Her stok evrakı dosyası en fazla 2 MB olabilir." });
+      await mkdir(STOCK_IMPORT_DIR, { recursive: true });
+      const safeName = String(input?.name || `evrak-${index + 1}`).replace(/[\\/:*?"<>|]/g, "_").slice(0, 120);
+      const archivedFile = `${documentNumber}-${index + 1}-${safeName}`;
+      await writeFile(join(STOCK_IMPORT_DIR, archivedFile), file);
+      attachments.push({ name: safeName, mimeType: match[1], archivedFile, size: file.length });
+    }
+    db.stockTransactions ??= [];
+    const documentLines = normalizedLines.map(({ product, quantity, rollCount, direction, beforeQuantity, beforeRollCount }) => {
+      product.physicalQuantity = beforeQuantity + direction * quantity;
+      product.rollCount = beforeRollCount + direction * rollCount;
+      product.stockUpdatedAt = now;
+      product.stockUpdatedBy = req.authUser?.name ?? "Kullanıcı";
+      const line = { productId: product.id, productCode: product.code || product.sku || "", productName: product.name, quantity, rollCount, signedQuantity: direction * quantity, beforeQuantity, afterQuantity: product.physicalQuantity, beforeRollCount, afterRollCount: product.rollCount };
+      db.stockTransactions.unshift({ id: randomUUID(), documentNumber, type, ...line, fromLocation: String(body.fromLocation || "").trim(), toLocation: String(body.toLocation || "").trim(), counterparty: String(body.counterparty || "").trim(), note: String(body.note || "").trim(), loanOutstanding: type === "loan_purchase" ? quantity : 0, attachments, createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "" });
+      return line;
+    });
+    db.stockDocuments ??= [];
+    const document = { id: randomUUID(), documentNumber, type, date: String(body.date || now.slice(0, 10)), counterparty: String(body.counterparty || "").trim(), fromLocation: String(body.fromLocation || "").trim(), toLocation: String(body.toLocation || "").trim(), note: String(body.note || "").trim(), lines: documentLines, attachments, createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "" };
+    db.stockDocuments.unshift(document);
+    await writeDb(db);
+    return send(res, 201, { data: document });
   }
 
   if (req.method === "POST" && parts[1] === "match") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.create")) return send(res, 403, { error: "Sifariş mətnini uyğunlaşdırmaq icazəniz yoxdur." });
     const body = await parseBody(req);
-    return send(res, 200, { data: parseOrderText(body.text, db.orderCatalog) });
+    return send(res, 200, { data: parseOrderText(body.text, db.orderCatalog, db.orderAliases) });
   }
 
   if (req.method === "POST" && parts.length === 1) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.create")) return send(res, 403, { error: "Yeni sifariş yaratmaq icazəniz yoxdur." });
     const body = await parseBody(req);
     const customerName = String(body.customerName ?? "").trim();
-    const items = Array.isArray(body.items) ? body.items : parseOrderText(body.text, db.orderCatalog);
+    const items = Array.isArray(body.items) ? body.items : parseOrderText(body.text, db.orderCatalog, db.orderAliases);
     if (!customerName) return send(res, 400, { error: "Müştəri adı məcburidir." });
     if (!items.length) return send(res, 400, { error: "Ən az bir məhsul sətri olmalıdır." });
-    if (items.some((item) => !item.productId || !(Number(item.quantity) > 0))) return send(res, 400, { error: "Bütün məhsullar və metrajlar təsdiqlənməlidir." });
+    if (items.some((item) => !item.productId || (!(Number(item.quantity) > 0) && !(Number(item.orderedRollCount) > 0)))) return send(res, 400, { error: "Bütün məhsullar üçün metr və ya rulo miqdarı təsdiqlənməlidir." });
     const now = new Date().toISOString();
+    const changeReason = String(body.reason || "").trim().slice(0, 300);
+    const isTest = workflowRole === "owner" && body.isTest === true;
+    const customer = findOrderCustomerByName(db.orderCustomers, customerName);
+    const isExport = body.isExport === true || customer?.customerType === "foreign";
     const order = {
       id: randomUUID(),
       number: `ORD-${String(Date.now()).slice(-7)}`,
       customerName,
       note: String(body.note ?? "").trim(),
+      originalText: String(body.text ?? "").trim(),
+      businessDate: activeOrderDayKey(db),
       status: "new",
-      items: items.map((item) => ({ ...item, preparedQuantity: null })),
+      isTest,
+      isExport,
+      items: items.map((item) => ({ ...item, ...normalizeOrderCutAllowance({ ...item, cutAllowanceApplied: false, cutPieceCount: 0, cutAllowancePerPiece: 0 }), preparedQuantity: null })),
+      originalItems: items.map((item) => ({ ...item, ...normalizeOrderCutAllowance({ ...item, cutAllowanceApplied: false, cutPieceCount: 0, cutAllowancePerPiece: 0 }), preparedQuantity: null })),
       createdBy: req.authUser?.name ?? "Satışçı",
+      createdByUserId: req.authUser?.id ?? null,
       createdAt: now,
       updatedAt: now,
       history: [{ status: "new", at: now, by: req.authUser?.name ?? "Satışçı" }],
+      audit: [{ id: randomUUID(), action: "created", by: req.authUser?.name ?? "Satışçı", userId: req.authUser?.id, at: now }],
     };
     db.orderBoard.push(order);
+    if (!isTest) notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "order_created", "Yeni sipariş", `${req.authUser?.name || "Satış"} tarafından oluşturuldu · ${order.number} · ${order.customerName}`, req.authUser);
     await writeDb(db);
     return send(res, 201, { data: order });
+  }
+
+  if (req.method === "POST" && id && parts[2] === "presence") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const body = await parseBody(req);
+    touchOrderEditor(id, req.authUser, body.active !== false);
+    return send(res, 200, { data: activeOrderEditors(id) });
+  }
+
+  if (req.method === "PATCH" && id && parts[2] === "test-mode") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (workflowRole !== "owner") return send(res, 403, { error: "Test modunu yalnız şirket sahibi değiştirebilir." });
+    const body = await parseBody(req);
+    const enabled = body.enabled === true;
+    order.isTest = enabled;
+    order.updatedAt = new Date().toISOString();
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: enabled ? "testModeEnabled" : "testModeDisabled", by: req.authUser?.name ?? "Sahib", userId: req.authUser?.id, at: order.updatedAt });
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (req.method === "POST" && id && parts[2] === "activity") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const body = await parseBody(req);
+    const type = String(body.type || "");
+    const activity = {
+      order_editing_started: { permission: "orders.edit", title: "Sipariş düzenlenmeye başladı" },
+      approval_form_preparing_started: { permission: "order_forms.edit", title: "Sipariş formu hazırlanmaya başladı" },
+      approval_form_editing_started: { permission: "order_forms.edit", title: "Sipariş formu düzenlenmeye başladı" },
+    }[type];
+    if (!activity) return send(res, 400, { error: "Bildirim işlemi geçersiz." });
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, activity.permission)) {
+      return send(res, 403, { error: "Bu işlemi başlatma yetkiniz yok." });
+    }
+    if (!order.isTest) notifyUsers(db, order, orderActivityRecipients(db, order), type, activity.title, `${req.authUser?.name || "Bir kullanıcı"} tarafından · ${order.approvalForm?.number || order.number} · ${order.customerName}`, req.authUser);
+    await writeDb(db);
+    return send(res, 201, { data: { sent: true } });
+  }
+
+  if (req.method === "POST" && id && parts[2] === "attachments") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const body = await parseBody(req, 8_000_000);
+    const kind = String(body.kind || "");
+    const mayUpload = workflowRole === "owner" || hasPermission(req.authUser, "documents.create") || (kind === "deliveryProof" && canDeliver);
+    if (!mayUpload) return send(res, 403, { error: "Sənəd yükləmək üçün icazəniz yoxdur." });
+    const mimeType = String(body.mimeType || "").toLowerCase();
+    const allowedKinds = new Set(["orderForm", "despatch", "deliveryProof"]);
+    const extensions = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+    if (!allowedKinds.has(kind) || !extensions[mimeType]) return send(res, 400, { error: "Yalnız PDF, JPG, PNG və WEBP yüklənə bilər." });
+    const match = String(body.data || "").match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match || match[1].toLowerCase() !== mimeType) return send(res, 400, { error: "Fayl məlumatı düzgün deyil." });
+    const file = Buffer.from(match[2], "base64");
+    if (!file.length || file.length > 5_000_000) return send(res, 413, { error: "Fayl ən çox 5 MB ola bilər." });
+    const attachmentId = randomUUID();
+    const storageName = `${order.id}-${attachmentId}.${extensions[mimeType]}`;
+    await mkdir(ORDER_UPLOAD_DIR, { recursive: true });
+    await writeFile(join(ORDER_UPLOAD_DIR, storageName), file);
+    const now = new Date().toISOString();
+    const attachment = {
+      id: attachmentId,
+      kind,
+      name: String(body.name || `${kind}.${extensions[mimeType]}`).replace(/[\r\n]/g, " ").slice(0, 180),
+      mimeType,
+      size: file.length,
+      storageName,
+      url: `/api/orders/attachments/${attachmentId}`,
+      uploadedAt: now,
+      uploadedBy: req.authUser?.name ?? "Əməkdaş",
+      uploadedByUserId: req.authUser?.id,
+    };
+    order.attachments ??= [];
+    order.attachments.push(attachment);
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: "attachmentUploaded", newValue: `${kind}: ${attachment.name}`, by: attachment.uploadedBy, userId: req.authUser?.id, at: now });
+    order.updatedAt = now;
+    await writeDb(db);
+    return send(res, 201, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (req.method === "POST" && id && parts[2] === "approval-form" && parts[3] === "presence") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const body = await parseBody(req);
+    touchOrderEditor(`approval-form:${id}`, req.authUser, body.active !== false);
+    return send(res, 200, { data: { active: true } });
+  }
+
+  if (req.method === "PUT" && id && parts[2] === "approval-form") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const body = await parseBody(req);
+    let documentType = ["proforma", "commercial_invoice", "packing_list"].includes(String(body.documentType)) ? String(body.documentType) : "domestic";
+    if (order.isExport && documentType === "domestic") documentType = "proforma";
+    const canPrepareExportPacking = body.status !== "approved" && order.exportPackingRequired && documentType === "packing_list" && (workflowRole === "owner" || workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare"));
+    if (!canSell && !canPrepareExportPacking) return send(res, 403, { error: "Sifariş təsdiq formasını yalnız satış əməkdaşı hazırlaya bilər." });
+    if (!["ready", "delivered"].includes(order.status) && !order.isTest && !(order.exportPackingRequired && ["commercial_invoice", "packing_list"].includes(documentType))) {
+      return send(res, 409, { error: "Təsdiq formu yalnız hazır sifariş üçün yaradıla bilər." });
+    }
+    const actor = req.authUser?.name ?? "Satış";
+    if (workflowRole !== "owner" && !canPrepareExportPacking && !hasPermission(req.authUser, body.status === "approved" ? "order_forms.approve" : "order_forms.edit")) {
+      return send(res, 403, { error: body.status === "approved" ? "Sifariş formasını təsdiqləmək icazəniz yoxdur." : "Sifariş formasını dəyişmək icazəniz yoxdur." });
+    }
+    if (body.status === "approved" && workflowRole !== "owner") {
+      const assignedUserId = String(body.salesRepresentativeUserId || order.approvalForm?.salesRepresentativeUserId || "").trim();
+      const assignedName = normalizeSalesRepresentativeName(body.salesRepresentative || order.approvalForm?.salesRepresentative || "");
+      const actorName = normalizeSalesRepresentativeName(actor);
+      const isAssignedRepresentative = assignedUserId
+        ? assignedUserId === String(req.authUser?.id || "")
+        : Boolean(assignedName && actorName && assignedName === actorName);
+      if (!isAssignedRepresentative) return send(res, 403, { error: "Bu formanı yalnız təyin edilmiş satış nümayəndəsi və ya şirkət sahibi təsdiqləyə bilər." });
+    }
+    const sourceItems = Array.isArray(order.items) ? order.items : [];
+    const lines = Array.isArray(body.lines) ? body.lines : [];
+    const isExportDocument = documentType !== "domestic";
+    if ((documentType === "domestic" && lines.length !== sourceItems.length) || (isExportDocument && lines.length < sourceItems.length)) {
+      return send(res, 400, { error: "Formdakı məhsul sayı sifarişlə uyğun gəlmir." });
+    }
+    const exportUnits = new Set(["M2", "M", "ROLL", "BOX", "PCS", "KG", "SET", "PALLET"]);
+    const invalidLine = lines.some((line) => {
+      const values = [Number(line.unitPrice), Number(line.discountRate), Number(line.vatRate), Number(line.width || 1.42)];
+      const unit = exportUnits.has(String(line.unit)) ? String(line.unit) : "M2";
+      return !values.every(Number.isFinite) || values[0] < 0 || values[1] < 0 || values[1] > 100 || values[2] < 0 || values[2] > 100
+        || (unit === "M2" && values[3] <= 0) || (line.manual === true && (!String(line.productName || "").trim() || !(Number(line.quantity) > 0)))
+        || (unit === "BOX" && !(Number(line.unitsPerBox) > 0));
+    });
+    if (invalidLine) return send(res, 400, { error: "Qiymət, endirim və KDV dəyərləri düzgün deyil." });
+    const normalizedLines = lines.map((line, index) => {
+      const source = sourceItems[index];
+      const manual = isExportDocument && (!source || line.manual === true);
+      const unit = exportUnits.has(String(line.unit)) ? String(line.unit) : "M2";
+      return { productId: manual ? null : (source.productId ?? null), productCode: String(manual ? line.productCode : source.productCode ?? "").trim().slice(0, 80), productName: String(manual ? line.productName : source.productName ?? "").trim().slice(0, 240), quantity: manual ? Number(line.quantity) : (Number(source.preparedQuantity ?? source.quantity) || 0), rollCount: manual ? 0 : (Number(source.preparedRollCount) > 0 ? Number(source.preparedRollCount) : (Number(source.orderedRollCount) || 0)), width: Number(line.width || 1.42), unitPrice: Number(line.unitPrice), discountRate: Number(line.discountRate), vatRate: isExportDocument ? 0 : Number(line.vatRate), unit, unitsPerBox: unit === "BOX" ? Math.max(1, Math.trunc(Number(line.unitsPerBox))) : undefined, manual, packageCount: Math.max(0, Math.trunc(Number(line.packageCount) || 0)), netWeight: Math.max(0, Number(line.netWeight) || 0), grossWeight: Math.max(0, Number(line.grossWeight) || 0), hsCode: String(line.hsCode || "").trim().slice(0, 40), countryOfOrigin: String(line.countryOfOrigin || body.countryOfOrigin || "").trim().slice(0, 160) };
+    });
+    const requestedCurrency = ["TRY", "USD", "EUR"].includes(String(body.currency)) ? String(body.currency) : "USD";
+    const exchangeRate = isExportDocument ? 1 : Number(body.exchangeRate);
+    const extraCharge = Number(body.extraCharge);
+    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0 || !Number.isFinite(extraCharge) || extraCharge < 0) return send(res, 400, { error: "Məzənnə və əlavə xərc düzgün deyil." });
+    const now = new Date().toISOString();
+    const overallDiscountRate = Math.min(100, Math.max(0, Number(body.overallDiscountRate) || 0));
+    const previousArchive = order.approvalForm?.archive;
+    const previousForm = order.approvalForm;
+    const currency = isExportDocument && requestedCurrency === "TRY" ? "USD" : requestedCurrency;
+    const priceSource = body.priceSource === "ANTREPO_TRANSIT" ? "ANTREPO_TRANSIT" : "DEPO";
+    const priceFactor = Number(body.priceFactor) === 0.5 ? 0.5 : 1;
+    const preservedFormDate = previousForm?.date || body.date || now.slice(0, 10);
+    const nextForm = { number: String(body.number || `SOF-${String(order.number).replace(/\D/g, "")}`).trim().slice(0, 60), documentType, proformaNumber: String(body.proformaNumber || `PRF-${String(order.number).replace(/\D/g, "")}`).trim().slice(0, 60), invoiceNumber: String(body.invoiceNumber || "").trim().slice(0, 80), date: String(preservedFormDate).slice(0, 10), revisionDate: String(body.revisionDate || body.date || now.slice(0, 16)).slice(0, 16), salesRepresentative: normalizeSalesRepresentativeName(body.salesRepresentative).slice(0, 160), salesRepresentativeUserId: String(body.salesRepresentativeUserId || "").trim().slice(0, 160), currency, exchangeRate, priceSource, priceFactor, vatIncluded: body.vatIncluded === true, lines: normalizedLines, overallDiscountRate, extraCharge, extraChargeLabel: String(body.extraChargeLabel || "Əlavə xərc").trim().slice(0, 100), paymentTerms: String(body.paymentTerms || "").trim().slice(0, 1000), deliveryTerms: String(body.deliveryTerms || "").trim().slice(0, 1000), note: String(body.note || "").trim().slice(0, 2000), customerName: String(body.customerName || order.customerName).trim().slice(0, 200), customerContact: String(body.customerContact || "").trim().slice(0, 160), customerAddress: String(body.customerAddress || "").trim().slice(0, 500), customerPhone: String(body.customerPhone || "").trim().slice(0, 80), customerEmail: String(body.customerEmail || "").trim().slice(0, 200), customerTaxOffice: String(body.customerTaxOffice || "").trim().slice(0, 120), customerTaxNumber: String(body.customerTaxNumber || "").trim().slice(0, 40), packageType: String(body.packageType || "").trim().slice(0, 160), productDescription: String(body.productDescription || "").trim().slice(0, 300), incoterm: String(body.incoterm || "").trim().slice(0, 200), shipmentPort: String(body.shipmentPort || "").trim().slice(0, 160), destination: String(body.destination || "").trim().slice(0, 300), countryOfOrigin: String(body.countryOfOrigin || "").trim().slice(0, 160), bankName: String(body.bankName || "").trim().slice(0, 200), swiftCode: String(body.swiftCode || "").trim().slice(0, 40), iban: String(body.iban || "").trim().slice(0, 80), buyerOrderNumber: String(body.buyerOrderNumber || "").trim().slice(0, 100), transportMode: String(body.transportMode || "ROAD").trim().slice(0, 40), vehicleContainerNumber: String(body.vehicleContainerNumber || "").trim().slice(0, 100), transportDocumentNumber: String(body.transportDocumentNumber || "").trim().slice(0, 100), loadingPlace: String(body.loadingPlace || "Istanbul / Türkiye").trim().slice(0, 160), marksAndNumbers: String(body.marksAndNumbers || "").trim().slice(0, 500), freightAmount: Math.max(0, Number(body.freightAmount) || 0), insuranceAmount: Math.max(0, Number(body.insuranceAmount) || 0), exporterDeclaration: String(body.exporterDeclaration || "").trim().slice(0, 1000), status: body.status === "approved" ? "approved" : "draft", ...(body.status === "approved" ? { approvedAt: now, approvedBy: actor } : {}), updatedAt: now, updatedBy: actor, ...(previousArchive ? { archive: previousArchive } : {}) };
+    delete nextForm.priceFactor;
+    if (["commercial_invoice", "packing_list"].includes(documentType)) {
+      nextForm.shipmentDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.shipmentDate || "")) ? String(body.shipmentDate) : nextForm.date;
+      if (body.status === "approved" && !nextForm.invoiceNumber) return send(res, 400, { error: "Commercial Invoice ve Packing List için fatura numarası zorunludur." });
+    }
+    if (documentType === "packing_list") {
+      const totalRolls = normalizedLines.reduce((sum, line) => sum + Math.max(0, Math.trunc(Number(line.rollCount) || 0)), 0);
+      const palletCount = totalRolls > 0 ? Math.ceil(totalRolls / 16) : 0;
+      const base = palletCount > 0 ? Math.floor(totalRolls / palletCount) : 0;
+      const remainder = palletCount > 0 ? totalRolls % palletCount : 0;
+      const automaticDistribution = Array.from({ length: palletCount }, (_, index) => base + (index < remainder ? 1 : 0));
+      const submittedDistribution = Array.isArray(body.palletDistribution)
+        ? body.palletDistribution.map((value) => Math.max(0, Math.trunc(Number(value) || 0))).filter((value) => value > 0)
+        : [];
+      const palletDistribution = submittedDistribution.length ? submittedDistribution : automaticDistribution;
+      const plannedRolls = palletDistribution.reduce((sum, value) => sum + value, 0);
+      const allowSeventeenRollPallet = body.allowSeventeenRollPallet === true;
+      if (plannedRolls !== totalRolls) return send(res, 400, { error: `Palet planı ${plannedRolls} rulo, məhsullar isə ${totalRolls} rulo ehtiva edir.` });
+      const palletDetails = Array.isArray(body.palletDetails) ? body.palletDetails.slice(0, palletDistribution.length).map((detail) => ({
+        grossWeight: Math.max(0, Number(detail?.grossWeight) || 0),
+        tareWeight: Math.max(0, Number(detail?.tareWeight) || 0),
+        lengthCm: Math.max(0, Number(detail?.lengthCm) || 0),
+        widthCm: Math.max(0, Number(detail?.widthCm) || 0),
+        heightCm: Math.max(0, Number(detail?.heightCm) || 0),
+      })) : [];
+      const invalidPalletIndex = palletDetails.length !== palletDistribution.length ? 0 : palletDetails.findIndex((detail) => detail.grossWeight <= 0 || detail.tareWeight > 20 || detail.tareWeight >= detail.grossWeight || detail.lengthCm <= 0 || detail.widthCm <= 0 || detail.heightCm <= 0);
+      if (invalidPalletIndex >= 0) return send(res, 400, { error: `Palet ${invalidPalletIndex + 1} üçün brüt çəki, ən çox 20 kq dara və ölçülər tam daxil edilməlidir.` });
+      nextForm.palletDistribution = palletDistribution;
+      const palletAllocations = Array.isArray(body.palletAllocations) ? body.palletAllocations.slice(0, palletDistribution.length).map((entries) => Array.isArray(entries) ? entries.map((entry) => ({ lineIndex: Math.trunc(Number(entry?.lineIndex)), rolls: Math.max(0, Math.trunc(Number(entry?.rolls) || 0)), quantity: Math.max(0, Number(entry?.quantity) || 0) })).filter((entry) => entry.lineIndex >= 0 && entry.lineIndex < normalizedLines.length && entry.rolls > 0) : []) : [];
+      if (palletAllocations.length) {
+        const allocatedByLine = normalizedLines.map((_, lineIndex) => palletAllocations.reduce((sum, entries) => sum + entries.filter((entry) => entry.lineIndex === lineIndex).reduce((lineSum, entry) => lineSum + entry.rolls, 0), 0));
+        const invalidAllocation = normalizedLines.some((line, lineIndex) => allocatedByLine[lineIndex] !== Math.max(0, Math.trunc(Number(line.rollCount) || 0)));
+        if (invalidAllocation) return send(res, 400, { error: "Paletlerdeki ürün rulo dağılımı siparişle uyuşmuyor." });
+        const quantityMismatch = normalizedLines.some((line, lineIndex) => Math.abs(palletAllocations.reduce((sum, entries) => sum + entries.filter((entry) => entry.lineIndex === lineIndex).reduce((lineSum, entry) => lineSum + entry.quantity, 0), 0) - Number(line.quantity || 0)) > 0.02);
+        if (quantityMismatch) return send(res, 400, { error: "Paletlerdeki ürün metre toplamı sipariş miktarıyla uyuşmuyor." });
+        nextForm.palletAllocations = palletAllocations;
+      }
+      nextForm.allowSeventeenRollPallet = allowSeventeenRollPallet;
+      nextForm.palletDetails = palletDetails;
+    }
+    if (previousForm?.documentType !== documentType) delete nextForm.archive;
+    const approvalContent = (form) => {
+      if (!form) return "";
+      const content = { ...form };
+      delete content.status;
+      delete content.approvedAt;
+      delete content.approvedBy;
+      delete content.updatedAt;
+      delete content.updatedBy;
+      delete content.archive;
+      return JSON.stringify(content);
+    };
+    if (body.status === "approved" && previousForm?.status === "approved" && approvalContent(previousForm) === approvalContent(nextForm)) {
+      return send(res, 409, { error: "Bu sipariş formu zaten onaylandı. Yeniden onaylamak için önce formda bir değişiklik yapın." });
+    }
+    order.approvalForm = nextForm;
+    if (order.approvalForm.status === "approved" && documentType === "proforma") {
+      order.exportPackingRequired = true;
+      order.exportPackingStatus = "pending";
+      if (order.status !== "preparing") {
+        order.status = "preparing";
+        order.history ??= [];
+        order.history.push({ status: "preparing", at: now, by: actor, reason: "Proforma onaylandı; Packing List için palet hazırlama görevi açıldı." });
+      }
+    } else if (order.approvalForm.status === "approved" && documentType === "packing_list") {
+      order.exportPackingRequired = false;
+      order.exportPackingStatus = "ready";
+      if (order.status !== "ready") {
+        order.status = "ready";
+        order.readyAt = now;
+        order.preparedBy = actor;
+        order.history ??= [];
+        order.history.push({ status: "ready", at: now, by: actor, reason: "Packing List ve palet hazırlığı tamamlandı." });
+      }
+    }
+    const pushNotification = ({ recipientUserId = "", recipientName = "", type, title, message }) => {
+      const recipient = db.authUsers.find((user) => String(user.id) === String(recipientUserId)) || db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === normalizeSalesRepresentativeName(recipientName));
+      addOrderNotification(db, { order, recipient, type, title, message, actor: req.authUser });
+    };
+    if (!order.isTest && order.approvalForm.status === "draft") {
+      const assignedUser = db.authUsers.find((user) => String(user.id) === order.approvalForm.salesRepresentativeUserId) || db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === order.approvalForm.salesRepresentative);
+      const formEventType = previousForm ? "approval_form_edited" : "approval_form_prepared";
+      const formEventTitle = previousForm ? "Sipariş formu düzenlendi" : "Sipariş formu hazırlandı";
+      notifyUsers(db, order, orderActivityRecipients(db, order), formEventType, formEventTitle, `${actor} tarafından · ${order.approvalForm.number} · ${order.approvalForm.customerName}`, req.authUser);
+      pushNotification({ recipientUserId: assignedUser?.id || order.approvalForm.salesRepresentativeUserId, recipientName: assignedUser?.name || order.approvalForm.salesRepresentative, type: "approval_requested", title: "Sipariş formu onay bekliyor", message: `${actor} tarafından gönderildi · ${order.approvalForm.number} · ${order.approvalForm.customerName}` });
+      for (const ownerUser of db.authUsers.filter((user) => orderWorkflowRole(user) === "owner")) pushNotification({ recipientUserId: ownerUser.id, recipientName: ownerUser.name, type: "approval_requested", title: "Sipariş formu onay bekliyor", message: `${actor} tarafından gönderildi · ${order.approvalForm.number} · ${order.approvalForm.customerName}` });
+    } else if (!order.isTest) {
+      const preparerName = previousForm?.updatedBy || order.createdBy;
+      const preparer = db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === normalizeSalesRepresentativeName(preparerName));
+      pushNotification({ recipientUserId: preparer?.id || "", recipientName: preparer?.name || preparerName, type: "approval_completed", title: "Sipariş formu onaylandı", message: `${actor} tarafından onaylandı · ${order.approvalForm.number}` });
+      if (documentType === "proforma") {
+        notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "export_packing_requested", "Palet hazırlama bekliyor", `${actor} tarafından Proforma onaylandı · ${order.number} · ${order.customerName}`, req.authUser);
+      }
+    }
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: order.approvalForm.status === "approved" ? "approvalFormApproved" : "approvalFormSaved", newValue: order.approvalForm.number, by: actor, userId: req.authUser?.id, at: now });
+    order.updatedAt = now;
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (req.method === "POST" && id && parts[2] === "approval-form" && parts[3] === "archive") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (!order.approvalForm) return send(res, 409, { error: "Arxivlənəcək sifariş forması tapılmadı." });
+    const archiveIsApproved = order.approvalForm.status === "approved";
+    const mayPreparePackingArchive = !archiveIsApproved && order.exportPackingRequired && order.approvalForm.documentType === "packing_list" && (workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare"));
+    const mayArchive = workflowRole === "owner" || mayPreparePackingArchive || hasPermission(req.authUser, archiveIsApproved ? "order_forms.approve" : "order_forms.edit");
+    if (!mayArchive) return send(res, 403, { error: "Sifariş təsdiq formasını arxivləmək üçün icazəniz yoxdur." });
+
+    const archivedCustomerName = String(order.approvalForm.customerName || order.customerName).trim();
+    const customer = findOrderCustomerByName(db.orderCustomers, archivedCustomerName);
+    const isExport = order.approvalForm.documentType !== "domestic";
+    const salesRepresentative = order.isTest ? "TEST" : salesRepresentativeArchiveFolder(customer?.salesRepresentative);
+    const customerFolderName = order.isTest
+      ? safeWindowsPathSegment(archivedCustomerName)
+      : safeWindowsPathSegment(isExport ? exportCustomerFolder(customer?.name) : customer?.folderName);
+    if (!customer && !order.isTest) return send(res, 409, { error: `Müşteri kartı bulunamadı: ${archivedCustomerName}. Müşteri adını karttaki adla eşleştirin.` });
+    if ((!isExport && !salesRepresentative) || !customerFolderName) return send(res, 409, { error: "Müşterinin arşiv klasörü bilgileri tamamlanmalıdır." });
+
+    const body = await parseBody(req, 8_000_000);
+    let pdf;
+    try {
+      pdf = await renderOrderApprovalPdf(body.html);
+    } catch (error) {
+      return send(res, 503, { error: `PDF yazdırıla bilmədi: ${error.message}` });
+    }
+    if (pdf.length > 10_000_000) return send(res, 413, { error: "PDF 10 MB-dan kiçik olmalıdır." });
+
+    const now = new Date();
+    const { year, month, display } = orderArchiveDateParts(now);
+    const isShipmentDocument = ["commercial_invoice", "packing_list"].includes(order.approvalForm.documentType);
+    const shipmentDate = /^\d{4}-\d{2}-\d{2}$/.test(String(order.approvalForm.shipmentDate || ""))
+      ? new Date(`${order.approvalForm.shipmentDate}T12:00:00`)
+      : now;
+    const shipmentDateParts = orderArchiveDateParts(shipmentDate);
+    const formNumber = safeWindowsPathSegment(
+      isExport
+        ? order.approvalForm.proformaNumber
+        : order.approvalForm.number,
+    );
+    const customerName = safeWindowsPathSegment(archivedCustomerName);
+    if (!formNumber || !customerName) return send(res, 400, { error: "Form nömrəsi və müştəri adı fayl adı üçün uyğun deyil." });
+    const archiveBase = isExport ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT;
+    const archiveRoot = resolve(archiveBase);
+    const storedArchivePath = String(order.approvalForm.archive?.path || "").trim();
+    const resolvedStoredArchivePath = storedArchivePath ? resolve(storedArchivePath) : "";
+    const existingArchivePath = resolvedStoredArchivePath && (
+      resolvedStoredArchivePath === archiveRoot || resolvedStoredArchivePath.toLocaleLowerCase("tr").startsWith(`${archiveRoot.toLocaleLowerCase("tr")}\\`)
+    ) ? storedArchivePath : "";
+    const sourceFolder = order.approvalForm.priceSource === "ANTREPO_TRANSIT" ? "ANTREPO" : "DEPO";
+    const exportDocumentFolder = order.approvalForm.documentType === "commercial_invoice" ? "COMMERCIAL INVOICE" : order.approvalForm.documentType === "packing_list" ? "PACKING LIST" : "PROFORMA";
+    const countryFolder = safeWindowsPathSegment(customer?.country || "ÜLKE BELİRTİLMEDİ");
+    const archiveDirectory = existingArchivePath
+      ? dirname(existingArchivePath)
+      : isExport
+        ? isShipmentDocument
+          ? join(EXPORT_ARCHIVE_ROOT, countryFolder, customerFolderName, "SEVKİYAT", shipmentDateParts.display)
+          : join(EXPORT_ARCHIVE_ROOT, countryFolder, customerFolderName, exportDocumentFolder, year, sourceFolder, month)
+        : join(ORDER_ARCHIVE_ROOT, salesRepresentative, customerFolderName, year, month);
+    const filename = existingArchivePath
+      ? String(order.approvalForm.archive?.filename || existingArchivePath.split(/[\\/]/).pop())
+      : isExport
+        ? `${customerName} - ${exportDocumentFolder} - ${isShipmentDocument ? shipmentDateParts.display : display}${isShipmentDocument ? ` - ${safeWindowsPathSegment(order.approvalForm.invoiceNumber)}` : ` - ${sourceFolder}`}.pdf`
+        : `${formNumber} - ${customerName} - ${display} - Sipariş Formu.pdf`;
+    const destination = existingArchivePath || join(archiveDirectory, filename);
+    const temporary = join(archiveDirectory, `.${randomUUID()}.tmp`);
+    const backup = join(archiveDirectory, `.${randomUUID()}.bak`);
+    let replacingOwnArchive = false;
+
+    try {
+      await mkdir(archiveDirectory, { recursive: true });
+      await readFile(destination);
+      replacingOwnArchive = isExport || order.approvalForm.archive?.path === destination;
+      if (!replacingOwnArchive) return send(res, 409, { error: `Bu PDF zaten arşivde mevcut: ${filename}` });
+    } catch (error) {
+      if (error?.code && error.code !== "ENOENT") {
+        return send(res, 503, { error: `Arşiv klasörüne erişilemedi: ${error.message}` });
+      }
+    }
+
+    try {
+      await writeFile(temporary, pdf, { flag: "wx" });
+      if (replacingOwnArchive) await rename(destination, backup);
+      await rename(temporary, destination);
+      if (replacingOwnArchive) await unlink(backup).catch(() => {});
+    } catch (error) {
+      await unlink(temporary).catch(() => {});
+      if (replacingOwnArchive) {
+        await rename(backup, destination).catch(() => {});
+      }
+      return send(res, 503, { error: `PDF arşive kaydedilemedi: ${error.message}` });
+    }
+
+    const archivedAt = now.toISOString();
+    order.approvalForm.archive = { path: destination, filename, archivedAt, archivedBy: req.authUser?.name ?? "Satış", status: order.approvalForm.status };
+    if (!order.isTest) notifyUsers(db, order, orderActivityRecipients(db, order), "approval_form_archived", "Sipariş formu arşivlendi", `${req.authUser?.name || "Satış"} tarafından · ${order.approvalForm.number}`, req.authUser);
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: archiveIsApproved ? "approvalFormArchived" : "approvalFormDraftArchived", newValue: destination, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: archivedAt });
+    order.updatedAt = archivedAt;
+    await writeDb(db);
+    return send(res, 201, { data: { path: destination, filename, order: orderWithPresence(order, req.authUser) } });
+  }
+
+  if (req.method === "POST" && id && parts[2] === "approval-form" && parts[3] === "open-archive") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const archivePath = String(order.approvalForm?.archive?.path || "").trim();
+    if (!archivePath) return send(res, 409, { error: "Açılacaq arxiv faylı tapılmadı." });
+    const archiveRoot = resolve(order.approvalForm?.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+    const resolvedArchivePath = resolve(archivePath);
+    if (resolvedArchivePath !== archiveRoot && !resolvedArchivePath.startsWith(`${archiveRoot}\\`)) {
+      return send(res, 403, { error: "Arxiv yolu icazə verilən qovluğun xaricindədir." });
+    }
+    if (process.platform !== "win32") return send(res, 501, { error: "Qovluq açma yalnız Windows kompüterdə dəstəklənir." });
+    try {
+      const child = execFile("explorer.exe", ["/select,", resolvedArchivePath], { windowsHide: false });
+      child.unref();
+      return send(res, 200, { data: { path: archivePath } });
+    } catch (error) {
+      return send(res, 503, { error: `Arxiv qovluğu açıla bilmədi: ${error.message}` });
+    }
+  }
+
+  if (req.method === "GET" && id && parts[2] === "approval-form" && parts[3] === "pdf") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (!order.approvalForm) return send(res, 404, { error: "Sipariş formu bulunamadı." });
+    const canViewAll = workflowRole === "owner" || hasPermission(req.authUser, "order_forms.view_all");
+    if (!canViewAll) {
+      const actorId = String(req.authUser?.id || "");
+      const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
+      const assignedId = String(order.approvalForm.salesRepresentativeUserId || "");
+      const assignedName = normalizeSalesRepresentativeName(order.approvalForm.salesRepresentative || "");
+      const mayView = assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName);
+      if (!mayView) return send(res, 403, { error: "Bu sipariş formunun PDF dosyasını görme yetkiniz yok." });
+    }
+    const archivePath = String(order.approvalForm.archive?.path || "").trim();
+    if (!archivePath) return send(res, 404, { error: "Bu form için arşivlenmiş PDF bulunamadı." });
+    const archiveRoot = resolve(order.approvalForm?.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+    const resolvedArchivePath = resolve(archivePath);
+    const normalizedRoot = archiveRoot.toLocaleLowerCase("tr");
+    const normalizedPath = resolvedArchivePath.toLocaleLowerCase("tr");
+    if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(`${normalizedRoot}\\`)) {
+      return send(res, 403, { error: "Arşiv yolu izin verilen klasörün dışında." });
+    }
+    try {
+      const pdf = await readFile(resolvedArchivePath);
+      const filename = String(order.approvalForm.archive?.filename || `${order.approvalForm.number}.pdf`).replace(/[\r\n"]/g, " ");
+      res.writeHead(200, {
+        "content-type": "application/pdf",
+        "content-length": pdf.length,
+        "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "cache-control": "private, no-store",
+        "x-content-type-options": "nosniff",
+      });
+      return res.end(pdf);
+    } catch (error) {
+      if (error?.code === "ENOENT") return send(res, 404, { error: "Arşiv PDF dosyası bulunamadı." });
+      return send(res, 503, { error: `Arşiv PDF dosyası açılamadı: ${error.message}` });
+    }
+  }
+
+  if (req.method === "POST" && id && parts[2] === "delivery-photo") {
+    if (!canDeliver) return send(res, 403, { error: "Təhvil şəkli yükləmək üçün icazəniz yoxdur." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (order.status !== "ready") return send(res, 409, { error: "Təhvil şəkli yalnız hazır sifarişə yüklənə bilər." });
+    const body = await parseBody(req, 1_500_000);
+    const match = String(body.data || "").match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) return send(res, 400, { error: "Təhvil şəkli düzgün deyil." });
+    const file = Buffer.from(match[2], "base64");
+    if (!file.length || file.length > 700_000) return send(res, 413, { error: "Sıxılmış təhvil şəkli ən çox 700 KB ola bilər." });
+    const extension = match[1] === "image/png" ? "png" : match[1] === "image/webp" ? "webp" : "jpg";
+    const storageName = `${order.id}-delivery-${randomUUID()}.${extension}`;
+    await mkdir(ORDER_UPLOAD_DIR, { recursive: true });
+    await writeFile(join(ORDER_UPLOAD_DIR, storageName), file);
+    if (order.deliveryPhotoStorageName) await unlink(join(ORDER_UPLOAD_DIR, order.deliveryPhotoStorageName)).catch(() => {});
+    const now = new Date().toISOString();
+    order.deliveryPhoto = `/api/orders/delivery-photos/${order.id}`;
+    order.deliveryPhotoStorageName = storageName;
+    order.deliveryPhotoMimeType = match[1];
+    order.deliveryPhotoUploadedAt = now;
+    order.deliveryPhotoUploadedBy = req.authUser?.name ?? "Əməkdaş";
+    order.updatedAt = now;
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: "deliveryPhotoUploaded", by: order.deliveryPhotoUploadedBy, userId: req.authUser?.id, at: now });
+    await writeDb(db);
+    return send(res, 201, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (req.method === "DELETE" && id && parts[2] === "attachments" && parts[3]) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "documents.delete")) return send(res, 403, { error: "Sənədi silmək icazəniz yoxdur." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const attachmentId = String(parts[3]);
+    const attachment = (order.attachments || []).find((item) => String(item.id) === attachmentId);
+    if (!attachment) return notFound(res);
+    const now = new Date().toISOString();
+    attachment.deletedAt = now;
+    attachment.deletedBy = req.authUser?.name ?? "Sahib";
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: "attachmentDeleted", oldValue: `${attachment.kind}: ${attachment.name}`, by: attachment.deletedBy, userId: req.authUser?.id, at: now });
+    order.updatedAt = now;
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (req.method === "PATCH" && id && parts[2] === "attachments" && parts[3]) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "documents.delete")) return send(res, 403, { error: "Sənədi geri qaytarmaq icazəniz yoxdur." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    const attachment = (order.attachments || []).find((item) => String(item.id) === String(parts[3]));
+    if (!attachment) return notFound(res);
+    const now = new Date().toISOString();
+    delete attachment.deletedAt;
+    delete attachment.deletedBy;
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: "attachmentRestored", newValue: `${attachment.kind}: ${attachment.name}`, by: req.authUser?.name ?? "Sahib", userId: req.authUser?.id, at: now });
+    order.updatedAt = now;
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (req.method === "PATCH" && id && parts[2] === "draft") {
+    if (!canPrepare) return send(res, 403, { error: "Hazırlama məlumatlarını yalnız anbar əməkdaşı dəyişə bilər." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (order.status !== "preparing") return send(res, 409, { error: "Metraj draftı yalnız hazırlanma mərhələsində dəyişdirilə bilər." });
+    const body = await parseBody(req);
+    const itemIndex = Number(body.itemIndex);
+    const item = order.items?.[itemIndex];
+    if (!item || !Number.isInteger(itemIndex)) return send(res, 404, { error: "Məhsul sətri tapılmadı." });
+    const quantityProvided = body.preparedQuantity !== undefined;
+    const rollProvided = body.preparedRollCount !== undefined;
+    const allowanceProvided = body.cutAllowanceApplied !== undefined || body.cutPieceCount !== undefined || body.cutAllowancePerPiece !== undefined;
+    if (!quantityProvided && !rollProvided && !allowanceProvided) return send(res, 400, { error: "Dəyişdiriləcək metraj, rulo və ya kesim payı göndərilməyib." });
+    const preparedQuantity = quantityProvided ? Number(body.preparedQuantity) : (Number(item.preparedQuantity) || 0);
+    const preparedRollCount = rollProvided ? Number(body.preparedRollCount) : (Number(item.preparedRollCount) || 0);
+    if (quantityProvided && (!Number.isFinite(preparedQuantity) || preparedQuantity <= 0)) return send(res, 400, { error: "Faktiki metraj sıfırdan böyük olmalıdır." });
+    if (rollProvided && (!Number.isInteger(preparedRollCount) || preparedRollCount < 0)) return send(res, 400, { error: "Rulo sayı düzgün tam ədəd olmalıdır." });
+    const previousValue = Number(item.preparedQuantity) || null;
+    const previousRollCount = Number(item.preparedRollCount) || 0;
+    const quantityChanged = quantityProvided && previousValue !== preparedQuantity;
+    const rollChanged = rollProvided && previousRollCount !== preparedRollCount;
+    const normalizedAllowance = allowanceProvided ? normalizeOrderCutAllowance({ ...item, ...body }) : null;
+    const allowanceChanged = Boolean(normalizedAllowance) && (
+      item.cutAllowanceApplied !== normalizedAllowance.cutAllowanceApplied ||
+      Number(item.cutPieceCount || 0) !== Number(normalizedAllowance.cutPieceCount || 0) ||
+      Number(item.cutAllowancePerPiece || 0) !== Number(normalizedAllowance.cutAllowancePerPiece || 0)
+    );
+    const now = new Date().toISOString();
+    if (!quantityChanged && !rollChanged && !allowanceChanged) {
+      touchOrderEditor(id, req.authUser, true);
+      return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+    }
+    if (quantityProvided) item.preparedQuantity = preparedQuantity;
+    if (rollProvided) item.preparedRollCount = preparedRollCount;
+    if (normalizedAllowance) Object.assign(item, normalizedAllowance);
+    else if (quantityProvided) Object.assign(item, normalizeOrderCutAllowance(item));
+    item.preparedBy = req.authUser?.name ?? "Anbar";
+    item.preparedByUserId = req.authUser?.id;
+    item.preparedAt = now;
+    order.draftUpdatedAt = now;
+    order.draftUpdatedBy = req.authUser?.name ?? "Anbar";
+    order.audit ??= [];
+    if (quantityChanged) order.audit.push({
+      id: randomUUID(), action: "preparedQuantity", itemIndex, productId: item.productId,
+      productName: item.productName, oldValue: previousValue, newValue: preparedQuantity,
+      reason: changeReason || "Hazırlanan metre miktarı güncellendi",
+      by: req.authUser?.name ?? "Anbar", userId: req.authUser?.id, at: now,
+    });
+    if (rollChanged) order.audit.push({
+      id: randomUUID(), action: "preparedRollCount", itemIndex, productId: item.productId,
+      productName: item.productName, oldValue: previousRollCount, newValue: preparedRollCount,
+      reason: changeReason || "Hazırlanan rulo sayısı güncellendi",
+      by: req.authUser?.name ?? "Anbar", userId: req.authUser?.id, at: now,
+    });
+    if (allowanceChanged) order.audit.push({
+      id: randomUUID(), action: "cutAllowance", itemIndex, productId: item.productId,
+      productName: item.productName, newValue: item.cutAllowanceApplied ? item.cutAllowanceMeters : 0,
+      reason: changeReason || "Kesim payı bilgisi güncellendi",
+      by: req.authUser?.name ?? "Anbar", userId: req.authUser?.id, at: now,
+    });
+    touchOrderEditor(id, req.authUser, true);
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (req.method === "POST" && id && parts[2] === "partial-ready") {
+    if (!canPrepare) return send(res, 403, { error: "Hazır partiyanı yalnız anbar əməkdaşı yarada bilər." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (order.status !== "preparing") return send(res, 409, { error: "Yalnız hazırlanmaqda olan sifarişdən hazır hissə yaradıla bilər." });
+    const selected = (order.items || []).filter((item) => Number(item.preparedQuantity) > 0);
+    if (!selected.length) return send(res, 400, { error: "Hazıra göndərmək üçün ən az bir faktiki metraj yazın." });
+    const now = new Date().toISOString();
+    const actor = req.authUser?.name ?? "Anbar";
+    const existingBatches = db.orderBoard.filter((item) => String(item.parentOrderId || "") === String(order.id)).length;
+    const batch = {
+      id: randomUUID(),
+      number: `${order.number}-H${existingBatches + 1}`,
+      parentOrderId: order.id,
+      parentOrderNumber: order.number,
+      customerName: order.customerName,
+      note: order.note,
+      businessDate: order.businessDate || activeOrderDayKey(db),
+      status: "ready",
+      items: selected.map((item) => ({ ...item, quantity: Number(item.preparedQuantity), preparedQuantity: Number(item.preparedQuantity) })),
+      createdBy: order.createdBy,
+      createdByUserId: order.createdByUserId || null,
+      preparedBy: actor,
+      createdAt: now,
+      updatedAt: now,
+      readyAt: now,
+      history: [{ status: "ready", at: now, by: actor }],
+      audit: [{ id: randomUUID(), action: "partialReadyCreated", by: actor, userId: req.authUser?.id, at: now }],
+    };
+    order.items = (order.items || []).flatMap((item) => {
+      const prepared = Number(item.preparedQuantity) || 0;
+      if (prepared <= 0) return [item];
+      const remaining = Number(item.quantity) - prepared;
+      if (remaining <= 0.000001) return [];
+      const next = { ...item, quantity: remaining, preparedQuantity: null };
+      delete next.preparedBy;
+      delete next.preparedByUserId;
+      delete next.preparedAt;
+      delete next.preparedRollCount;
+      return [next];
+    });
+    if (!order.items.length) {
+      order.status = "fulfilled";
+      order.history ??= [];
+      order.history.push({ status: "fulfilled", at: now, by: actor });
+    }
+    order.updatedAt = now;
+    order.draftUpdatedAt = now;
+    order.draftUpdatedBy = actor;
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: "partialReady", newValue: batch.number, by: actor, userId: req.authUser?.id, at: now });
+    db.orderBoard.push(batch);
+    await writeDb(db);
+    return send(res, 200, { data: { order: orderWithPresence(order, req.authUser), batch: orderWithPresence(batch, req.authUser) } });
+  }
+
+  if (req.method === "PATCH" && id && parts[2] === "despatch") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.despatch")) return send(res, 403, { error: "İrsaliye məlumatını təsdiqləmək icazəniz yoxdur." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (order.status !== "ready") return send(res, 409, { error: "İrsaliye yalnız hazır sifariş partiyası üçün təsdiqlənə bilər." });
+    const body = await parseBody(req);
+    const ready = body.ready === true;
+    const number = String(body.number ?? "").trim().slice(0, 80);
+    if (ready && !number) return send(res, 400, { error: "İrsaliye nömrəsi məcburidir." });
+    const now = new Date().toISOString();
+    order.despatchReady = ready;
+    order.despatchNumber = ready ? number : "";
+    order.despatchReadyAt = ready ? now : null;
+    order.despatchReadyBy = ready ? (req.authUser?.name ?? "Satış") : null;
+    order.updatedAt = now;
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: ready ? "despatchReady" : "despatchRevoked", newValue: number, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: now });
+    if (ready) notifyUsers(db, order, db.authUsers.filter((user) => hasPermission(user, "orders.deliver")), "despatch_ready", "İrsaliye hazır", `${req.authUser?.name || "Satış"} tarafından hazırlandı · ${order.number} · ${order.customerName}`, req.authUser);
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
   }
 
   if (req.method === "PATCH" && id) {
@@ -1210,25 +3336,173 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!order) return notFound(res);
     const body = await parseBody(req);
     const nextStatus = String(body.status ?? order.status);
+    const previousStatus = order.status;
+    const statusWasRolledBack = (previousStatus === "preparing" && nextStatus === "new")
+      || (previousStatus === "ready" && nextStatus === "preparing");
+    const rollbackReason = String(body.rollbackReason || "").trim().slice(0, 500);
+    if (statusWasRolledBack && !rollbackReason) return send(res, 400, { error: "Geri gönderme nedeni zorunludur." });
+    const beforeEdit = structuredClone({ customerName: order.customerName, note: order.note, items: order.items || [] });
+    const now = new Date().toISOString();
+    const actor = req.authUser?.name ?? "Əməkdaş";
     const allowed = { new: ["preparing", "cancelled"], preparing: ["ready", "new", "cancelled"], ready: ["delivered", "preparing"], delivered: [], cancelled: ["new"] };
-    if (nextStatus !== order.status && !allowed[order.status]?.includes(nextStatus)) return send(res, 409, { error: "Bu mərhələ keçidi mümkün deyil." });
+    if (order.parentOrderId && order.status === "ready" && nextStatus === "preparing") {
+      return send(res, 409, { error: "Hazır partiya yenidən hazırlanmağa qaytarıla bilməz. Qalan məhsullar ana sifarişdə hazırlanır." });
+    }
+    const isOwner = normalizedRole(req.authUser?.role) === "sahib";
+    const canEditOrder = isOwner || hasPermission(req.authUser, "orders.edit");
+    if (nextStatus !== order.status) {
+      const isRollback = (order.status === "preparing" && nextStatus === "new")
+        || (order.status === "ready" && nextStatus === "preparing");
+      const canRollback = isOwner || hasPermission(req.authUser, "orders.rollback");
+      const roleAllowed = (isRollback && canRollback)
+        || (!isRollback && nextStatus === "preparing" && canPrepare)
+        || (nextStatus === "ready" && canPrepare)
+        || (!isRollback && nextStatus === "new" && canPrepare)
+        || (nextStatus === "delivered" && canDeliver)
+        || ((isOwner || hasPermission(req.authUser, "orders.delete")) && nextStatus === "cancelled");
+      if (!roleAllowed) return send(res, 403, { error: "Bu əməliyyat hesabınızın roluna icazə verilmir." });
+      if (nextStatus === "delivered" && order.despatchReady !== true) return send(res, 409, { error: "Təhvil üçün əvvəlcə irsaliye hazır olmalıdır." });
+    }
+    if (nextStatus !== order.status && !isOwner && !allowed[order.status]?.includes(nextStatus)) return send(res, 409, { error: "Bu mərhələ keçidi mümkün deyil." });
+    const orderEdited = canEditOrder && (body.customerName !== undefined || body.note !== undefined || Array.isArray(body.items)) && nextStatus === order.status;
+    if ((body.customerName !== undefined || body.note !== undefined) && !canEditOrder) return send(res, 403, { error: "Sifarişi dəyişmək icazəniz yoxdur." });
+    if (canEditOrder) {
+      if (body.customerName !== undefined) {
+        const customerName = String(body.customerName).trim();
+        if (!customerName) return send(res, 400, { error: "Müştəri adı məcburidir." });
+        order.customerName = customerName;
+      }
+      if (body.note !== undefined) order.note = String(body.note).trim();
+      if (Array.isArray(body.items)) {
+        if (!body.items.length || body.items.some((item) => !item.productId || !(Number(item.quantity) > 0))) {
+          return send(res, 400, { error: "Bütün məhsullar və metrajlar düzgün doldurulmalıdır." });
+        }
+        order.items = body.items;
+      }
+    }
     if (nextStatus === "ready") {
       const items = Array.isArray(body.items) ? body.items : order.items;
       if (items.some((item) => !(Number(item.preparedQuantity) > 0))) return send(res, 400, { error: "Hazır etməzdən əvvəl bütün faktiki metrajları yazın." });
-      order.items = items;
+      order.items = items.map((item, index) => ({ ...order.items[index], ...item, preparedRollCount: Math.max(0, Number(item.preparedRollCount) || 0) }));
     } else if (Array.isArray(body.items)) {
       order.items = body.items;
     }
     if (nextStatus !== order.status) {
       order.status = nextStatus;
       order.history ??= [];
-      order.history.push({ status: nextStatus, at: new Date().toISOString(), by: req.authUser?.name ?? "Əməkdaş" });
-      if (nextStatus === "preparing") order.preparedBy = req.authUser?.name ?? "Anbar";
-      if (nextStatus === "ready") order.readyAt = new Date().toISOString();
+      order.history.push({ status: nextStatus, at: now, by: actor });
+      if (nextStatus === "preparing") order.preparedBy = actor;
+      if (nextStatus === "ready") order.readyAt = now;
+      if (previousStatus === "ready" && nextStatus === "preparing") {
+        delete order.readyAt;
+        order.despatchReady = false;
+        delete order.despatchReadyAt;
+        delete order.despatchReadyBy;
+      }
+      if (nextStatus === "delivered") {
+        const deliveryNote = String(body.deliveryNote ?? "").trim().slice(0, 500);
+        if (!deliveryNote) return send(res, 400, { error: "Təhvil qeydi məcburidir." });
+        const hasDeliveryProof = Boolean(order.deliveryPhoto || (order.attachments || []).some((attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt));
+        if (!hasDeliveryProof) return send(res, 400, { error: "Təhvil faylı məcburidir." });
+        order.deliveredAt = now;
+        order.deliveredBy = actor;
+        order.deliveryNote = deliveryNote;
+        db.orderStockMovements ??= [];
+        if (!order.isTest) for (const item of order.items || []) {
+          if (item.stockMovementId) continue;
+          const customerQuantity = Math.max(0, Number(item.preparedQuantity ?? item.quantity) || 0);
+          const allowance = normalizeOrderCutAllowance(item);
+          const product = db.orderCatalog.find((entry) => Number(entry.id) === Number(item.productId));
+          const movementId = randomUUID();
+          if (product) {
+            product.physicalQuantity = Number(((Number(product.physicalQuantity) || 0) - allowance.stockConsumptionQuantity).toFixed(3));
+            product.stockUpdatedAt = now;
+            product.stockUpdatedBy = actor;
+          }
+          item.stockMovementId = movementId;
+          item.stockPostedAt = now;
+          Object.assign(item, allowance);
+          db.orderStockMovements.push({
+            id: movementId, orderId: order.id, orderNumber: order.number, customerName: order.customerName,
+            productId: item.productId, productCode: item.productCode, productName: item.productName,
+            customerQuantity, cutAllowanceQuantity: allowance.cutAllowanceMeters,
+            cutPieceCount: allowance.cutPieceCount, cutAllowancePerPiece: allowance.cutAllowancePerPiece,
+            stockQuantity: allowance.stockConsumptionQuantity, createdAt: now, createdBy: actor,
+          });
+        }
+      }
+      if (nextStatus === "ready") {
+        notifyUsers(db, order, orderActivityRecipients(db, order), "order_ready", "Sipariş hazırlandı", `${actor} tarafından hazırlandı · ${order.number} · ${order.customerName}`, req.authUser);
+      }
+      if (statusWasRolledBack) {
+        const previousLabel = previousStatus === "ready" ? "Hazır" : "Hazırlanıyor";
+        const nextLabel = nextStatus === "preparing" ? "Hazırlanıyor" : "Yeni";
+        notifyUsers(
+          db,
+          order,
+          orderActivityRecipients(db, order),
+          "order_status_returned",
+          "Sipariş düzenleme için geri gönderildi",
+          `${actor} tarafından geri gönderildi · ${previousLabel} → ${nextLabel} · Neden: ${rollbackReason} · ${order.number} · ${order.customerName}`,
+          req.authUser,
+        );
+      } else if (nextStatus === "preparing") {
+        notifyUsers(db, order, orderActivityRecipients(db, order), "order_preparing_started", "Sipariş hazırlanmaya başladı", `${actor} tarafından · ${order.number} · ${order.customerName}`, req.authUser);
+      }
+      if (nextStatus === "delivered") {
+        notifyUsers(db, order, orderActivityRecipients(db, order), "order_delivered", "Sipariş teslim edildi", `${actor} tarafından teslim edildi · ${order.number} · ${order.customerName}`, req.authUser);
+      }
     }
-    order.updatedAt = new Date().toISOString();
+    order.audit ??= [];
+    if (previousStatus !== nextStatus) {
+      order.audit.push({ id: randomUUID(), action: "status", oldValue: previousStatus, newValue: nextStatus, ...(statusWasRolledBack ? { reason: rollbackReason } : {}), by: actor, userId: req.authUser?.id, at: now });
+    }
+    if (orderEdited) {
+      const reason = String(body.editReason || "Düzenleme nedeni belirtilmedi").trim().slice(0, 300);
+      if (beforeEdit.customerName !== order.customerName) order.audit.push({ id: randomUUID(), action: "customerNameEdited", oldValue: beforeEdit.customerName, newValue: order.customerName, reason, by: actor, userId: req.authUser?.id, at: now });
+      if (String(beforeEdit.note || "") !== String(order.note || "")) order.audit.push({ id: randomUUID(), action: "orderNoteEdited", oldValue: beforeEdit.note || "-", newValue: order.note || "-", reason, by: actor, userId: req.authUser?.id, at: now });
+      for (let index = 0; index < Math.max(beforeEdit.items.length, order.items.length); index += 1) {
+        const oldItem = beforeEdit.items[index];
+        const newItem = order.items[index];
+        const oldSummary = oldItem ? `${oldItem.productCode || ""} ${oldItem.productName || ""} · ${Number(oldItem.quantity) || 0} mt · ${Number(oldItem.orderedRollCount) || 0} rulo` : "Satır yok";
+        const newSummary = newItem ? `${newItem.productCode || ""} ${newItem.productName || ""} · ${Number(newItem.quantity) || 0} mt · ${Number(newItem.orderedRollCount) || 0} rulo` : "Satır silindi";
+        if (oldSummary !== newSummary || String(oldItem?.lineNote || "") !== String(newItem?.lineNote || "")) order.audit.push({ id: randomUUID(), action: "orderItemEdited", itemIndex: index, productId: newItem?.productId || oldItem?.productId, productName: newItem?.productName || oldItem?.productName, oldValue: oldSummary, newValue: newSummary, reason, by: actor, userId: req.authUser?.id, at: now });
+      }
+      order.audit.push({ id: randomUUID(), action: "orderEdited", reason, by: actor, userId: req.authUser?.id, at: now });
+      notifyUsers(
+        db,
+        order,
+        orderActivityRecipients(db, order),
+        "order_edited",
+        "Sipariş düzenlendi",
+        `${actor} tarafından düzenlendi · ${order.number} · ${order.customerName}`,
+        req.authUser,
+      );
+    }
+    if (body.saveDraft === true && order.status === "preparing") {
+      order.draftUpdatedAt = now;
+      order.draftUpdatedBy = actor;
+      order.audit.push({ id: randomUUID(), action: "draftSaved", by: actor, userId: req.authUser?.id, at: now });
+    }
+    order.updatedAt = now;
     await writeDb(db);
-    return send(res, 200, { data: order });
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (req.method === "DELETE" && id) {
+    if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, "orders.delete")) return send(res, 403, { error: "Sifarişi silmək icazəniz yoxdur." });
+    const index = db.orderBoard.findIndex((item) => String(item.id) === id);
+    if (index < 0) return notFound(res);
+    db.orderTrash ??= [];
+    const [order] = db.orderBoard.splice(index, 1);
+    order.deletedAt = new Date().toISOString();
+    order.deletedBy = req.authUser?.name ?? "Sahib";
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: "deleted", by: order.deletedBy, userId: req.authUser?.id, at: order.deletedAt });
+    db.orderTrash.push(order);
+    orderEditorPresence.delete(String(id));
+    await writeDb(db);
+    return send(res, 200, { ok: true });
   }
 
   return notFound(res);
@@ -3997,7 +6271,24 @@ function applyDocumentStock(db, document) {
 
 const initialDb = await ensureDb();
 rebuildLotAccounting(initialDb, { recordAudit: false });
+for (const order of initialDb.orderBoard || []) {
+  if (order.approvalForm?.status !== "approved" || order.approvalForm?.documentType !== "proforma" || order.exportPackingStatus) continue;
+  const at = new Date().toISOString();
+  order.exportPackingRequired = true;
+  order.exportPackingStatus = "pending";
+  order.status = "preparing";
+  order.history ??= [];
+  order.history.push({ status: "preparing", at, by: "AriX Sistem", reason: "Onaylı Proforma için Packing List palet hazırlama görevi oluşturuldu." });
+  order.audit ??= [];
+  order.audit.push({ id: randomUUID(), action: "exportPackingRequested", newValue: order.approvalForm.proformaNumber || order.approvalForm.number, by: "AriX Sistem", at });
+  order.updatedAt = at;
+}
+const backfilledDeliveryNotifications = backfillTodayDeliveredNotifications(initialDb);
 await writeDb(initialDb);
+if (backfilledDeliveryNotifications) {
+  console.log(`Backfilled ${backfilledDeliveryNotifications} delivery notifications for ${orderDayKey()}.`);
+}
+await closeExpiredOrderDays();
 
 async function handleApiRequest(req, res) {
   try {
@@ -4038,9 +6329,50 @@ async function handleApiRequest(req, res) {
       accounting: ["accounting.view", "accounting.manage"],
       trash: ["trash.manage", "trash.manage"],
       employees: ["employees.manage", "employees.manage"],
-      orders: ["documents.view", "documents.create"],
     };
     const permissionPair = resourcePermissions[parts[1]];
+    if (parts[1] === "orders") {
+      const resource = String(parts[2] || "");
+      const action = String(parts[3] || "");
+      let required = ["orders.view"];
+      if (req.method === "GET") {
+        if (resource === "notifications" && action === "history") required = ["employees.manage"];
+        else if (resource === "catalog") required = ["products.view", "products.manage"];
+        else if (resource === "customers") required = ["counterparties.view", "counterparties.manage"];
+        else if (resource === "aliases") required = ["company.view", "company.manage"];
+        else if (resource === "approval-forms") required = ["order_forms.view"];
+        else if (action === "approval-form") required = ["order_forms.view"];
+        else if (resource === "day") required = ["orders.days.view", "orders.days.manage"];
+        else if (resource === "trash") required = ["trash.manage"];
+        else if (resource === "stock-movements") required = ["products.view", "orders.audit.view"];
+        else if (resource === "stock-documents") required = ["products.view", "products.manage"];
+        else if (resource === "attachments") required = ["documents.view", "orders.deliver"];
+        else if (resource === "exchange-rate") required = ["orders.create", "order_forms.edit"];
+      } else if (resource === "notifications") required = ["orders.view"];
+      else if (resource === "stock-documents") required = ["stock.adjust", "stock.writeoff", "stock.transfer", "stock.purchase", "stock.loan_purchase"];
+      else if (resource === "catalog" && parts[4] === "stock-transaction") required = ["stock.adjust", "stock.writeoff", "stock.transfer", "stock.purchase", "stock.loan_purchase"];
+      else if (resource === "catalog") required = ["products.manage"];
+      else if (resource === "customers") required = ["counterparties.manage"];
+      else if (resource === "aliases") required = ["company.manage"];
+      else if (resource === "day") required = ["orders.days.manage"];
+      else if (resource === "trash") required = ["trash.manage"];
+      else if (!resource && req.method === "POST") required = ["orders.create"];
+      else if (resource === "match") required = ["orders.create"];
+      else if (action === "attachments") required = req.method === "POST" ? ["documents.create", "orders.deliver"] : ["documents.delete"];
+      else if (action === "approval-form") required = ["order_forms.edit", "order_forms.approve"];
+      else if (action === "delivery-photo") required = ["orders.deliver"];
+      else if (action === "draft" || action === "partial-ready") required = ["orders.prepare"];
+      else if (action === "despatch") required = ["orders.despatch"];
+      else if (action === "presence") required = ["orders.view"];
+      else if (req.method === "DELETE") required = ["orders.delete"];
+      else if (req.method === "PATCH") required = ["orders.edit", "orders.prepare", "orders.rollback", "orders.deliver", "orders.delete"];
+      const warehouseOrderAccess = orderWorkflowRole(authUser) === "warehouse" && (
+        action === "draft" || action === "partial-ready" || action === "approval-form" || req.method === "PATCH"
+      );
+      if (!warehouseOrderAccess && !required.some((permission) => hasPermission(authUser, permission))) {
+        return send(res, 403, { error: "Bu əməliyyat üçün icazəniz yoxdur.", permissions: required });
+      }
+    }
     if (permissionPair) {
       let permission = req.method === "GET" ? permissionPair[0] : permissionPair[1];
       if (parts[1] === "documents") {
@@ -4051,7 +6383,10 @@ async function handleApiRequest(req, res) {
     }
 
     if (parts[1] === "products") return await handleProducts(req, res, url, parts.slice(1));
-    if (parts[1] === "orders") return await handleOrderBoard(req, res, url, parts.slice(1));
+    if (parts[1] === "orders") {
+      const handle = () => handleOrderBoard(req, res, url, parts.slice(1));
+      return req.method === "GET" ? await handle() : await queueOrderMutation(handle);
+    }
     if (parts[1] === "employees") return await handleEmployees(req, res, parts.slice(1));
     if (parts[1] === "product-price-history") return await handleProductPriceHistory(req, res, url);
     if (parts[1] === "product-groups") return await handleSimpleCollection(req, res, "productGroups");
@@ -4103,7 +6438,15 @@ server.listen(PORT, () => {
   console.log(`AriX API listening on http://localhost:${PORT}`);
 });
 
+const orderDayCloseTimer = setInterval(() => {
+  void closeExpiredOrderDays().catch((error) => {
+    console.error("Automatic order day close failed:", error);
+  });
+}, 60_000);
+orderDayCloseTimer.unref();
+
 const shutdown = () => {
+  clearInterval(orderDayCloseTimer);
   server.close(() => {
     stateStore.close();
     process.exit(0);

@@ -13,6 +13,10 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
   const backupDir = join(dataDir, "backups");
   let database = null;
   let normalize = (value) => value;
+  let cachedState = null;
+  let writeQueue = Promise.resolve();
+
+  const cloneState = (value) => structuredClone(value);
 
   const open = () => {
     if (database) return database;
@@ -75,7 +79,8 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
     const existing = db.prepare("SELECT data FROM app_state WHERE id = ?").get(STATE_ID);
     if (existing) {
       await createDailyBackup();
-      return normalize(JSON.parse(existing.data));
+      cachedState = normalize(JSON.parse(existing.data));
+      return cloneState(cachedState);
     }
 
     let initialValue;
@@ -102,28 +107,37 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
     setMeta("migration_source", source);
     setMeta("migrated_at", now);
     await createDailyBackup(true);
-    return value;
+    cachedState = value;
+    return cloneState(cachedState);
   };
 
   const read = async () => {
+    if (cachedState) return cloneState(cachedState);
     const row = open().prepare("SELECT data FROM app_state WHERE id = ?").get(STATE_ID);
     if (!row) throw new Error("SQLite application state is missing.");
-    return normalize(JSON.parse(row.data));
+    cachedState = normalize(JSON.parse(row.data));
+    return cloneState(cachedState);
   };
 
   const write = async (value) => {
-    await createDailyBackup();
-    const db = open();
-    const now = new Date().toISOString();
-    db.exec("BEGIN IMMEDIATE");
-    try {
-      db.prepare("UPDATE app_state SET data = ?, revision = revision + 1, updated_at = ? WHERE id = ?")
-        .run(JSON.stringify(value), now, STATE_ID);
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
+    const snapshot = cloneState(value);
+    const pendingWrite = writeQueue.then(async () => {
+      await createDailyBackup();
+      const db = open();
+      const now = new Date().toISOString();
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        db.prepare("UPDATE app_state SET data = ?, revision = revision + 1, updated_at = ? WHERE id = ?")
+          .run(JSON.stringify(snapshot), now, STATE_ID);
+        db.exec("COMMIT");
+        cachedState = snapshot;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    });
+    writeQueue = pendingWrite.catch(() => undefined);
+    return pendingWrite;
   };
 
   const status = () => {
@@ -135,6 +149,7 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
     if (!database) return;
     database.close();
     database = null;
+    cachedState = null;
   };
 
   return { initialize, read, write, createDailyBackup, status, close };

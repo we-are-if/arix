@@ -244,10 +244,7 @@ export default function Reports({ isDark }: { isDark: boolean }) {
         setAging(Array.isArray(agingPayload.data) ? agingPayload.data : []);
       } catch {
         if (!alive) return;
-        setProducts([]);
-        setDocuments([]);
-        setCounterparties([]);
-        setAging([]);
+        // Preserve the last successful report snapshot during connection loss.
       } finally {
         if (alive) setLoading(false);
       }

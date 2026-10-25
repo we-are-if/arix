@@ -332,13 +332,7 @@ export default function MoneyActivity({ isDark = false }: { isDark?: boolean }) 
       setReconciliationOverview(bankPayload.overview ?? settlementPayload.overview ?? { accounts: 0, bankTransactions: 0, bankUnmatched: 0, settlementsExpected: 0, settlementsAccountUnmatched: 0, settlementsCompleted: 0 });
     };
     void loadMoneyActivity().catch(() => {
-      if (!cancelled) {
-        setMoneyRows([]);
-        setRowDocuments({});
-        setExternalPayments([]);
-        setBankTransactions([]);
-        setSettlements([]);
-      }
+      // Preserve the last successful financial snapshot during connection loss.
     });
     window.addEventListener("arix:documents-updated", loadMoneyActivity);
     return () => {

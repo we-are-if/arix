@@ -1365,11 +1365,7 @@ export default function ProductActivity({ isDark = false }: { isDark?: boolean }
       setDocumentsById(nextDocuments);
     };
     void loadActivity().catch(() => {
-      if (!cancelled) {
-        setActivityRows([]);
-        setActivityLines({});
-        setDocumentsById({});
-      }
+      // Preserve the last successful activity snapshot during connection loss.
     });
     window.addEventListener("arix:documents-updated", loadActivity);
     return () => {
