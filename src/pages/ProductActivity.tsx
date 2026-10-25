@@ -166,6 +166,7 @@ type ApiDocument = {
   salesRepresentative?: string;
   approvalFormSnapshot?: {
     number?: string;
+    documentType?: "domestic" | "proforma" | "commercial_invoice" | "packing_list";
     customerName?: string;
     customerContact?: string;
     customerAddress?: string;
@@ -1038,22 +1039,23 @@ ${document?.note || snapshot.note ? `<div class="oc-note"><b>Ek not</b>${escapeH
     @page { size: A4 ${options.formMode === "packingList" ? "portrait" : options.paperMode}; margin: 10mm; }
     ${arixPrintBaseCss}
     body { color: #172033; }
-    .doc-title { margin: 16mm 0 9mm; text-align: center; }
-    .doc-title h1 { margin: 0; color: #2f6973; font-size: 54px; font-weight: 300; letter-spacing: 0; line-height: .9; }
-    .doc-title div { color: #a8c4c8; font-size: 28px; font-weight: 700; line-height: 1; }
-    .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18mm; font-size: 10px; }
-    .to strong { display: block; margin: 6px 0; color: #2f6973; font-size: 18px; }
-    .meta-lines { justify-self: end; align-self: end; min-width: 260px; }
-    .meta-lines div { display: grid; grid-template-columns: 1fr auto; gap: 18px; padding: 3px 0; }
+    .doc-title { display:flex; align-items:flex-end; justify-content:space-between; margin:5mm 0 3mm; border-bottom:1px solid #dfe7ef; padding-bottom:3mm; text-align:left; }
+    .doc-title h1 { margin:0; color:#10213f; font-size:28px; font-weight:700; line-height:1.05; }
+    .doc-title div { color:#718096; font-size:11px; font-weight:700; line-height:1.2; }
+    .parties { display:grid; grid-template-columns:1.3fr .7fr; gap:3mm; margin-bottom:4mm; font-size:9px; }
+    .parties>div { border:1px solid #dfe7ef; border-radius:7px; padding:3mm; background:#fff; }
+    .to strong { display:block; margin:1.5mm 0; color:#10213f; font-size:16px; }
+    .meta-lines { min-width:0; }
+    .meta-lines div { display:grid; grid-template-columns:1fr auto; gap:3mm; border-bottom:1px solid #edf1f5; padding:1.4mm 0; }
     table.sales { width: 100%; border-collapse: collapse; font-size: 9px; }
     table.sales th { background: #eef5f6; color: #2f6973; border: 1px solid #d7e4e7; padding: 6px; font-weight: 700; }
     table.sales td { border: 1px solid #d7e4e7; padding: 5px 6px; }
     .center { text-align: center; }
     .right { text-align: right; font-variant-numeric: tabular-nums; }
     tfoot td { background: #f7fafb; font-weight: 700; }
-    .terms { display: grid; grid-template-columns: 190px 1fr; gap: 6px; margin-top: 18mm; font-size: 10px; }
-    .note { margin-top: 10mm; color: #52647a; font-size: 9px; line-height: 1.6; }
-    .bank { margin-top: 10mm; border: 1px solid #d7e4e7; font-size: 9px; }
+    .terms { display:grid; grid-template-columns:150px 1fr; gap:1.5mm 4mm; margin-top:4mm; border:1px solid #dfe7ef; border-radius:7px; padding:3mm; background:#f8fafc; font-size:9px; }
+    .note { margin-top:3mm; color:#52647a; font-size:9px; line-height:1.6; }
+    .bank { margin-top:3mm; overflow:hidden; border:1px solid #d7e4e7; border-radius:7px; font-size:8px; }
     .bank div { display: grid; grid-template-columns: 1.2fr .9fr .9fr 1.1fr 2fr; }
     .bank span { padding: 6px; border-right: 1px solid #d7e4e7; }
     .bank span:last-child { border-right: 0; }
@@ -2297,9 +2299,20 @@ function SmartPrintOptionsDialog({
     setMessage("");
   };
 
-  const archivedOrderPdfUrl = options.formMode === "orderConfirmation" && document?.sourceOrderId
-    ? `/api/orders/${encodeURIComponent(document.sourceOrderId)}/approval-form/pdf`
-    : "";
+  const selectedOrderDocumentType = options.formMode === "orderConfirmation"
+    ? "domestic"
+    : options.formMode === "commercial"
+      ? "commercial_invoice"
+      : options.formMode === "packingList"
+        ? "packing_list"
+        : options.formMode === "proforma"
+          ? "proforma"
+          : "";
+  const archivedOrderPdfUrl = document?.sourceOrderId
+    && selectedOrderDocumentType
+    && document.approvalFormSnapshot?.documentType === selectedOrderDocumentType
+      ? `/api/orders/${encodeURIComponent(document.sourceOrderId)}/approval-form/pdf`
+      : "";
 
   const createPdf = () => {
     setMessage("");
