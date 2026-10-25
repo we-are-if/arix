@@ -391,27 +391,18 @@ const initials = (name: string) =>
     .join("")
     .toUpperCase();
 
-const tableStats = (row: CounterpartyRow, kind: CounterpartyKind) => {
-  const base = row.balance || row.id * 720;
-  const count = kind === "customers" ? row.id * 7 + 8 : row.id * 4 + 6;
-  const total = base * (kind === "customers" ? 20 + row.id : 17 + row.id);
-  const paid = Math.max(total - row.balance, 0);
-  const refundCount = row.id % 3 === 0 ? 1 : 0;
-  const refundSum = refundCount ? total * 0.045 : 0;
-  const expenses = kind === "customers" ? refundSum : total * 0.03;
-  const refundDebt = refundSum ? refundSum * 0.12 : 0;
-
+const tableStats = (row: CounterpartyRow, _kind: CounterpartyKind) => {
   return {
-    count,
-    total,
-    paid,
-    average: total / Math.max(count, 1),
-    refundCount,
-    refundSum,
-    expenses,
+    count: 0,
+    total: 0,
+    paid: 0,
+    average: 0,
+    refundCount: 0,
+    refundSum: 0,
+    expenses: 0,
     debt: row.balance,
-    refundDebt,
-    balance: row.balance - refundDebt,
+    refundDebt: 0,
+    balance: row.balance,
   };
 };
 
@@ -1034,28 +1025,18 @@ function CustomerCardOverview({
   const border = isDark ? "border-white/10" : "border-slate-200/80";
   const card = isDark ? "glass-control-dark border-white/10" : "glass-control border-white/70";
   const soft = isDark ? "bg-white/5" : "bg-slate-50/80";
-  const base = row.balance || row.id * 740;
+  const base = 0;
   const table = tableStats(row, kind);
-  const openDocs = row.id % 4 + 1;
-  const overdueDocs = row.balance > 0 ? Math.min(row.id % 3 + 1, openDocs) : 0;
+  const openDocs = 0;
+  const overdueDocs = 0;
   const creditLimit = Math.max(Math.ceil((row.balance + base * 4) / 1000) * 1000, 5000);
   const creditRate = Math.min(Math.round((Math.max(row.balance, 0) / creditLimit) * 100), 100);
   const store = row.id % 2 === 0 ? "ERSA ANTREPO" : "ERSA DEPO";
   const paymentTerm = row.id % 2 === 0 ? "30 gün" : "15 gün";
-  const productOps = isSupplier
-    ? [
-        { date: "8 aprel 2026", title: `Alış sənədi #${280 + row.id}`, meta: `Mağaza ${store} · ${row.name}`, amount: -(base * 3.4 + 940), accent: "bg-violet-500" },
-        { date: "2 aprel 2026", title: `Gömrük xərci #${190 + row.id}`, meta: `Maya xərci · ${row.added}`, amount: -(base * 0.6 + 220), accent: "bg-amber-500" },
-      ]
-    : [
-        { date: "13 may 2026", title: `Satış sənədi #${2300 + row.id}`, meta: `Mağaza ${store} · ${row.name}`, amount: base * 2.8 + 1850, accent: "bg-indigo-500" },
-        { date: "7 may 2026", title: `Satış sənədi #${2400 + row.id}`, meta: `Mağaza ${store} · ${row.name}`, amount: base * 1.4 + 720, accent: "bg-cyan-500" },
-      ];
+  const productOps: Array<{ date: string; title: string; meta: string; amount: number; accent: string }> = [];
   const visibleOps = activityView === "products"
     ? productOps
-    : activityView === "money"
-      ? [{ date: "2 iyun 2026", title: isSupplier ? `Təchizatçıya ödəniş #${510 + row.id}` : `Müştəridən ödəniş #${510 + row.id}`, meta: `Hesablaşma · ${row.name}`, amount: base * 1.2 + 300, accent: "bg-emerald-500" }]
-      : [{ date: "28 may 2026", title: `Bonus əməliyyatı #${120 + row.id}`, meta: `${row.loyalty || "Loyallıq kartı"} · ${row.name}`, amount: base * 0.05, accent: "bg-amber-500" }];
+    : [];
   const miniCards = isSupplier
     ? [
         ["Alış borcu", `${money(row.balance)} ₼`, row.balance > 0 ? "Ödəniş gözləyir" : "Borcsuz", "text-rose-500"],
@@ -1323,56 +1304,34 @@ function DetailPanel({
       setSaving(false);
     }
   };
-  const statBase = row.balance || row.id * 740;
-  const operations = isSupplier
-    ? [
-        { date: "8 aprel 2026", title: `Alış sifarişi #${280 + row.id}`, meta: `Anbar ERSA ANTREPO · ${row.name}`, amount: -(statBase * 3.4 + 940), accent: "bg-rose-500" },
-        { date: "2 aprel 2026", title: `Ödəniş #${190 + row.id}`, meta: `Hesablaşma · ${row.added}`, amount: statBase * 1.2 + 320, accent: "bg-emerald-500" },
-      ]
-    : [
-        { date: "13 may 2026", title: `Satış sifarişi #${2300 + row.id}`, meta: `Mağaza ERSA DEPO · ${row.name}`, amount: statBase * 2.8 + 1850, accent: "bg-indigo-500" },
-        { date: "7 may 2026", title: `Satış sənədi #${2400 + row.id}`, meta: `Mağaza ERSA DEPO · ${row.name}`, amount: statBase * 1.4 + 720, accent: "bg-cyan-500" },
-      ];
+  const statBase = 0;
+  const operations: Array<{ date: string; title: string; meta: string; amount: number; accent: string }> = [];
   const stats = isSupplier
     ? [
         ["Alış borcu", money(row.balance)],
-        ["Alış sayı", whole(row.id * 4 + 9)],
-        ["Alış cəmi", money(statBase * 18.2)],
-        ["Geri qaytarma", money(row.id * 120)],
-        ["Xərc cəmi", money(statBase * 7.4)],
+        ["Alış sayı", whole(0)],
+        ["Alış cəmi", money(0)],
+        ["Geri qaytarma", money(0)],
+        ["Xərc cəmi", money(0)],
         ["Balans", money(row.balance)],
       ]
     : [
         ["Satış borcu", money(row.balance)],
-        ["Satış sayı", whole(row.id * 6 + 12)],
-        ["Satış cəmi", money(statBase * 22.5)],
-        ["Orta çek", money(Math.max(statBase / 3, 125))],
+        ["Satış sayı", whole(0)],
+        ["Satış cəmi", money(0)],
+        ["Orta çek", money(0)],
         ["Bonus kartı", row.loyalty || "Yoxdur"],
         ["Balans", money(row.balance)],
       ];
   const visibleOperations = activityView === "products"
     ? operations
-    : activityView === "money"
-      ? [{
-          date: "2 iyun 2026",
-          title: isSupplier ? `Təchizatçıya ödəniş #${510 + row.id}` : `Müştəridən ödəniş #${510 + row.id}`,
-          meta: `Kassa · ${row.name}`,
-          amount: statBase * 1.2 + 300,
-          accent: "bg-emerald-500",
-        }]
-      : [{
-          date: "28 may 2026",
-          title: `Bonus əməliyyatı #${120 + row.id}`,
-          meta: `${row.loyalty || "Loyallıq kartı"} · ${row.name}`,
-          amount: statBase * 0.05,
-          accent: "bg-amber-500",
-        }];
+    : [];
   const detailLimit = Math.max(Math.ceil((row.balance + statBase * 4) / 1000) * 1000, 5000);
   const detailLimitRate = Math.min(Math.round((Math.max(row.balance, 0) / detailLimit) * 100), 100);
-  const detailOpenDocs = row.id % 4 + 1;
-  const detailOverdueDocs = row.balance > 0 ? Math.min(row.id % 3 + 1, detailOpenDocs) : 0;
-  const detailStore = row.id % 2 === 0 ? "ERSA ANTREPO" : "ERSA DEPO";
-  const detailPaymentTerm = row.id % 2 === 0 ? "30 gün" : "15 gün";
+  const detailOpenDocs = 0;
+  const detailOverdueDocs = 0;
+  const detailStore = "Belirtilmedi";
+  const detailPaymentTerm = row.paymentTermDays ? `${row.paymentTermDays} gün` : "Belirtilmedi";
 
   return (
     <div
