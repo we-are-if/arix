@@ -3535,6 +3535,21 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
 
   const printPdf = async () => {
     if (!pdfBlob || !pdfRendered) return;
+    const isAppleMobile = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (isAppleMobile && nativeShare) {
+      const file = new File([pdfBlob], filename, { type: "application/pdf" });
+      try {
+        if (!nativeCanShare || nativeCanShare.call(navigator, { files: [file] })) {
+          await nativeShare.call(navigator, { title: `Yazdır: ${filename}`, files: [file] });
+          return;
+        }
+      } catch (cause) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        setError(cause instanceof Error ? `Yazdırma ekranı açılamadı: ${cause.message}` : "Yazdırma ekranı açılamadı.");
+        return;
+      }
+    }
     const cleanup = () => document.body.classList.remove("printing-pdf-viewer");
     document.body.classList.add("printing-pdf-viewer");
     window.addEventListener("afterprint", cleanup, { once: true });

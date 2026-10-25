@@ -4025,6 +4025,13 @@ textarea {
     min-height: 0 !important;
     overflow: visible !important;
   }
+  body.printing-pdf-viewer .app-shell {
+    display: block !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    background: #fff !important;
+  }
+  body.printing-pdf-viewer .app-shell > :not(.approval-pdf-viewer) { display: none !important; }
   body.printing-pdf-viewer * { visibility: hidden !important; }
   body.printing-pdf-viewer .approval-pdf-viewer,
   body.printing-pdf-viewer .approval-pdf-viewer main,
