@@ -7633,6 +7633,7 @@ function ApprovalFormEditor({
       subtitle={`${order.customerName} · ${order.number}`}
       onClose={onClose}
       wide
+      showBack
       className={`approval-modal ${isPackingTask ? "packing-task-only" : ""}`}
     >
       {isProforma && (
@@ -8525,6 +8526,7 @@ function ApprovalFormEditor({
       subtitle={`${order.customerName} · ${order.number}`}
       onClose={onClose}
       wide
+      showBack
       className="approval-modal"
     >
       <div className="approval-workspace">
@@ -9219,6 +9221,7 @@ function Modal({
   subtitle,
   onClose,
   wide,
+  showBack = false,
   className = "",
   children,
 }: {
@@ -9226,6 +9229,7 @@ function Modal({
   subtitle: string;
   onClose: () => void;
   wide?: boolean;
+  showBack?: boolean;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -9239,7 +9243,13 @@ function Modal({
     >
       <section className={`modal ${wide ? "wide" : ""} ${className}`.trim()}>
         <header>
-          <div>
+          {showBack && (
+            <button type="button" className="modal-back" aria-label="Geri" onClick={onClose}>
+              <ArrowLeft size={19} aria-hidden="true" />
+              <span>Geri</span>
+            </button>
+          )}
+          <div className="modal-heading">
             <h2>{title}</h2>
             <p>{subtitle}</p>
           </div>

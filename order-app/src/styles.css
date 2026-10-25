@@ -567,11 +567,17 @@ select {
 }
 .modal > header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
+  gap: 12px;
   padding: 20px 22px;
   border-bottom: 1px solid #e9ebef;
+  background: #fff;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 4;
 }
+.modal-heading { min-width: 0; flex: 1 1 auto; }
 .modal h2 {
   margin: 0;
   font-size: 21px;
@@ -589,7 +595,26 @@ select {
   background: #fff;
   font-size: 25px;
   cursor: pointer;
+  flex: 0 0 auto;
 }
+.modal-back {
+  min-width: 84px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #dfe3e9;
+  border-radius: 9px;
+  background: #fff;
+  color: #20293a;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.modal-back:hover { background: #f5f6f8; }
 .modal-body {
   padding: 22px;
   overflow: auto;
@@ -4426,6 +4451,12 @@ textarea {
   .modal-backdrop { inset:0; z-index:90; padding:0; align-items:end; }
   .modal,
   .modal.wide { max-height:94dvh; border-radius:16px 16px 0 0; }
+  .approval-modal > header { padding:10px 12px; gap:8px; }
+  .approval-modal .modal-back { width:40px; min-width:40px; height:40px; padding:0; }
+  .approval-modal .modal-back span { display:none; }
+  .approval-modal > header .close { display:none; }
+  .approval-modal > header h2 { font-size:16px; line-height:1.2; }
+  .approval-modal > header p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .modal-body { min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; }
   .order-detail-modal { max-height:94dvh; }
 }
