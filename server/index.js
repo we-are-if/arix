@@ -621,10 +621,43 @@ function archiveRelativePath(order) {
   if (!archive?.path) return "";
   const isExport = order.approvalForm.documentType !== "domestic";
   const root = resolve(isExport ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+  const rawPath = String(archive.path);
+  const file = resolve(rawPath);
+  const child = relative(root, file);
+  if (child && !child.startsWith("..") && resolve(root, child) === file) {
+    return child.split(/[\\/]+/).filter(Boolean).join("/");
+  }
+  const normalized = rawPath.replaceAll("\\", "/");
+  const section = isExport ? "IHRACAT" : "YURT İÇİ";
+  const marker = `/${section}/`;
+  const markerIndex = normalized.toLocaleUpperCase("tr").indexOf(marker.toLocaleUpperCase("tr"));
+  if (markerIndex < 0) return "";
+  const legacyChild = normalized.slice(markerIndex + marker.length).split("/").filter(Boolean).join("/");
+  if (!legacyChild || legacyChild.split("/").some((part) => part === ".." || part === ".")) return "";
+  return legacyChild;
+}
+
+function archiveStoredOnServer(order) {
+  const archive = order?.approvalForm?.archive;
+  if (!archive?.path) return false;
+  const root = resolve(order.approvalForm.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
   const file = resolve(String(archive.path));
   const child = relative(root, file);
-  if (!child || child.startsWith("..") || resolve(root, child) !== file) return "";
-  return child.split(/[\\/]+/).filter(Boolean).join("/");
+  return Boolean(child && !child.startsWith("..") && resolve(root, child) === file);
+}
+
+function pathIsWithin(rootPath, filePath) {
+  const root = resolve(rootPath);
+  const file = resolve(filePath);
+  const child = relative(root, file);
+  return child === "" || (!child.startsWith("..") && resolve(root, child) === file);
+}
+
+function archiveWindowsPath(order, relativePath) {
+  const root = order.approvalForm.documentType !== "domestic"
+    ? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT"
+    : "\\\\ERSARIF\\SharedFolder\\ErsaShare\\YURT İÇİ";
+  return `${root}\\${relativePath.replaceAll("/", "\\")}`;
 }
 
 async function handleArchiveSync(req, res, parts) {
@@ -636,7 +669,9 @@ async function handleArchiveSync(req, res, parts) {
     const data = (db.orderBoard ?? []).flatMap((order) => {
       const archive = order.approvalForm?.archive;
       const relativePath = archiveRelativePath(order);
-      if (!archive || !relativePath || archive.localSync?.archivedAt === archive.archivedAt) return [];
+      if (!archive || !relativePath) return [];
+      const needsUpload = !archiveStoredOnServer(order);
+      if (!needsUpload && archive.localSync?.archivedAt === archive.archivedAt) return [];
       return [{
         orderId: order.id,
         orderNumber: order.number,
@@ -645,6 +680,8 @@ async function handleArchiveSync(req, res, parts) {
         filename: archive.filename,
         archiveKind: order.approvalForm.documentType === "domestic" ? "domestic" : "export",
         relativePath,
+        windowsPath: archive.windowsPath || archiveWindowsPath(order, relativePath),
+        needsUpload,
       }];
     });
     return send(res, 200, { data });
@@ -655,6 +692,47 @@ async function handleArchiveSync(req, res, parts) {
   const archive = order.approvalForm?.archive;
   const relativePath = archiveRelativePath(order);
   if (!archive || !relativePath) return send(res, 404, { error: "Senkronize edilecek PDF bulunamadı." });
+
+  if (req.method === "POST" && parts[0] === "upload") {
+    const body = await parseBody(req, 16_000_000);
+    if (String(body.archivedAt ?? "") !== String(archive.archivedAt)) {
+      return send(res, 409, { error: "PDF bu sırada değişti; güncel sürüm yeniden aktarılmalı." });
+    }
+    let pdf;
+    try {
+      pdf = Buffer.from(String(body.pdfBase64 ?? ""), "base64");
+    } catch {
+      return send(res, 400, { error: "PDF verisi çözülemedi." });
+    }
+    if (pdf.length < 100 || pdf.length > 10_000_000 || pdf.subarray(0, 5).toString("ascii") !== "%PDF-") {
+      return send(res, 400, { error: "Yüklenen dosya geçerli bir PDF değil." });
+    }
+    const root = resolve(order.approvalForm.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+    const destination = resolve(root, ...relativePath.split("/"));
+    const destinationChild = relative(root, destination);
+    if (!destinationChild || destinationChild.startsWith("..")) return send(res, 403, { error: "Arşiv hedefi geçersiz." });
+    const temporary = `${destination}.${randomUUID()}.tmp`;
+    try {
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(temporary, pdf, { flag: "wx" });
+      await rename(temporary, destination);
+    } catch (error) {
+      await unlink(temporary).catch(() => {});
+      return send(res, 503, { error: `Eski PDF sunucu arşivine alınamadı: ${error.message}` });
+    }
+    const windowsPath = archiveWindowsPath(order, relativePath);
+    archive.path = destination;
+    archive.relativePath = relativePath;
+    archive.windowsPath = windowsPath;
+    archive.localSync = {
+      archivedAt: archive.archivedAt,
+      syncedAt: new Date().toISOString(),
+      computer: String(body.computer ?? "").slice(0, 120),
+      path: windowsPath,
+    };
+    await writeDb(db);
+    return send(res, 200, { ok: true, data: archive.localSync });
+  }
 
   if (req.method === "GET" && parts[0] === "file") {
     try {
@@ -3095,9 +3173,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const archiveRoot = resolve(archiveBase);
     const storedArchivePath = String(order.approvalForm.archive?.path || "").trim();
     const resolvedStoredArchivePath = storedArchivePath ? resolve(storedArchivePath) : "";
-    const existingArchivePath = resolvedStoredArchivePath && (
-      resolvedStoredArchivePath === archiveRoot || resolvedStoredArchivePath.toLocaleLowerCase("tr").startsWith(`${archiveRoot.toLocaleLowerCase("tr")}\\`)
-    ) ? storedArchivePath : "";
+    const existingArchivePath = resolvedStoredArchivePath && pathIsWithin(archiveRoot, resolvedStoredArchivePath) ? storedArchivePath : "";
     const sourceFolder = order.approvalForm.priceSource === "ANTREPO_TRANSIT" ? "ANTREPO" : "DEPO";
     const exportDocumentFolder = order.approvalForm.documentType === "commercial_invoice" ? "COMMERCIAL INVOICE" : order.approvalForm.documentType === "packing_list" ? "PACKING LIST" : "PROFORMA";
     const countryFolder = safeWindowsPathSegment(customer?.country || "ÜLKE BELİRTİLMEDİ");
@@ -3162,7 +3238,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!archivePath) return send(res, 409, { error: "Açılacaq arxiv faylı tapılmadı." });
     const archiveRoot = resolve(order.approvalForm?.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
     const resolvedArchivePath = resolve(archivePath);
-    if (resolvedArchivePath !== archiveRoot && !resolvedArchivePath.startsWith(`${archiveRoot}\\`)) {
+    if (!pathIsWithin(archiveRoot, resolvedArchivePath)) {
       return send(res, 403, { error: "Arxiv yolu icazə verilən qovluğun xaricindədir." });
     }
     if (process.platform !== "win32") return send(res, 501, { error: "Qovluq açma yalnız Windows kompüterdə dəstəklənir." });
@@ -3192,9 +3268,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!archivePath) return send(res, 404, { error: "Bu form için arşivlenmiş PDF bulunamadı." });
     const archiveRoot = resolve(order.approvalForm?.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
     const resolvedArchivePath = resolve(archivePath);
-    const normalizedRoot = archiveRoot.toLocaleLowerCase("tr");
-    const normalizedPath = resolvedArchivePath.toLocaleLowerCase("tr");
-    if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(`${normalizedRoot}\\`)) {
+    if (!pathIsWithin(archiveRoot, resolvedArchivePath)) {
       return send(res, 403, { error: "Arşiv yolu izin verilen klasörün dışında." });
     }
     try {

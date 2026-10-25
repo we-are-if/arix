@@ -96,6 +96,26 @@ try {
     }
     $directory = Split-Path -Parent $resolvedTarget
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    if ($item.needsUpload) {
+      $legacyPath = [string]$item.windowsPath
+      if (-not (Test-Path -LiteralPath $legacyPath)) {
+        $legacyPath = $resolvedTarget
+      }
+      if (-not (Test-Path -LiteralPath $legacyPath)) {
+        Write-SyncLog "Eski PDF yerel arşivde bulunamadı: $legacyPath"
+        continue
+      }
+      $pdfBytes = [IO.File]::ReadAllBytes($legacyPath)
+      $uploadBody = @{
+        archivedAt = $item.archivedAt
+        computer = $env:COMPUTERNAME
+        pdfBase64 = [Convert]::ToBase64String($pdfBytes)
+      } | ConvertTo-Json -Compress
+      Invoke-RestMethod -Uri "$($config.apiBase)/api/archive-sync/upload/$($item.orderId)" -Headers $headers -Method Post -ContentType "application/json" -Body $uploadBody -TimeoutSec 180 | Out-Null
+      $transferred++
+      Write-SyncLog "Eski PDF sunucu arşivine alındı: $legacyPath"
+      continue
+    }
     $temporary = "$resolvedTarget.$([guid]::NewGuid().ToString('N')).tmp"
     try {
       Invoke-WebRequest -UseBasicParsing -Uri "$($config.apiBase)/api/archive-sync/file/$($item.orderId)" -Headers $headers -OutFile $temporary -TimeoutSec 120
