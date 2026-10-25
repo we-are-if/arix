@@ -16,7 +16,6 @@ function importPdfRenderer() {
 function preloadPdfRenderer() {
   if (!pdfRendererPromise) {
     pdfRendererPromise = importPdfRenderer();
-    void fetch(pdfWorkerUrl, { cache: "force-cache" }).catch(() => undefined);
   }
   return pdfRendererPromise;
 }
@@ -3362,10 +3361,6 @@ function ApprovalFormsPage({
   onOpen: (order: Order) => void;
   onShowPdf: (order: Order) => void;
 }) {
-  useEffect(() => {
-    void preloadPdfRenderer();
-  }, []);
-
   if (!orders.length) {
     return (
       <div className="approval-forms-empty">

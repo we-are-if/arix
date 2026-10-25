@@ -745,7 +745,7 @@ async function handleArchiveSync(req, res, parts) {
         "content-type": "application/pdf",
         "content-length": pdf.length,
         "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(archive.filename)}`,
-        "cache-control": "private, no-store",
+        "cache-control": "private, max-age=300",
       });
       return res.end(pdf);
     } catch (error) {
