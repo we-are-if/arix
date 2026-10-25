@@ -3,6 +3,24 @@ import readXlsxFile, { readSheet } from "read-excel-file/browser";
 import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, Download, Eye, FileText, HandCoins, Layers3, ListChecks, NotepadText, Pencil, Printer, ScanText, Scissors, Share2, Trash2, Truck, UserRound } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 
+const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+let pdfRendererPromise: ReturnType<typeof importPdfRenderer> | null = null;
+
+function importPdfRenderer() {
+  return import("pdfjs-dist").then((pdfjs) => {
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+    return pdfjs;
+  });
+}
+
+function preloadPdfRenderer() {
+  if (!pdfRendererPromise) {
+    pdfRendererPromise = importPdfRenderer();
+    void fetch(pdfWorkerUrl, { cache: "force-cache" }).catch(() => undefined);
+  }
+  return pdfRendererPromise;
+}
+
 type Product = {
   id: number;
   name: string;
@@ -3344,6 +3362,10 @@ function ApprovalFormsPage({
   onOpen: (order: Order) => void;
   onShowPdf: (order: Order) => void;
 }) {
+  useEffect(() => {
+    void preloadPdfRenderer();
+  }, []);
+
   if (!orders.length) {
     return (
       <div className="approval-forms-empty">
@@ -3475,8 +3497,7 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
     setPdfRendered(false);
     void (async () => {
       try {
-        const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+        const pdfjs = await preloadPdfRenderer();
         const bytes = new Uint8Array(await pdfBlob.arrayBuffer());
         const pdfDocument = await pdfjs.getDocument({ data: bytes }).promise;
         for (let pageNumber = 1; pageNumber <= pdfDocument.numPages && !cancelled; pageNumber += 1) {
@@ -3495,8 +3516,8 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
           if (!context) throw new Error("PDF sayfası çizilemedi.");
           pages.appendChild(canvas);
           await page.render({ canvas, canvasContext: context, viewport }).promise;
+          if (pageNumber === 1 && !cancelled) setPdfRendered(true);
         }
-        if (!cancelled) setPdfRendered(true);
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : "PDF görüntülenemedi.");
       }
