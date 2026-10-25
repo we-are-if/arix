@@ -3535,17 +3535,6 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
 
   const printPdf = async () => {
     if (!pdfBlob || !pdfUrl) return;
-    const file = new File([pdfBlob], filename, { type: "application/pdf" });
-    const mobile = window.matchMedia("(pointer: coarse)").matches;
-    const canShareFile = !nativeCanShare || nativeCanShare.call(navigator, { files: [file] });
-    if (mobile && nativeShare && canShareFile) {
-      try {
-        await nativeShare.call(navigator, { files: [file] });
-        return;
-      } catch (cause) {
-        if (cause instanceof DOMException && cause.name === "AbortError") return;
-      }
-    }
     const frame = document.createElement("iframe");
     frame.style.position = "fixed";
     frame.style.width = "1px";
