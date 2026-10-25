@@ -3534,20 +3534,16 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
   };
 
   const printPdf = async () => {
-    if (!pdfBlob || !pdfUrl) return;
-    const frame = document.createElement("iframe");
-    frame.style.position = "fixed";
-    frame.style.width = "1px";
-    frame.style.height = "1px";
-    frame.style.opacity = "0";
-    frame.style.pointerEvents = "none";
-    frame.src = pdfUrl;
-    frame.onload = () => window.setTimeout(() => {
-      frame.contentWindow?.focus();
-      frame.contentWindow?.print();
-      window.setTimeout(() => frame.remove(), 30_000);
-    }, 500);
-    document.body.appendChild(frame);
+    if (!pdfBlob || !pdfRendered) return;
+    const cleanup = () => document.body.classList.remove("printing-pdf-viewer");
+    document.body.classList.add("printing-pdf-viewer");
+    window.addEventListener("afterprint", cleanup, { once: true });
+    void document.body.offsetHeight;
+    try {
+      window.print();
+    } finally {
+      window.setTimeout(cleanup, 2_000);
+    }
   };
 
   return (
@@ -3558,7 +3554,7 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
         <nav>
           {canEdit && <button type="button" onClick={onEdit}><Pencil aria-hidden="true" /><span>Düzenle</span></button>}
           {canApprove && order.approvalForm?.status !== "approved" && <button type="button" className="approval-viewer-approve" onClick={onApprove}><Check aria-hidden="true" /><span>Onayla</span></button>}
-          <button type="button" disabled={!pdfUrl} onClick={() => void printPdf()}><Printer aria-hidden="true" /><span>Yazdır</span></button>
+          <button type="button" disabled={!pdfRendered} onClick={() => void printPdf()}><Printer aria-hidden="true" /><span>Yazdır</span></button>
           <button type="button" disabled={!pdfBlob} onClick={() => void share()}>{nativeShare ? <Share2 aria-hidden="true" /> : <Download aria-hidden="true" />}<span>{nativeShare ? "Paylaş" : "İndir"}</span></button>
         </nav>
       </header>

@@ -4018,6 +4018,48 @@ textarea {
   .approval-page-footer b { font-size:9pt; }
 }
 
+@media print {
+  body.printing-pdf-viewer,
+  body.printing-pdf-viewer #root {
+    width: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  body.printing-pdf-viewer * { visibility: hidden !important; }
+  body.printing-pdf-viewer .approval-pdf-viewer,
+  body.printing-pdf-viewer .approval-pdf-viewer main,
+  body.printing-pdf-viewer .approval-pdf-canvas-stage,
+  body.printing-pdf-viewer .approval-pdf-page { visibility: visible !important; }
+  body.printing-pdf-viewer .approval-pdf-viewer {
+    position: static !important;
+    display: block !important;
+    background: #fff !important;
+  }
+  body.printing-pdf-viewer .approval-pdf-viewer > header { display: none !important; }
+  body.printing-pdf-viewer .approval-pdf-viewer > main {
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+  body.printing-pdf-viewer .approval-pdf-canvas-stage {
+    display: block !important;
+    width: 100% !important;
+    transform: none !important;
+  }
+  body.printing-pdf-viewer .approval-pdf-page {
+    width: 100% !important;
+    height: auto !important;
+    break-after: page;
+    page-break-after: always;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  body.printing-pdf-viewer .approval-pdf-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}
+
 /* html2pdf captures this off-screen A4 copy with print dimensions, not the scaled UI preview. */
 .pdf-export-stage {
   position:fixed;
