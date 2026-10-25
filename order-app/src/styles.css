@@ -4054,8 +4054,14 @@ textarea {
     transform: none !important;
   }
   body.printing-pdf-viewer .approval-pdf-page {
-    width: 100% !important;
-    height: auto !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    width: 209.5mm !important;
+    height: 296.5mm !important;
+    max-width: 209.5mm !important;
+    max-height: 296.5mm !important;
+    object-fit: contain !important;
+    margin: 0 auto !important;
     break-after: page;
     page-break-after: always;
     border-radius: 0 !important;

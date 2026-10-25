@@ -5,10 +5,12 @@ import AriXLogo from "../../src/components/AriXLogo";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 let pdfRendererPromise: ReturnType<typeof importPdfRenderer> | null = null;
+let sharedPdfWorker: Worker | null = null;
 
 function importPdfRenderer() {
   return import("pdfjs-dist").then((pdfjs) => {
-    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+    if (!sharedPdfWorker) sharedPdfWorker = new Worker(pdfWorkerUrl, { type: "module" });
+    pdfjs.GlobalWorkerOptions.workerPort = sharedPdfWorker;
     return pdfjs;
   });
 }
@@ -1433,6 +1435,11 @@ export default function App() {
   const dayToggleBusyRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const consecutiveEmptyLoadsRef = useRef(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void preloadPdfRenderer(), 1_500);
+    return () => window.clearTimeout(timer);
+  }, []);
   const accessStartedRef = useRef(false);
   const text = copy[language];
 
