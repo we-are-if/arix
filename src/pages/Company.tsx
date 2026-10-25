@@ -1883,14 +1883,14 @@ const sampleProducts = [
 function StandardPrintPage({ settings, formKey, form }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey] }) {
   const isExport = ["orderConfirmation", "proforma", "commercial", "packingList"].includes(formKey);
   const landscape = formKey === "customs";
+  if (isExport) return <ExportDocumentPreview settings={settings} formKey={formKey} form={form} />;
   return (
     <article className={cx("bg-white text-[9px] leading-tight text-slate-900", landscape ? "min-h-[210mm] w-[297mm] p-[9mm]" : "min-h-[297mm] w-[210mm] p-[11mm]") }>
       {printTemplateHasSlot(form, "HEADER") && <ArixPreviewHeader settings={settings} form={form} />}
       {formKey === "label" ? <ProductLabelPreview settings={settings} form={form} />
         : formKey === "receipt" ? <ReceiptPreview form={form} />
           : formKey === "customs" ? <CustomsPreview form={form} />
-            : isExport ? <ExportDocumentPreview formKey={formKey} form={form} />
-              : <OperationDocumentPreview formKey={formKey} form={form} />}
+            : <OperationDocumentPreview formKey={formKey} form={form} />}
       {printTemplateHasSlot(form, "FOOTER") && <ArixPreviewFooter settings={settings} form={form} />}
     </article>
   );
@@ -1931,20 +1931,30 @@ function SectionTitle({ title }: { title: string }) {
   return <div className="my-3 flex items-center gap-2 text-[10px] font-semibold"><span>{title}</span><span className="h-px flex-1 bg-slate-300" /></div>;
 }
 
-function ExportDocumentPreview({ formKey, form }: { formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey] }) {
+function ExportDocumentPreview({ settings, formKey, form }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey] }) {
   const packing = formKey === "packingList";
   const domestic = formKey === "orderConfirmation";
   const commercial = formKey === "commercial";
   const documentTitle = packing ? "PACKING LIST" : domestic ? "SİPARİŞ ONAY FORMU" : formKey === "proforma" ? "PROFORMA INVOICE" : "COMMERCIAL INVOICE";
   const documentNo = packing ? "PL-2026-014" : domestic ? "SOF-9137308" : formKey === "proforma" ? "PI-2026-002" : "CI-2026-014";
-  return <>
-    {printTemplateHasSlot(form, "DOCUMENT_TITLE") && <div className="mb-3 flex items-center justify-between border-l-[3px] border-indigo-600 bg-slate-50 px-3 py-2.5"><div><div className="text-[15px] font-bold tracking-normal text-slate-900">{documentTitle}</div><div className="mt-0.5 text-[8px] text-slate-500">{domestic ? "Müşteri sipariş ve fiyat onayı" : packing ? "Shipment package, roll and weight details" : "Export sales document"}</div></div><span className="rounded bg-emerald-50 px-2 py-1 font-bold text-emerald-700">{domestic ? "ONAY BEKLİYOR" : commercial ? "FINAL" : "DRAFT"}</span></div>}
-    <div className="mb-3 grid grid-cols-4 overflow-hidden rounded border border-slate-200 bg-slate-50"><PreviewCell label={domestic ? "Belge no" : "Document no"} value={documentNo} /><PreviewCell label={domestic ? "Tarih" : "Date"} value="25.10.2026" /><PreviewCell label={domestic ? "Satış temsilcisi" : "Representative"} value={domestic ? "Mustafa Yazman" : "Ekrem Tiryaki"} /><PreviewCell label={commercial ? "Invoice no" : domestic ? "Kaynak" : "Currency"} value={commercial ? "EXP2026000148" : domestic ? "ERSA DEPO" : "EUR"} /></div>
-    {printTemplateHasSlot(form, "PARTIES") && <div className="mb-3 grid grid-cols-[1.25fr_.75fr] gap-2"><div className="rounded border border-slate-200 p-3"><span className="text-[7px] font-bold text-indigo-600">{domestic ? "MÜŞTERİ" : "CONSIGNEE / BUYER"}</span><strong className="mt-1 block text-[13px]">{domestic ? "AKYÜZ GRUP" : "SAMPLE IMPORT GmbH"}</strong><div className="mt-1 text-slate-500">{domestic ? "İstanbul · Türkiye" : "Berlin · Germany"}</div><div className="mt-0.5 text-slate-500">+49 30 000 00 00 · purchasing@example.com</div></div><div className="rounded border border-slate-200 bg-slate-50 p-3"><span className="text-[7px] font-bold text-slate-500">{domestic ? "TESLİMAT" : "SHIPMENT"}</span><div className="mt-1.5 grid grid-cols-2 gap-y-1"><span className="text-slate-500">{domestic ? "Yer" : "Origin"}</span><b>{domestic ? "Depo teslim" : "CHINA"}</b><span className="text-slate-500">{domestic ? "Koşul" : "Incoterm"}</span><b>{domestic ? "Alıcı nakliye" : "FCA Istanbul"}</b></div></div></div>}
+  return <article className="approval-paper arix-order-template-preview">
+    <header>
+      <div className="approval-brand-bar">
+        <div className="approval-company-identity">
+          {settings.companyLogo ? <img className="approval-company-logo" src={settings.companyLogo} alt="Şirket logosu" /> : <span className="approval-company-monogram">ER</span>}
+          <span><b>{settings.companyName}</b><small>{settings.brandSubtitle}</small><small>{settings.companyDetails.address}</small><span className="approval-company-contact-line">{[settings.companyDetails.phone, settings.companyDetails.email, settings.companyDetails.website].filter(Boolean).join(" · ")}</span><span className="approval-company-tax-line">Vergi dairesi: {settings.companyDetails.taxOffice || "-"} · VKN/TCKN: {settings.companyDetails.taxNumber || "-"}</span></span>
+        </div>
+        <div className="approval-provider-block"><div className="approval-brand-lockup"><AriXLogo className="approval-logo" /><span><b>AriX Sipariş sistemi</b><small className="approval-arix-site">www.arix.az</small></span></div></div>
+      </div>
+      {printTemplateHasSlot(form, "DOCUMENT_TITLE") && <div className="approval-heading-row"><div className="approval-title-block"><small>{domestic ? "SATIŞ BELGESİ" : "EXPORT SALES DOCUMENT"}</small><h2>{documentTitle}</h2><span>{packing ? "Packing details for the exported goods." : domestic ? "Sipariş, belirtilen bilgiler doğrultusunda hazırlanmıştır." : "Issued for export documentation purposes."}</span></div><div className="approval-status-badge draft"><i /><span><b>Taslak</b><small>{domestic ? "Satış temsilcisi onayı bekleniyor" : "Approval pending"}</small></span></div></div>}
+      <div className="approval-summary-strip"><div><span><small>{domestic ? "FORM NO" : packing ? "PACKING LIST NO" : "PROFORMA NO"}</small><b>{documentNo}</b><em>ORD-9137308</em></span></div><div><span><small>{domestic ? "BELGE TARİHİ" : "ISSUE DATE"}</small><b>25.10.2026</b></span></div><div><span><small>{domestic ? "SATIŞ TEMSİLCİSİ" : "SALES REPRESENTATIVE"}</small><b>{domestic ? "Mustafa Yazman" : "Ekrem Tiryaki"}</b></span></div><div><span><small>{domestic ? "KAYNAK" : "INVOICE NO"}</small><b>{commercial ? "EXP2026000148" : domestic ? "ERSA DEPO" : "-"}</b></span></div><div><span><small>{domestic ? "KUR" : "CURRENCY"}</small><b>{domestic ? "TL · 1" : "EUR"}</b></span></div></div>
+      {printTemplateHasSlot(form, "PARTIES") && <div className="approval-company-panel"><strong>{domestic ? "MÜŞTERİ BİLGİLERİ" : "BUYER INFORMATION"}</strong><div className="approval-company-panel-content"><span className="approval-company-monogram">AG</span><div><b>{domestic ? "AKYÜZ GRUP" : "SAMPLE IMPORT GmbH"}</b><span>{domestic ? "Temsilci: Mustafa Yazman" : "Contact: Purchasing Department"}</span><span>{domestic ? "İstanbul · Türkiye" : "Berlin · Germany"}</span></div><div className="approval-company-panel-contact"><span>+49 30 000 00 00</span><span>purchasing@example.com</span><span>{domestic ? "Vergi dairesi" : "VAT / Tax No"}: <b>-</b></span>{domestic && <span>VKN/TCKN: -</span>}</div></div></div>}
+    </header>
     {packing ? printTemplateHasSlot(form, "PACKING_TABLE") && <PackingTable /> : printTemplateHasSlot(form, "PRODUCT_TABLE") && <SalesExportTable />}
     {packing ? printTemplateHasSlot(form, "PACKING_SUMMARY") && <div className="mt-3 grid grid-cols-3 gap-2"><PreviewInfo label="TOTAL PALLETS" value="2" align /><PreviewInfo label="TOTAL NET WEIGHT" value="1,022.40 kg" align /><PreviewInfo label="TOTAL GROSS WEIGHT" value="1,089.00 kg" align /></div> : <div className="mt-3 grid grid-cols-[1fr_64mm] gap-2"><div className="space-y-2">{printTemplateHasSlot(form, "TERMS") && <div className="rounded border border-slate-200 p-3"><div className="mb-2 text-[8px] font-bold text-indigo-600">{domestic ? "GENEL KOŞULLAR" : "TERMS & EXPORT DETAILS"}</div><div className="grid grid-cols-[105px_1fr] gap-y-1"><span className="text-slate-500">{domestic ? "Ödeme koşulu" : "Payment terms"}</span><b>{domestic ? "Sipariş onayında peşin ödeme" : "Bank transfer"}</b><span className="text-slate-500">{domestic ? "Teslimat koşulu" : "Delivery terms"}</span><b>{domestic ? "Depo teslim" : "FCA Istanbul / Turkey"}</b><span className="text-slate-500">{domestic ? "Açıklama" : "Package"}</span><b>{domestic ? "Fiyatlara KDV dahil değildir." : "Standard export package"}</b></div></div>}{printTemplateHasSlot(form, "BANK") && <div className="rounded border border-slate-200 p-3"><div className="mb-1 text-[8px] font-bold text-indigo-600">BANK INFORMATION</div><b>ALBARAKA TÜRK · BTFHTRISXXX</b><div className="mt-1 text-slate-500">EUR IBAN · TR56 0020 3000 0998 7324 0000 02</div></div>}</div><div className="rounded border border-slate-200 bg-slate-50 p-3"><div className="text-[8px] font-bold">{domestic ? "TOPLAMLAR" : "TOTALS"}</div><div className="mt-2 space-y-1.5"><div className="flex justify-between"><span>{domestic ? "Ara toplam" : "Subtotal"}</span><b>{domestic ? "₺117.378,00" : "€2,378.40"}</b></div>{domestic && <div className="flex justify-between"><span>KDV (%20)</span><b>₺23.475,60</b></div>}<div className="flex justify-between border-t pt-2 text-[11px]"><b>{domestic ? "Genel toplam" : "Grand total"}</b><b className="text-indigo-700">{domestic ? "₺140.853,60" : "€2,378.40"}</b></div></div>{commercial && <div className="mt-5 border-t pt-3 text-center"><div className="text-[7px] text-slate-500">EXPORTER DECLARATION</div><div className="mt-5 font-semibold text-indigo-700">AUTHORIZED STAMP & SIGNATURE</div></div>}</div></div>}
     {form.footerNote && <div className="mt-6 whitespace-pre-line text-slate-500">{form.footerNote}</div>}
-  </>;
+    <footer className="approval-page-footer"><span>Powered by <AriXLogo className="h-4 w-4" /> <b>AriX</b> Sipariş sistemi</span><span>Güvenli belge yönetimi &nbsp; | &nbsp; 2026</span></footer>
+  </article>;
 }
 
 function SalesExportTable() {
