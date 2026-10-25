@@ -8,7 +8,7 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { body: event.data ? event.data.text() : "Yeni bir bildiriminiz var." };
   }
-  event.waitUntil(self.registration.showNotification(data.title || "AriX Sipariş", {
+  event.waitUntil(self.registration.showNotification(data.title || "AriX Order", {
     body: data.body || "Yeni bir bildiriminiz var.",
     icon: "/arix-icon-192.png",
     badge: "/arix-icon-192.png",

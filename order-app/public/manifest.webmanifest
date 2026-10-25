@@ -1,6 +1,6 @@
 {
-  "name": "AriX Sifariş",
-  "short_name": "AriX Sifariş",
+  "name": "AriX Order",
+  "short_name": "AriX Order",
   "description": "Satış və anbar sifariş hazırlama sistemi",
   "lang": "az",
   "start_url": "/",
