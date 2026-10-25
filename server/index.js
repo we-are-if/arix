@@ -3797,7 +3797,24 @@ async function handleCounterparties(req, res, url, parts) {
   }
 
   if (req.method === "GET" && parts.length === 1) {
-    const data = kind ? db.counterparties.filter((item) => item.kind === kind) : db.counterparties;
+    const counterparties = kind ? db.counterparties.filter((item) => item.kind === kind) : db.counterparties;
+    const data = counterparties.map((item) => {
+      const documentType = item.kind === "supplier" ? "purchase" : "sale";
+      const documents = db.documents.filter((document) =>
+        document.type === documentType
+        && Number(document.counterpartyId) === Number(item.id)
+        && document.posted !== false
+        && !["canceled", "cancelled"].includes(String(document.status))
+      );
+      const currencies = [...new Set(documents.map((document) => String(document.currency || "TRY")))];
+      return {
+        ...item,
+        activityCount: documents.length,
+        activityTotal: Math.round(documents.reduce((sum, document) => sum + (Number(document.total) || 0), 0) * 100) / 100,
+        activityPaid: Math.round(documents.reduce((sum, document) => sum + (Number(document.paymentSummary?.paid) || 0), 0) * 100) / 100,
+        activityCurrency: currencies.length === 1 ? currencies[0] : "",
+      };
+    });
     return send(res, 200, { data });
   }
 

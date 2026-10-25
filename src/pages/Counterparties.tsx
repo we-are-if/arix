@@ -45,6 +45,10 @@ type ApiCounterparty = {
   description?: string;
   address?: string;
   balance?: number;
+  activityCount?: number;
+  activityTotal?: number;
+  activityPaid?: number;
+  activityCurrency?: string;
   owner?: string;
   createdAt?: string;
   status?: "Aktiv" | "Yoxlama" | "Standart" | "Bloklu";
@@ -116,6 +120,10 @@ type CounterpartyRow = {
   description: string;
   address: string;
   balance: number;
+  activityCount?: number;
+  activityTotal?: number;
+  activityPaid?: number;
+  activityCurrency?: string;
   added: string;
   created: string;
   status: "Aktiv" | "Yoxlama" | "Standart" | "Bloklu";
@@ -267,6 +275,10 @@ const mapApiCounterparty = (item: ApiCounterparty, kind: CounterpartyKind): Coun
   description: item.description ?? "",
   address: item.address ?? "",
   balance: Number(item.balance ?? 0),
+  activityCount: Number(item.activityCount ?? 0),
+  activityTotal: Number(item.activityTotal ?? 0),
+  activityPaid: Number(item.activityPaid ?? 0),
+  activityCurrency: item.activityCurrency ?? "",
   added: item.owner ?? "Arif Mahmud",
   created: formatDate(item.createdAt),
   status: item.status ?? "Aktiv",
@@ -275,24 +287,7 @@ const mapApiCounterparty = (item: ApiCounterparty, kind: CounterpartyKind): Coun
   gender: item.gender as CounterpartyRow["gender"],
 });
 
-const sampleRows: Record<CounterpartyKind, CounterpartyRow[]> = {
-  suppliers: [
-    { id: 1, code: "SUP-001", name: "ERSA", type: "company", phone: "+994 12 555 10 20", email: "office@ersa.az", description: "Əsas parça təchizatçısı", address: "Bakı", balance: 12450, added: "Arif Mahmud", created: "18/11/2024", status: "Aktiv" },
-    { id: 2, code: "SUP-002", name: "AriX təchizat", type: "company", phone: "+994 50 410 22 18", email: "sales@arix.az", description: "Yerli alış kanalı", address: "Sumqayıt", balance: 3180, added: "Arif Mahmud", created: "14/04/2025", status: "Aktiv" },
-    { id: 3, code: "SUP-003", name: "Global Textile", type: "company", phone: "+90 212 440 19 22", email: "export@globaltextile.com", description: "İdxal müqaviləsi yoxlanılır", address: "İstanbul", balance: 0, added: "Arif Mahmud", created: "21/07/2025", status: "Yoxlama" },
-    { id: 4, code: "SUP-004", name: "Shanghai Real Trading", type: "company", phone: "+86 515 8548 0800", email: "info@srt.cn", description: "Dekorativ materiallar", address: "Çin", balance: 8630, added: "Arif Mahmud", created: "06/11/2024", status: "Aktiv" },
-    { id: 5, code: "SUP-005", name: "Orchard Decorative Materials", type: "company", phone: "", email: "contact@orchard.cn", description: "PVC aksesuarlar", address: "Çin", balance: 540, added: "Arif Mahmud", created: "03/12/2025", status: "Aktiv" },
-    { id: 6, code: "SUP-006", name: "PLASCO", type: "company", phone: "+994 55 200 11 10", email: "", description: "Daxili bazar", address: "Gəncə", balance: 0, added: "Arif Mahmud", created: "16/12/2024", status: "Standart" },
-  ],
-  customers: [
-    { id: 1, code: "CUS-001", name: "ABANOZ", type: "company", phone: "+994 55 710 33 12", email: "info@abanoz.az", description: "Topdan müştəri", address: "Bakı", balance: 1240, added: "Arif Mahmud", created: "07/08/2025", status: "Aktiv", loyalty: "LC-1001" },
-    { id: 2, code: "CUS-002", name: "AHC MAKINA", type: "company", phone: "+90 312 440 12 90", email: "", description: "", address: "Ankara", balance: 8950, added: "Arif Mahmud", created: "25/07/2025", status: "Aktiv", loyalty: "LC-1002" },
-    { id: 3, code: "CUS-003", name: "Akköz Grup", type: "company", phone: "", email: "sales@akkoz.com", description: "Regional satış", address: "Yozgat", balance: 0, added: "Arif Mahmud", created: "16/04/2025", status: "Standart", loyalty: "" },
-    { id: 4, code: "CUS-004", name: "Arma Balon Kapak", type: "company", phone: "+90 216 220 44 18", email: "", description: "Bayram Aydın", address: "İstanbul", balance: 430, added: "Arif Mahmud", created: "08/11/2024", status: "Aktiv", loyalty: "LC-1004" },
-    { id: 5, code: "CUS-005", name: "Asil Büro", type: "company", phone: "+994 77 300 22 44", email: "office@asil.az", description: "", address: "Bursa", balance: 0, added: "Arif Mahmud", created: "10/06/2025", status: "Aktiv", loyalty: "" },
-    { id: 6, code: "CUS-006", name: "Kassa müştərisi", type: "person", phone: "", email: "", description: "Standart satış profili", address: "", balance: 0, added: "Sistem", created: "01/01/2026", status: "Standart", loyalty: "" },
-  ],
-};
+const sampleRows: Record<CounterpartyKind, CounterpartyRow[]> = { suppliers: [], customers: [] };
 
 const I = {
   Search: (p: React.SVGProps<SVGSVGElement>) => (
@@ -393,10 +388,10 @@ const initials = (name: string) =>
 
 const tableStats = (row: CounterpartyRow, _kind: CounterpartyKind) => {
   return {
-    count: 0,
-    total: 0,
-    paid: 0,
-    average: 0,
+    count: Number(row.activityCount ?? 0),
+    total: Number(row.activityTotal ?? 0),
+    paid: Number(row.activityPaid ?? 0),
+    average: Number(row.activityCount) > 0 ? Number(row.activityTotal ?? 0) / Number(row.activityCount) : 0,
     refundCount: 0,
     refundSum: 0,
     expenses: 0,

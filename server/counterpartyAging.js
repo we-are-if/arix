@@ -22,7 +22,7 @@ export function calculateCounterpartyAging(db, kind = "customer", now = new Date
   }]));
 
   for (const document of db.documents ?? []) {
-    if (document.type !== documentType || document.posted === false || ["canceled", "cancelled"].includes(String(document.status))) continue;
+    if (document.type !== documentType || document.posted === false || document.excludeFromAging === true || ["canceled", "cancelled"].includes(String(document.status))) continue;
     const counterpartyId = Number(document.counterpartyId);
     const party = partyById.get(counterpartyId);
     const row = rows.get(counterpartyId);
