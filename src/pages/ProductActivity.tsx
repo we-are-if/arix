@@ -87,6 +87,10 @@ type ApiDocumentLine = {
   total?: number;
   warehouse?: string;
   available?: number;
+  width?: number;
+  taxRate?: number;
+  vatRate?: number;
+  preparedRollCount?: number;
 };
 type ApiRoll = {
   id?: string;
@@ -153,6 +157,25 @@ type ApiDocument = {
     paid?: number;
     remaining?: number;
     status?: string;
+  };
+  number?: string;
+  documentNumber?: string;
+  paymentTerms?: string;
+  deliveryTerms?: string;
+  note?: string;
+  salesRepresentative?: string;
+  approvalFormSnapshot?: {
+    number?: string;
+    customerName?: string;
+    customerContact?: string;
+    customerAddress?: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    paymentTerms?: string;
+    deliveryTerms?: string;
+    note?: string;
+    currency?: string;
+    exchangeRate?: number;
   };
   lines?: ApiDocumentLine[];
   bondedStock?: {
@@ -969,6 +992,42 @@ const buildSalesExportPrintHtml = (
     grossKg: sum.grossKg + item.grossKg,
   }), { pallets: new Set<string>(), roll: 0, qty: 0, sqm: 0, netKg: 0, grossKg: 0 });
 
+  if (options.formMode === "orderConfirmation") {
+    const snapshot = document?.approvalFormSnapshot ?? {};
+    const confirmationLines = (document?.lines ?? []).map((line, index) => {
+      const qty = Number(line.qty || 0);
+      const width = Number(line.width || 1.42);
+      const squareMeters = qty * width;
+      const gross = qty * Number(line.price || 0);
+      const net = Number(line.total ?? gross - Number(line.discount || 0));
+      const vatRate = Number(line.taxRate ?? line.vatRate ?? 20);
+      const vat = net * vatRate / 100;
+      return { line, index: index + 1, qty, width, squareMeters, net, vatRate, vat, total: net + vat };
+    });
+    const confirmationTotals = confirmationLines.reduce((sum, item) => ({
+      qty: sum.qty + item.qty,
+      squareMeters: sum.squareMeters + item.squareMeters,
+      net: sum.net + item.net,
+      vat: sum.vat + item.vat,
+      total: sum.total + item.total,
+    }), { qty: 0, squareMeters: 0, net: 0, vat: 0, total: 0 });
+    const paymentTerms = document?.paymentTerms || snapshot.paymentTerms || "Belirtilmedi";
+    const deliveryTerms = document?.deliveryTerms || snapshot.deliveryTerms || "Belirtilmedi";
+    const customerName = snapshot.customerName || row.recipient;
+    const formNumber = snapshot.number || document?.documentNumber || document?.number || docNo;
+    return `<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"/><title>${escapeHtml(formNumber)}</title><style>
+@page{size:A4 portrait;margin:9mm}${arixPrintBaseCss}
+body{color:#17233b;font-family:Aptos,"Segoe UI",Arial,sans-serif}.oc-title{display:flex;align-items:center;justify-content:space-between;margin:7mm 0 4mm}.oc-title h1{margin:0;font-size:18px;letter-spacing:0}.oc-title span{color:#66738a;font-size:9px}.oc-grid{display:grid;grid-template-columns:1.35fr .65fr;gap:3mm;margin-bottom:4mm}.oc-card{border:1px solid #dce4ef;border-radius:7px;padding:3mm;background:#fff}.oc-label{color:#66738a;font-size:7px;font-weight:700;text-transform:uppercase}.oc-card strong{display:block;margin-top:1mm;font-size:12px}.oc-card p{margin:1mm 0 0;color:#526079;font-size:8px;line-height:1.45}.oc-meta{display:grid;grid-template-columns:1fr 1fr;gap:1.5mm}.oc-meta div{border-bottom:1px solid #edf0f5;padding:1.4mm 0}.oc-meta b{display:block;font-size:8px}.oc-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:7.5px}.oc-table th{background:#eef3f8;color:#536179;padding:2mm 1.2mm;text-align:left}.oc-table td{border-bottom:1px solid #e4e9f0;padding:2mm 1.2mm;vertical-align:top}.oc-table .num{text-align:right;font-variant-numeric:tabular-nums}.oc-table small{display:block;margin-top:.5mm;color:#748097}.oc-total td{background:#f7f9fc;font-weight:800}.oc-bottom{display:grid;grid-template-columns:1.2fr .8fr;gap:3mm;margin-top:4mm}.oc-terms ul{margin:2mm 0 0;padding-left:4mm;color:#526079;font-size:7.5px;line-height:1.6}.oc-conditions{display:grid;grid-template-columns:1fr 1fr;gap:2mm;margin-top:3mm}.oc-condition{border-top:1px solid #dce4ef;padding-top:2mm}.oc-condition b{display:block;color:#334a75;font-size:8px}.oc-condition span{display:block;margin-top:1mm;color:#526079;font-size:8px}.oc-summary div{display:flex;justify-content:space-between;border-bottom:1px solid #e4e9f0;padding:2mm 0;font-size:9px}.oc-summary div:last-child{border-top:1px solid #17233b;border-bottom:0;font-size:11px;font-weight:800}.oc-note{margin-top:3mm;border:1px solid #dce4ef;border-radius:7px;padding:2.5mm;background:#f7f9fc;font-size:8px}.oc-note b{display:block;margin-bottom:1mm}.oc-footer-space{height:8mm}
+</style></head><body>
+${renderArixPrintHeader({title:"Sipariş onay formu",subtitle:"Yurtiçi satış koşulları",documentNo:formNumber,date,status:row.status,source:row.sender,settings:printSettings,form})}
+<section class="oc-title"><div><span>SİPARİŞ BELGESİ</span><h1>Sipariş onay formu</h1></div><span>${escapeHtml(formNumber)}</span></section>
+<section class="oc-grid"><div class="oc-card"><div class="oc-label">Müşteri</div><strong>${escapeHtml(customerName)}</strong><p>${escapeHtml(snapshot.customerContact || "")}</p><p>${escapeHtml(snapshot.customerAddress || "")}</p><p>${escapeHtml([snapshot.customerPhone,snapshot.customerEmail].filter(Boolean).join(" · "))}</p></div><div class="oc-card oc-meta"><div><span class="oc-label">Tarih</span><b>${escapeHtml(date)}</b></div><div><span class="oc-label">Form no</span><b>${escapeHtml(formNumber)}</b></div><div><span class="oc-label">Temsilci</span><b>${escapeHtml(document?.salesRepresentative || "-")}</b></div><div><span class="oc-label">Kur</span><b>${escapeHtml(snapshot.currency || "TRY")} · ${Number(snapshot.exchangeRate || 1).toLocaleString("tr-TR")}</b></div></div></section>
+<table class="oc-table"><thead><tr><th style="width:5%">No</th><th style="width:25%">Ürün / hazırlanan</th><th style="width:10%">En</th><th class="num" style="width:12%">Miktar</th><th class="num" style="width:12%">m²</th><th class="num" style="width:13%">Birim fiyat</th><th class="num" style="width:10%">KDV</th><th class="num" style="width:13%">Toplam</th></tr></thead><tbody>${confirmationLines.map((item)=>`<tr><td>${item.index}</td><td><b>${escapeHtml(item.line.name || "")}</b><small>${escapeHtml(item.line.sku || "")}${item.line.preparedRollCount ? ` · ${item.line.preparedRollCount} rulo` : ""}</small></td><td>${money(item.width)} m</td><td class="num">${money(item.qty)} mt</td><td class="num">${money(item.squareMeters)}</td><td class="num">₺${money(Number(item.line.price || 0))}</td><td class="num">%${money(item.vatRate)}</td><td class="num">₺${money(item.total)}</td></tr>`).join("")}<tr class="oc-total"><td colspan="3" class="num">TOPLAM</td><td class="num">${money(confirmationTotals.qty)} mt</td><td class="num">${money(confirmationTotals.squareMeters)}</td><td></td><td class="num">₺${money(confirmationTotals.vat)}</td><td class="num">₺${money(confirmationTotals.total)}</td></tr></tbody></table>
+<section class="oc-bottom"><div class="oc-card oc-terms"><div class="oc-label">Genel koşullar</div><ul><li>Fiyatlarımıza KDV dahil değildir.</li><li>Faturadaki döviz kuru, bir önceki iş gününün TCMB kapanış satış kuru olarak alınacaktır.</li><li>Belirtilen fiyatlar depo teslim fiyatlarıdır. Kargo ve nakliye bedeli alıcıya aittir.</li><li>Ürünler mümkün olan en kısa sürede alıcının belirttiği taşıyıcıya yönlendirilir.</li><li>Anlaşılmayan hususlarda ilgili satış sorumlusu ile iletişime geçiniz.</li></ul><div class="oc-conditions"><div class="oc-condition"><b>Ödeme koşulu</b><span>${escapeHtml(paymentTerms)}</span></div><div class="oc-condition"><b>Teslimat koşulu</b><span>${escapeHtml(deliveryTerms)}</span></div></div></div><div class="oc-card oc-summary"><div><span>Ara toplam</span><b>₺${money(confirmationTotals.net)}</b></div><div><span>KDV</span><b>₺${money(confirmationTotals.vat)}</b></div><div><span>Genel toplam</span><b>₺${money(confirmationTotals.total)}</b></div></div></section>
+${document?.note || snapshot.note ? `<div class="oc-note"><b>Ek not</b>${escapeHtml(document?.note || snapshot.note || "")}</div>` : ""}<div class="oc-footer-space"></div>${renderArixPrintFooter(formNumber,printSettings,form)}<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));</script></body></html>`;
+  }
+
   return `<!doctype html>
 <html lang="${isExport ? "en" : "tr"}">
 <head>
@@ -1018,7 +1077,6 @@ const buildSalesExportPrintHtml = (
     <div class="meta-lines">
       <div><span>${printDocumentDateLabel(options.formMode)}:</span><strong>${escapeHtml(date)}</strong></div>
       <div><span>${printDocumentNumberLabel(options.formMode)}:</span><strong>${escapeHtml(docNo)}</strong></div>
-      ${options.formMode === "orderConfirmation" ? `<div><span>Döviz kuru:</span><strong>TCMB - bir önceki iş günü 09:00</strong></div>` : ""}
     </div>
   </section>` : ""}
   ${options.formMode === "packingList" ? `
@@ -1036,7 +1094,6 @@ const buildSalesExportPrintHtml = (
       <tfoot><tr><td colspan="3" class="right">TOTAL</td><td class="center">${totals.roll}</td><td class="right">${money(totals.qty)}</td><td class="right">${money(totals.sqm)}</td><td></td><td class="right">${currency}${money(totals.amount)}</td>${showVat ? `<td class="right">${currency}${money(totals.vat)}</td><td class="right">${currency}${money(totals.total)}</td>` : ""}</tr></tfoot>
     </table>` : ""}
     ${printTemplateHasSlot(form, "TERMS") ? `<div class="terms"><span>PACKAGE</span><strong>STANDART EXPORT PACKAGE</strong><span>DESCRIPTION</span><strong>PVC FOIL</strong><span>PAYMENT</span><strong>BANK PAYMENT</strong><span>DELIVERY TERM</span><strong>FCA. ISTANBUL</strong><span>SHIPMENT PORT</span><strong>ISTANBUL / TURKEY</strong><span>DESTINATION</span><strong>${escapeHtml(row.recipient)}</strong><span>ORIGIN</span><strong>GOODS OF CHINA</strong></div>` : ""}
-    ${options.formMode === "orderConfirmation" ? `<div class="note">Faturadakı döviz kuru, bir önceki iş gününün TCMB kapanış satış kuru olacak şekilde alınacaktır.</div>` : ""}
     ${isExport && printTemplateHasSlot(form, "BANK") ? `<div class="bank"><div><span>BANK</span><span>SWIFT CODE</span><span>BRANCH CODE</span><span>ACCOUNT NO</span><span>${currency === "€" ? "EUR" : "USD"} IBAN</span></div><div><span>ALBARAKA TURK PARTICIPATION BANK</span><span>BTFHTRISXXX</span><span>26-MERTER</span><span>26-9987324-2</span><span>TR56 0020 3000 0998 7324 0000 02</span></div></div>` : ""}
   `}
   ${printTemplateHasSlot(form, "FOOTER") ? renderArixPrintFooter(docNo, printSettings, form) : ""}
