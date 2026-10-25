@@ -3517,12 +3517,15 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
     if (!pdfBlob) return;
     const file = new File([pdfBlob], filename, { type: "application/pdf" });
     try {
-      if (nativeShare && (!nativeCanShare || nativeCanShare({ files: [file] }))) {
-        await nativeShare.call(navigator, { files: [file] });
+      const canShareFile = !nativeCanShare || nativeCanShare.call(navigator, { files: [file] });
+      if (nativeShare && canShareFile) {
+        await nativeShare.call(navigator, { title: filename, files: [file] });
         return;
       }
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setError(cause instanceof Error ? `PDF paylaşılamadı: ${cause.message}` : "PDF paylaşılamadı.");
+      return;
     }
     const link = document.createElement("a");
     link.href = pdfUrl;
@@ -3534,7 +3537,8 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
     if (!pdfBlob || !pdfUrl) return;
     const file = new File([pdfBlob], filename, { type: "application/pdf" });
     const mobile = window.matchMedia("(pointer: coarse)").matches;
-    if (mobile && nativeShare && (!nativeCanShare || nativeCanShare({ files: [file] }))) {
+    const canShareFile = !nativeCanShare || nativeCanShare.call(navigator, { files: [file] });
+    if (mobile && nativeShare && canShareFile) {
       try {
         await nativeShare.call(navigator, { files: [file] });
         return;
