@@ -1,0 +1,17 @@
+{
+  "id": "/?app=arix-order",
+  "name": "AriX Order",
+  "short_name": "AriX Order",
+  "description": "Satış və anbar sifariş hazırlama sistemi",
+  "lang": "az",
+  "start_url": "/?app=arix-order",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f6f8",
+  "theme_color": "#f4f6f8",
+  "icons": [
+    { "src": "/arix-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/arix-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
