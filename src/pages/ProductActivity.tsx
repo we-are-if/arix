@@ -177,6 +177,7 @@ type ApiDocument = {
     currency?: string;
     exchangeRate?: number;
   };
+  sourceOrderId?: string;
   lines?: ApiDocumentLine[];
   bondedStock?: {
     containers?: ApiContainer[];
@@ -2296,8 +2297,23 @@ function SmartPrintOptionsDialog({
     setMessage("");
   };
 
+  const archivedOrderPdfUrl = options.formMode === "orderConfirmation" && document?.sourceOrderId
+    ? `/api/orders/${encodeURIComponent(document.sourceOrderId)}/approval-form/pdf`
+    : "";
+
   const createPdf = () => {
     setMessage("");
+    if (archivedOrderPdfUrl) {
+      const popup = window.open(archivedOrderPdfUrl, "_blank", "noopener,noreferrer");
+      if (!popup) {
+        const errorMessage = "Brauzer yeni pəncərəni blokladı. Popup icazəsini açıb yenidən yoxla.";
+        setMessage(errorMessage);
+        showToast(errorMessage, { tone: "warning", title: "Çap önizləməsi" });
+        return;
+      }
+      onClose();
+      return;
+    }
     if (!openDocumentPrint(row, products, document, options, printSettings)) {
       const errorMessage = "Brauzer yeni pəncərəni blokladı. Popup icazəsini açıb yenidən yoxla.";
       setMessage(errorMessage);
@@ -2312,7 +2328,18 @@ function SmartPrintOptionsDialog({
     setDeliveryBusy("email");
     setMessage("");
     try {
-      const result = await createDocumentPdf(row, products, document, options, printSettings);
+      const result = archivedOrderPdfUrl
+        ? await fetch(archivedOrderPdfUrl, { credentials: "include" }).then(async (response) => {
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              throw new Error(payload.error || "Arşivlenmiş sipariş formu açılamadı.");
+            }
+            return {
+              blob: await response.blob(),
+              filename: `${document?.approvalFormSnapshot?.number || row.order}-Siparis-Formu.pdf`,
+            };
+          })
+        : await createDocumentPdf(row, products, document, options, printSettings);
       await requestJson("/api/document-email", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -2406,7 +2433,7 @@ function SmartPrintOptionsDialog({
               setOptions((current) => ({
                 ...current,
                 formMode: next,
-                paperMode: next === "customs" || next === "orderConfirmation" || next === "proforma" || next === "commercial" ? "landscape" : current.paperMode,
+                paperMode: next === "orderConfirmation" ? "portrait" : next === "customs" || next === "proforma" || next === "commercial" ? "landscape" : current.paperMode,
               }));
               setMessage("");
             }}
