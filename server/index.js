@@ -616,10 +616,14 @@ function archiveSyncAuthorized(req) {
   return Boolean(ARCHIVE_SYNC_TOKEN) && secureTokenMatches(req.headers["x-arix-sync-token"], ARCHIVE_SYNC_TOKEN);
 }
 
+function isExportApprovalDocument(form) {
+  return ["proforma", "commercial_invoice", "packing_list"].includes(String(form?.documentType ?? ""));
+}
+
 function archiveRelativePath(order) {
   const archive = order?.approvalForm?.archive;
   if (!archive?.path) return "";
-  const isExport = order.approvalForm.documentType !== "domestic";
+  const isExport = isExportApprovalDocument(order.approvalForm);
   const root = resolve(isExport ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
   const rawPath = String(archive.path);
   const file = resolve(rawPath);
@@ -640,7 +644,7 @@ function archiveRelativePath(order) {
 function archiveStoredOnServer(order) {
   const archive = order?.approvalForm?.archive;
   if (!archive?.path) return false;
-  const root = resolve(order.approvalForm.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+  const root = resolve(isExportApprovalDocument(order.approvalForm) ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
   const file = resolve(String(archive.path));
   const child = relative(root, file);
   return Boolean(child && !child.startsWith("..") && resolve(root, child) === file);
@@ -654,7 +658,7 @@ function pathIsWithin(rootPath, filePath) {
 }
 
 function archiveWindowsPath(order, relativePath) {
-  const root = order.approvalForm.documentType !== "domestic"
+  const root = isExportApprovalDocument(order.approvalForm)
     ? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT"
     : "\\\\ERSARIF\\SharedFolder\\ErsaShare\\YURT İÇİ";
   return `${root}\\${relativePath.replaceAll("/", "\\")}`;
@@ -678,7 +682,7 @@ async function handleArchiveSync(req, res, parts) {
         formNumber: order.approvalForm.number,
         archivedAt: archive.archivedAt,
         filename: archive.filename,
-        archiveKind: order.approvalForm.documentType === "domestic" ? "domestic" : "export",
+        archiveKind: isExportApprovalDocument(order.approvalForm) ? "export" : "domestic",
         relativePath,
         windowsPath: archive.windowsPath || archiveWindowsPath(order, relativePath),
         needsUpload,
@@ -707,7 +711,7 @@ async function handleArchiveSync(req, res, parts) {
     if (pdf.length < 100 || pdf.length > 10_000_000 || pdf.subarray(0, 5).toString("ascii") !== "%PDF-") {
       return send(res, 400, { error: "Yüklenen dosya geçerli bir PDF değil." });
     }
-    const root = resolve(order.approvalForm.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+    const root = resolve(isExportApprovalDocument(order.approvalForm) ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
     const destination = resolve(root, ...relativePath.split("/"));
     const destinationChild = relative(root, destination);
     if (!destinationChild || destinationChild.startsWith("..")) return send(res, 403, { error: "Arşiv hedefi geçersiz." });
@@ -3138,7 +3142,7 @@ async function handleOrderBoard(req, res, url, parts) {
 
     const archivedCustomerName = String(order.approvalForm.customerName || order.customerName).trim();
     const customer = findOrderCustomerByName(db.orderCustomers, archivedCustomerName);
-    const isExport = order.approvalForm.documentType !== "domestic";
+    const isExport = isExportApprovalDocument(order.approvalForm);
     const salesRepresentative = order.isTest ? "TEST" : salesRepresentativeArchiveFolder(customer?.salesRepresentative);
     const customerFolderName = order.isTest
       ? safeWindowsPathSegment(archivedCustomerName)
@@ -3236,7 +3240,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!order) return notFound(res);
     const archivePath = String(order.approvalForm?.archive?.path || "").trim();
     if (!archivePath) return send(res, 409, { error: "Açılacaq arxiv faylı tapılmadı." });
-    const archiveRoot = resolve(order.approvalForm?.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+    const archiveRoot = resolve(isExportApprovalDocument(order.approvalForm) ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
     const resolvedArchivePath = resolve(archivePath);
     if (!pathIsWithin(archiveRoot, resolvedArchivePath)) {
       return send(res, 403, { error: "Arxiv yolu icazə verilən qovluğun xaricindədir." });
@@ -3266,7 +3270,7 @@ async function handleOrderBoard(req, res, url, parts) {
     }
     const archivePath = String(order.approvalForm.archive?.path || "").trim();
     if (!archivePath) return send(res, 404, { error: "Bu form için arşivlenmiş PDF bulunamadı." });
-    const archiveRoot = resolve(order.approvalForm?.documentType !== "domestic" ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+    const archiveRoot = resolve(isExportApprovalDocument(order.approvalForm) ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
     const resolvedArchivePath = resolve(archivePath);
     if (!pathIsWithin(archiveRoot, resolvedArchivePath)) {
       return send(res, 403, { error: "Arşiv yolu izin verilen klasörün dışında." });
