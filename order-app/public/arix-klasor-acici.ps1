@@ -3,7 +3,7 @@ param([string]$ProtocolUri = "")
 $ErrorActionPreference = "Stop"
 $installDirectory = Join-Path $env:LOCALAPPDATA "AriX"
 $installedScript = Join-Path $installDirectory "arix-klasor-acici.ps1"
-$allowedRoot = "\\ERSAERF\SharedFolder\ErsaShare"
+$allowedRoot = "\\ERSARIF\SharedFolder\ErsaShare"
 
 function Open-AriXFolder([string]$Uri) {
   if (-not $Uri.StartsWith("arix-folder:", [System.StringComparison]::OrdinalIgnoreCase)) {

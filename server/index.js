@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -112,6 +112,7 @@ const ORDER_ARCHIVE_ROOT = String(
 const EXPORT_ARCHIVE_ROOT = String(
   process.env.ARIX_EXPORT_ARCHIVE_ROOT ?? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT",
 ).trim();
+const ARCHIVE_SYNC_TOKEN = String(process.env.ARIX_ARCHIVE_SYNC_TOKEN ?? "").trim();
 const EDGE_EXECUTABLE = String(
   process.env.ARIX_EDGE_PATH ?? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
 ).trim();
@@ -603,6 +604,89 @@ function send(res, status, payload) {
     "content-type": "application/json; charset=utf-8",
   });
   res.end(body);
+}
+
+function secureTokenMatches(candidate, expected) {
+  const left = Buffer.from(String(candidate ?? ""));
+  const right = Buffer.from(String(expected ?? ""));
+  return left.length > 0 && left.length === right.length && timingSafeEqual(left, right);
+}
+
+function archiveSyncAuthorized(req) {
+  return Boolean(ARCHIVE_SYNC_TOKEN) && secureTokenMatches(req.headers["x-arix-sync-token"], ARCHIVE_SYNC_TOKEN);
+}
+
+function archiveRelativePath(order) {
+  const archive = order?.approvalForm?.archive;
+  if (!archive?.path) return "";
+  const isExport = order.approvalForm.documentType !== "domestic";
+  const root = resolve(isExport ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
+  const file = resolve(String(archive.path));
+  const child = relative(root, file);
+  if (!child || child.startsWith("..") || resolve(root, child) !== file) return "";
+  return child.split(/[\\/]+/).filter(Boolean).join("/");
+}
+
+async function handleArchiveSync(req, res, parts) {
+  if (!archiveSyncAuthorized(req)) return send(res, 401, { error: "Senkronizasyon anahtarı geçersiz." });
+  const db = await readDb();
+  const orderId = String(parts[1] ?? "");
+
+  if (req.method === "GET" && parts[0] === "pending") {
+    const data = (db.orderBoard ?? []).flatMap((order) => {
+      const archive = order.approvalForm?.archive;
+      const relativePath = archiveRelativePath(order);
+      if (!archive || !relativePath || archive.localSync?.archivedAt === archive.archivedAt) return [];
+      return [{
+        orderId: order.id,
+        orderNumber: order.number,
+        formNumber: order.approvalForm.number,
+        archivedAt: archive.archivedAt,
+        filename: archive.filename,
+        archiveKind: order.approvalForm.documentType === "domestic" ? "domestic" : "export",
+        relativePath,
+      }];
+    });
+    return send(res, 200, { data });
+  }
+
+  const order = (db.orderBoard ?? []).find((item) => String(item.id) === orderId);
+  if (!order) return notFound(res);
+  const archive = order.approvalForm?.archive;
+  const relativePath = archiveRelativePath(order);
+  if (!archive || !relativePath) return send(res, 404, { error: "Senkronize edilecek PDF bulunamadı." });
+
+  if (req.method === "GET" && parts[0] === "file") {
+    try {
+      const pdf = await readFile(resolve(String(archive.path)));
+      res.writeHead(200, {
+        "content-type": "application/pdf",
+        "content-length": pdf.length,
+        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(archive.filename)}`,
+        "cache-control": "private, no-store",
+      });
+      return res.end(pdf);
+    } catch (error) {
+      return send(res, error?.code === "ENOENT" ? 404 : 503, { error: "Arşiv PDF dosyası okunamadı." });
+    }
+  }
+
+  if (req.method === "POST" && parts[0] === "acknowledge") {
+    const body = await parseBody(req);
+    if (String(body.archivedAt ?? "") !== String(archive.archivedAt)) {
+      return send(res, 409, { error: "PDF bu sırada değişti; güncel sürüm yeniden aktarılacak." });
+    }
+    archive.localSync = {
+      archivedAt: archive.archivedAt,
+      syncedAt: new Date().toISOString(),
+      computer: String(body.computer ?? "").slice(0, 120),
+      path: String(body.path ?? "").slice(0, 1000),
+    };
+    await writeDb(db);
+    return send(res, 200, { ok: true, data: archive.localSync });
+  }
+
+  return notFound(res);
 }
 
 function notFound(res) {
@@ -3059,13 +3143,16 @@ async function handleOrderBoard(req, res, url, parts) {
     }
 
     const archivedAt = now.toISOString();
-    order.approvalForm.archive = { path: destination, filename, archivedAt, archivedBy: req.authUser?.name ?? "Satış", status: order.approvalForm.status };
+    const relativePath = relative(resolve(archiveBase), resolve(destination)).split(/[\\/]+/).filter(Boolean).join("/");
+    const windowsRoot = isExport ? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT" : "\\\\ERSARIF\\SharedFolder\\ErsaShare\\YURT İÇİ";
+    const windowsPath = `${windowsRoot}\\${relativePath.replaceAll("/", "\\")}`;
+    order.approvalForm.archive = { path: destination, windowsPath, relativePath, filename, archivedAt, archivedBy: req.authUser?.name ?? "Satış", status: order.approvalForm.status };
     if (!order.isTest) notifyUsers(db, order, orderActivityRecipients(db, order), "approval_form_archived", "Sipariş formu arşivlendi", `${req.authUser?.name || "Satış"} tarafından · ${order.approvalForm.number}`, req.authUser);
     order.audit ??= [];
     order.audit.push({ id: randomUUID(), action: archiveIsApproved ? "approvalFormArchived" : "approvalFormDraftArchived", newValue: destination, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: archivedAt });
     order.updatedAt = archivedAt;
     await writeDb(db);
-    return send(res, 201, { data: { path: destination, filename, order: orderWithPresence(order, req.authUser) } });
+    return send(res, 201, { data: { path: windowsPath, filename, order: orderWithPresence(order, req.authUser) } });
   }
 
   if (req.method === "POST" && id && parts[2] === "approval-form" && parts[3] === "open-archive") {
@@ -6299,6 +6386,7 @@ async function handleApiRequest(req, res) {
 
     if (parts[0] !== "api") return notFound(res);
     if (parts[1] === "health") return send(res, 200, { ok: true, service: "arix-api", storage: stateStore.status(), time: new Date().toISOString() });
+    if (parts[1] === "archive-sync") return await handleArchiveSync(req, res, parts.slice(2));
     if (parts[1] === "auth") return await handleAuth(req, res, parts.slice(1));
 
     const authDb = await readDb();

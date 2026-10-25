@@ -285,6 +285,7 @@ type ApprovalForm = {
   updatedBy?: string;
   archive?: {
     path: string;
+    windowsPath?: string;
     filename: string;
     archivedAt: string;
     archivedBy: string;
@@ -7305,7 +7306,7 @@ function ApprovalFormEditor({
   const hasFormChanges = editableSnapshot(form, printPriceFactor) !== approvedContentSnapshot.current;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [archivePath, setArchivePath] = useState(initial.archive?.path ?? "");
+  const [archivePath, setArchivePath] = useState(initial.archive?.windowsPath ?? initial.archive?.path ?? "");
   const [archiveActionNotice, setArchiveActionNotice] = useState("");
   const [palletMoveTargets, setPalletMoveTargets] = useState<Record<string, number>>({});
   const [palletMoveCounts, setPalletMoveCounts] = useState<Record<string, number>>({});
