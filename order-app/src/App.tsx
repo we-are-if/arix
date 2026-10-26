@@ -2370,27 +2370,39 @@ export default function App() {
           setMergeReadyCheckedIds([]);
         }}>
           <div className="merge-ready-groups">
-              <article>
-                <div>
-                  <strong>{mergeReadyCheckedIds.length} sipariş seçildi</strong>
-                  <span>En az iki hazır sipariş seçmelisiniz.</span>
+              <article className="merge-ready-summary">
+                <div className="merge-ready-summary-copy">
+                  <span className="merge-ready-summary-icon"><Layers3 aria-hidden="true" /></span>
+                  <span>
+                    <strong>{mergeReadyCheckedIds.length} sipariş seçildi</strong>
+                    <small>{mergeReadyCheckedIds.length < 2 ? "Birleştirmek için en az iki sipariş seçin." : "Seçilen siparişler tek teslimatta birleştirilecek."}</small>
+                  </span>
                 </div>
                 <button type="button" className="primary" disabled={mergeReadyBusy || mergeReadyCheckedIds.length < 2} onClick={() => void mergeReadyOrders(mergeReadySelection.filter((order) => mergeReadyCheckedIds.includes(order.id)))}>Seçilenleri birleştir</button>
               </article>
               <div className="merge-ready-picker">
-                {mergeReadySelection.map((order) => (
-                  <label key={order.id}>
+                {mergeReadySelection.map((order) => {
+                  const selected = mergeReadyCheckedIds.includes(order.id);
+                  return (
+                  <label key={order.id} className={selected ? "is-selected" : ""}>
                     <input
                       type="checkbox"
-                      checked={mergeReadyCheckedIds.includes(order.id)}
+                      checked={selected}
                       onChange={(event) => {
                         const checked = event.target.checked;
                         setMergeReadyCheckedIds((current) => checked ? [...current, order.id] : current.filter((id) => id !== order.id));
                       }}
                     />
-                    <span><b>{order.number}</b><small>{order.items.length} ürün satırı · {order.items.map((item) => preparedQuantityLabel(item)).join(" · ")}</small></span>
+                    <span className="merge-ready-order-copy">
+                      <b>{order.number}</b>
+                      <small>{order.items.map((item) => item.productName).join(" · ")}</small>
+                    </span>
+                    <span className="merge-ready-order-meta">
+                      <b>{order.items.map((item) => preparedQuantityLabel(item)).join(" · ")}</b>
+                      <small>{order.items.length} ürün satırı</small>
+                    </span>
                   </label>
-                ))}
+                );})}
               </div>
           </div>
         </Modal>
