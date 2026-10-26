@@ -3612,17 +3612,17 @@ textarea {
 
 /* Keep the board surface and its order cards visually distinct in dark mode. */
 .theme-dark .column {
-  border-color: #2b374a;
-  background: #131b29;
+  border-color: #344258;
+  background: #1a2535;
 }
 .theme-dark .order-card {
-  border-color: #3a485e;
-  background: #222e40;
+  border-color: #43536b;
+  background: #26354a;
   box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
 }
 .theme-dark .order-card:hover {
   border-color: rgba(129, 140, 248, .62);
-  background: #29374c;
+  background: #2d3e56;
 }
 .theme-dark .primary {
   border-color: #4f46e5;
