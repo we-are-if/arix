@@ -1113,7 +1113,7 @@ function addDayCloseNotification(db, { recipient, date, title, message, actor })
 }
 
 function sendDayCloseNotifications(db, { date, nextDate, actor, automatic, orders }) {
-  const delivered = orders.filter((order) => order.status === "delivered" && !order.isLoanReturn);
+  const delivered = orders.filter((order) => order.status === "delivered");
   const carried = orders.filter((order) => !["delivered", "fulfilled", "cancelled"].includes(order.status));
   const ready = carried.filter((order) => order.status === "ready");
   const waiting = carried.filter((order) => order.status !== "ready");

@@ -2617,7 +2617,6 @@ function DailyArchive({
         .sort((left, right) => (carriedStatusOrder[left.status] ?? 9) - (carriedStatusOrder[right.status] ?? 9) || String(left.createdAt).localeCompare(String(right.createdAt)));
       const isIncludedInPreparedTotals = (order: Order) => ["ready", "delivered"].includes(order.status);
       const sumOrders = (source: Order[], prepared: boolean) => source.reduce((totals, order) => {
-        if (order.isLoanReturn) return totals;
         for (const item of safeItems(order)) {
           const enteredPreparedQuantity = Number(item.preparedQuantity) || 0;
           const quantity = prepared
@@ -6354,7 +6353,7 @@ function OrderDetail({
         {order.isLoanReturn && <div className="order-test-mode-banner active">
           <div>
             <b>BORÇ İADESİ</b>
-            <span>Teslim edildiğinde fiziksel stok ve bu müşteriye ait borç alış bakiyesi azalır; satış toplamına dahil edilmez.</span>
+            <span>Teslim edildiğinde fiziksel stok ve bu müşteriye ait borç alış bakiyesi azalır; gün sonu teslimat ve satış toplamına dahil edilir.</span>
           </div>
         </div>}
         {order.parentOrderNumber && (
