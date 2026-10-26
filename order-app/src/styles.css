@@ -1824,8 +1824,14 @@ textarea {
 .merge-ready-groups article div { display:grid; gap:4px; min-width:0; }
 .merge-ready-groups span,.merge-ready-groups small { color:#64748b; }
 .merge-ready-groups small { overflow-wrap:anywhere; }
+.merge-ready-picker { display:grid; gap:8px; }
+.merge-ready-picker label { display:flex; align-items:center; gap:11px; border:1px solid #dfe4ec; border-radius:7px; padding:12px; background:#fff; cursor:pointer; }
+.merge-ready-picker input { width:19px; height:19px; flex:0 0 19px; accent-color:#5747e8; }
+.merge-ready-picker span { display:grid; gap:3px; min-width:0; }
+.merge-ready-picker small { color:#64748b; }
 .theme-dark .merge-ready-card-action { border-color:#494287; background:#242044; color:#c9c4ff; }
 .theme-dark .merge-ready-groups article { border-color:#364154; background:#172131; }
+.theme-dark .merge-ready-picker label { border-color:#364154; background:#111a28; }
 @media (max-width:600px) { .merge-ready-groups article { align-items:stretch; flex-direction:column; } }
 .danger-button {
   border: 1px solid #fecaca;

@@ -1430,6 +1430,7 @@ export default function App() {
   });
   const [createOpen, setCreateOpen] = useState(false);
   const [mergeReadySelection, setMergeReadySelection] = useState<Order[] | null>(null);
+  const [mergeReadyCheckedIds, setMergeReadyCheckedIds] = useState<string[]>([]);
   const [mergeReadyBusy, setMergeReadyBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<"settings" | "stock">("settings");
@@ -1800,6 +1801,7 @@ export default function App() {
     try {
       const merged = await api<Order>("/api/orders/merge-ready", { method: "POST", body: JSON.stringify({ orderIds: selected.map((order) => order.id) }) });
       setMergeReadySelection(null);
+      setMergeReadyCheckedIds([]);
       await load();
       setActiveOrder(merged);
     } catch (cause) {
@@ -2296,7 +2298,10 @@ export default function App() {
                 orders={grouped[status]}
                 onOpen={setActiveOrder}
                 language={language}
-                onMerge={status === "ready" && canMergeReady && mergeReadyGroups.length ? setMergeReadySelection : undefined}
+                onMerge={status === "ready" && canMergeReady && mergeReadyGroups.length ? (group) => {
+                  setMergeReadySelection(group);
+                  setMergeReadyCheckedIds([]);
+                } : undefined}
               />
             ))}
           </section>
@@ -2359,16 +2364,34 @@ export default function App() {
       )}
 
       {mergeReadySelection && (
-        <Modal title="Hazır siparişleri birleştir" subtitle={`${mergeReadySelection[0].customerName} · ${mergeReadySelection.length} hazır sipariş tek teslimatta birleşecek.`} onClose={() => !mergeReadyBusy && setMergeReadySelection(null)}>
+        <Modal title="Hazır siparişleri birleştir" subtitle={`${mergeReadySelection[0].customerName} · ${mergeReadySelection.length} hazır siparişten birleştirilecekleri seçin.`} onClose={() => {
+          if (mergeReadyBusy) return;
+          setMergeReadySelection(null);
+          setMergeReadyCheckedIds([]);
+        }}>
           <div className="merge-ready-groups">
               <article>
                 <div>
-                  <strong>{mergeReadySelection.length} sipariş birleştirilecek</strong>
-                  <span>{mergeReadySelection.reduce((sum, order) => sum + order.items.length, 0)} ürün satırı</span>
-                  <small>{mergeReadySelection.map((order) => order.number).join(" · ")}</small>
+                  <strong>{mergeReadyCheckedIds.length} sipariş seçildi</strong>
+                  <span>En az iki hazır sipariş seçmelisiniz.</span>
                 </div>
-                <button type="button" className="primary" disabled={mergeReadyBusy} onClick={() => void mergeReadyOrders(mergeReadySelection)}>{mergeReadySelection.length} siparişi birleştir</button>
+                <button type="button" className="primary" disabled={mergeReadyBusy || mergeReadyCheckedIds.length < 2} onClick={() => void mergeReadyOrders(mergeReadySelection.filter((order) => mergeReadyCheckedIds.includes(order.id)))}>Seçilenleri birleştir</button>
               </article>
+              <div className="merge-ready-picker">
+                {mergeReadySelection.map((order) => (
+                  <label key={order.id}>
+                    <input
+                      type="checkbox"
+                      checked={mergeReadyCheckedIds.includes(order.id)}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setMergeReadyCheckedIds((current) => checked ? [...current, order.id] : current.filter((id) => id !== order.id));
+                      }}
+                    />
+                    <span><b>{order.number}</b><small>{order.items.length} ürün satırı · {order.items.map((item) => preparedQuantityLabel(item)).join(" · ")}</small></span>
+                  </label>
+                ))}
+              </div>
           </div>
         </Modal>
       )}
@@ -2598,7 +2621,7 @@ function BoardColumn({
             {onMerge && mergeGroup.length >= 2 && (
               <button type="button" className="merge-ready-card-action" onClick={() => onMerge(mergeGroup)}>
                 <Layers3 aria-hidden="true" />
-                <span>{mergeGroup.length} siparişi birleştir</span>
+                <span>Birleştir</span>
               </button>
             )}
             </div>;
