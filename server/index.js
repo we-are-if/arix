@@ -2408,7 +2408,8 @@ async function handleOrderBoard(req, res, url, parts) {
     if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, req.method === "GET" ? "orders.days.view" : "orders.days.manage")) {
       return send(res, 403, { error: "Gün arxivinə baxmaq üçün icazəniz yoxdur." });
     }
-    const date = String(url.searchParams.get("date") || orderDayKey()).trim();
+    const requestedDate = url.searchParams.get("date");
+    const date = String(requestedDate || (req.method === "GET" ? activeOrderDayKey(db) : orderDayKey())).trim();
     const existing = db.orderDays.find((item) => item.date === date);
     if (req.method === "GET") return send(res, 200, { data: existing ? { ...existing, closed: isEffectiveClosedOrderDay(existing) } : { date, closed: false } });
     if (req.method === "POST") {

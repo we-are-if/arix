@@ -1997,11 +1997,12 @@ export default function App() {
     dayToggleBusyRef.current = true;
     setError("");
     try {
+      const closingDay = !orderDay.closed;
       const next = await api<OrderDay>(`/api/orders/day?date=${encodeURIComponent(orderDay.date)}`, {
         method: "POST",
-        body: JSON.stringify({ closed: !orderDay.closed }),
+        body: JSON.stringify({ closed: closingDay }),
       });
-      setOrderDay(next);
+      setOrderDay(closingDay ? await api<OrderDay>("/api/orders/day") : next);
       await Promise.all([load(), loadNotifications()]);
       return true;
     } catch (cause) {
