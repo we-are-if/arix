@@ -5815,6 +5815,7 @@ function OrderDetail({
   const [rollbackTarget, setRollbackTarget] = useState<Status | null>(null);
   const [rollbackReason, setRollbackReason] = useState("");
   const [editing, setEditing] = useState(false);
+  const [correctingPrepared, setCorrectingPrepared] = useState(false);
   const [activeEditors, setActiveEditors] = useState(order.activeEditors ?? []);
   const draftTimers = useRef<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
@@ -5868,9 +5869,9 @@ function OrderDetail({
   }, [workDraftKey, order.status, items, deliveryNote, despatchNumber, withoutDespatch]);
 
   useEffect(() => {
-    if (!["ready", "delivered"].includes(order.status)) return;
+    if (!["ready", "delivered"].includes(order.status) || correctingPrepared) return;
     setItems(order.items.map((item) => ({ ...item })));
-  }, [order]);
+  }, [order, correctingPrepared]);
   const beginActivity = (type: "order_editing_started" | "approval_form_preparing_started" | "approval_form_editing_started") => {
     void api(`/api/orders/${order.id}/activity`, { method: "POST", body: JSON.stringify({ type }) }).catch(() => undefined);
   };
@@ -6038,6 +6039,24 @@ function OrderDetail({
       () => void saveDraftItem(itemIndex, changes),
       450,
     );
+  };
+
+  const savePreparedCorrection = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const next = await api<Order>(`/api/orders/${order.id}/prepared-correction`, {
+        method: "PATCH",
+        body: JSON.stringify({ items }),
+      });
+      setCorrectingPrepared(false);
+      setNotice("Hazır ürün bilgisi düzeltildi ve bildirim gönderildi.");
+      onChanged(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Hazır ürün bilgisi düzeltilemedi.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const changeStatus = async (status: Status, reason = "") => {
@@ -6504,7 +6523,7 @@ function OrderDetail({
                       }
                     />
                   </div>
-                ) : order.status === "preparing" && canPrepare ? (
+                ) : (order.status === "preparing" && canPrepare) || (order.status === "ready" && correctingPrepared) ? (
                   <div className="prep-inputs prepared-quantity-fields">
                     <label className="actual">
                       <small>Hazırlanan mt</small>
@@ -7176,6 +7195,8 @@ function OrderDetail({
                       {entry.action === "preparedQuantity" ||
                       entry.action === "preparedRollCount"
                         ? entry.productName
+                        : entry.action === "preparedCorrection"
+                          ? "Hazır ürün bilgisi düzeltildi"
                         : entry.action === "created"
                           ? ui.createdBy
                           : entry.action === "status"
@@ -7200,6 +7221,9 @@ function OrderDetail({
                         {entry.oldValue ?? "-"} → {entry.newValue}{" "}
                         {ui.rollCount.toLowerCase()}
                       </span>
+                    )}
+                    {entry.action === "preparedCorrection" && (
+                      <span>{entry.newValue}</span>
                     )}
                     <small>
                       {entry.by} · {new Date(entry.at).toLocaleString(language)}
@@ -7265,6 +7289,26 @@ function OrderDetail({
           )}
           {order.status === "ready" && canRollback && !order.parentOrderId && (
             <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("preparing"); }}>{ui.back}</button>
+          )}
+          {order.status === "ready" && workflowRole === "owner" && !correctingPrepared && (
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                setItems(order.items.map((item) => ({ ...item })));
+                setCorrectingPrepared(true);
+                setNotice("");
+                setError("");
+              }}
+            >
+              Hazır bilgiyi düzelt
+            </button>
+          )}
+          {order.status === "ready" && workflowRole === "owner" && correctingPrepared && (
+            <>
+              <button className="secondary" disabled={busy} onClick={() => { setItems(order.items.map((item) => ({ ...item }))); setCorrectingPrepared(false); }}>Vazgeç</button>
+              <button className="primary" disabled={busy || items.some((item) => !(Number(item.preparedQuantity) > 0))} onClick={savePreparedCorrection}>Düzeltmeyi kaydet</button>
+            </>
           )}
           {order.status === "ready" && canDeliver && order.despatchReady && (
             <>

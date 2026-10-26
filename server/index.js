@@ -3469,6 +3469,62 @@ async function handleOrderBoard(req, res, url, parts) {
     return send(res, 200, { data: orderWithPresence(order, req.authUser) });
   }
 
+  if (req.method === "PATCH" && id && parts[2] === "prepared-correction") {
+    if (workflowRole !== "owner") return send(res, 403, { error: "Hazır ürün bilgisini yalnız şirket sahibi düzeltebilir." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (order.status !== "ready") return send(res, 409, { error: "Doğrudan düzeltme yalnız hazır siparişlerde yapılabilir." });
+    const body = await parseBody(req);
+    const submittedItems = Array.isArray(body.items) ? body.items : [];
+    if (submittedItems.length !== (order.items || []).length) return send(res, 400, { error: "Ürün satırları eksik veya fazla." });
+    for (const [index, item] of (order.items || []).entries()) {
+      const submitted = submittedItems[index] || {};
+      if (String(submitted.productId) !== String(item.productId)) return send(res, 400, { error: "Ürün sırası değiştirilemez." });
+      if (!Number.isFinite(Number(submitted.preparedQuantity)) || Number(submitted.preparedQuantity) <= 0) return send(res, 400, { error: "Hazırlanan metre sıfırdan büyük olmalıdır." });
+      if (!Number.isInteger(Number(submitted.preparedRollCount)) || Number(submitted.preparedRollCount) < 0) return send(res, 400, { error: "Rulo sayısı geçerli bir tam sayı olmalıdır." });
+    }
+    const now = new Date().toISOString();
+    const actor = req.authUser?.name ?? "Şirket sahibi";
+    const changes = [];
+    const nextItems = order.items.map((item, index) => {
+      const submitted = submittedItems[index] || {};
+      const preparedQuantity = Number(submitted.preparedQuantity);
+      const preparedRollCount = Number(submitted.preparedRollCount);
+      const normalized = {
+        ...item,
+        preparedQuantity,
+        preparedRollCount,
+        ...normalizeOrderCutAllowance({ ...item, ...submitted, preparedQuantity }),
+      };
+      const previousAllowance = Number(item.cutAllowanceMeters) || 0;
+      const nextAllowance = Number(normalized.cutAllowanceMeters) || 0;
+      if (Number(item.preparedQuantity) !== preparedQuantity) changes.push(`${item.productName}: ${Number(item.preparedQuantity) || 0} mt → ${preparedQuantity} mt`);
+      if ((Number(item.preparedRollCount) || 0) !== preparedRollCount) changes.push(`${item.productName}: ${Number(item.preparedRollCount) || 0} rulo → ${preparedRollCount} rulo`);
+      if (previousAllowance !== nextAllowance || item.cutAllowanceApplied !== normalized.cutAllowanceApplied) changes.push(`${item.productName}: kesim payı ${previousAllowance} mt → ${nextAllowance} mt`);
+      return normalized;
+    });
+    if (!changes.length) return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+    order.items = nextItems;
+    order.updatedAt = now;
+    order.audit ??= [];
+    order.audit.push({
+      id: randomUUID(), action: "preparedCorrection", oldValue: "", newValue: changes.join(" · "),
+      reason: String(body.reason || "Hazır ürün bilgisi düzeltildi").trim().slice(0, 300),
+      by: actor, userId: req.authUser?.id, at: now,
+    });
+    await notifyUsers(
+      db,
+      order,
+      db.authUsers.filter((user) => user.active !== false),
+      "order_ready_corrected",
+      "Hazır ürün bilgisi düzeltildi",
+      `${actor} tarafından düzeltildi · ${changes.join(" · ")} · ${order.number} · ${order.customerName}`,
+      req.authUser,
+    );
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
   if (req.method === "PATCH" && id && parts[2] === "draft") {
     if (!canPrepare) return send(res, 403, { error: "Hazırlama məlumatlarını yalnız anbar əməkdaşı dəyişə bilər." });
     const order = db.orderBoard.find((item) => String(item.id) === id);
