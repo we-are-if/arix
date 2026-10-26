@@ -6900,7 +6900,7 @@ function OrderDetail({
               )}
           </section>
         )}
-        {(order.status === "ready" || order.status === "delivered" || order.isTest || order.exportPackingRequired) &&
+        {!order.isLoanReturn && (order.status === "ready" || order.status === "delivered" || order.isTest || order.exportPackingRequired) &&
           (canSell || (order.exportPackingRequired && canPrepare)) && (
             <section className="approval-entry">
               <div>

@@ -2739,7 +2739,7 @@ async function handleOrderBoard(req, res, url, parts) {
         String(order.createdByUserId || "") === actorId ||
         normalizeSalesRepresentativeName(order.createdBy || "") === actorName
       ))
-      .filter((order) => order.approvalForm && ["ready", "delivered"].includes(order.status))
+      .filter((order) => !order.isLoanReturn && order.approvalForm && ["ready", "delivered"].includes(order.status))
       .map((order) => {
         const customerName = String(order.approvalForm?.customerName || order.customerName || "").trim().toLocaleLowerCase("tr");
         const customer = (db.orderCustomers || []).find((item) => String(item.name || "").trim().toLocaleLowerCase("tr") === customerName);
@@ -3058,6 +3058,7 @@ async function handleOrderBoard(req, res, url, parts) {
   if (req.method === "PUT" && id && parts[2] === "approval-form") {
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
+    if (order.isLoanReturn) return send(res, 409, { error: "Borç iadesi için sipariş onay formu oluşturulmaz." });
     const body = await parseBody(req);
     let documentType = ["proforma", "commercial_invoice", "packing_list"].includes(String(body.documentType)) ? String(body.documentType) : "domestic";
     if (order.isExport && documentType === "domestic") documentType = "proforma";
@@ -3218,6 +3219,7 @@ async function handleOrderBoard(req, res, url, parts) {
   if (req.method === "POST" && id && parts[2] === "approval-form" && parts[3] === "archive") {
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
+    if (order.isLoanReturn) return send(res, 409, { error: "Borç iadesi için sipariş onay formu arşivlenmez." });
     if (!order.approvalForm) return send(res, 409, { error: "Arxivlənəcək sifariş forması tapılmadı." });
     const archiveIsApproved = order.approvalForm.status === "approved";
     const archiveActorId = String(req.authUser?.id || "");
