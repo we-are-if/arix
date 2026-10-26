@@ -2702,6 +2702,10 @@ async function handleOrderBoard(req, res, url, parts) {
     const actorId = String(req.authUser?.id || "");
     const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
     const data = db.orderBoard
+      .filter((order) => !order.isTest || (
+        String(order.createdByUserId || "") === actorId ||
+        (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName)
+      ))
       .filter((order) => order.approvalForm && ["ready", "delivered"].includes(order.status))
       .map((order) => {
         const customerName = String(order.approvalForm?.customerName || order.customerName || "").trim().toLocaleLowerCase("tr");
@@ -2767,6 +2771,10 @@ async function handleOrderBoard(req, res, url, parts) {
     const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
     const data = db.orderBoard
       .filter((order) => !status || order.status === status)
+      .filter((order) => !order.isTest || (
+        String(order.createdByUserId || "") === actorId ||
+        (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName)
+      ))
       .filter((order) => {
         if (canViewAllOrders) return true;
         if (String(order.createdByUserId || "") === actorId) return true;

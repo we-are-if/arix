@@ -1148,13 +1148,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         payload = {};
       }
       if (!response.ok) {
-        if (response.status === 401) window.dispatchEvent(new Event("arix-auth-expired"));
         const error = new Error(
           typeof payload.error === "string"
             ? payload.error
             : `Sunucu yanıt vermedi (${response.status}).`,
         );
-        if (attempt + 1 < attempts && response.status >= 500) {
+        if (attempt + 1 < attempts && (response.status >= 500 || response.status === 401)) {
           lastError = error;
           window.clearTimeout(timeout);
           await new Promise((resolve) =>
@@ -1162,6 +1161,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
           );
           continue;
         }
+        if (response.status === 401) window.dispatchEvent(new Event("arix-auth-expired"));
         throw error;
       }
       if (!raw) throw new Error("Sunucudan boş yanıt alındı.");
@@ -1449,6 +1449,7 @@ export default function App() {
   const dayToggleBusyRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const consecutiveEmptyLoadsRef = useRef(0);
+  const orderLoadSequenceRef = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void preloadPdfRenderer(), 1_500);
@@ -1569,8 +1570,10 @@ export default function App() {
       setInitialDataLoading(false);
       return;
     }
+    const loadSequence = ++orderLoadSequenceRef.current;
     try {
       const orderData = await api<Order[]>("/api/orders");
+      if (loadSequence !== orderLoadSequenceRef.current) return;
       const incomingActive = orderData.filter(
         (order) =>
           !["delivered", "cancelled", "fulfilled"].includes(order.status),
@@ -1626,6 +1629,7 @@ export default function App() {
       hasLoadedRef.current = true;
       setInitialDataLoading(false);
     } catch (cause) {
+      if (loadSequence !== orderLoadSequenceRef.current) return;
       setInitialDataLoading(false);
       setSyncWarning(
         hasLoadedRef.current
