@@ -367,6 +367,7 @@ type Order = {
   deliveryPhoto?: string;
   despatchReady?: boolean;
   despatchNumber?: string;
+  withoutDespatch?: boolean;
   despatchReadyAt?: string;
   despatchReadyBy?: string;
   attachments?: OrderAttachment[];
@@ -615,6 +616,9 @@ const copy = {
     despatchReady: "İrsaliye hazırdır",
     despatchPending: "İrsaliye gözlənilir",
     despatchNumber: "İrsaliye nömrəsi",
+    deliveryWithoutDespatch: "İrsaliyesiz təhvil",
+    deliveryWithoutDespatchReady: "İrsaliyesiz təhvil üçün hazırdır",
+    confirmDeliveryWithoutDespatch: "İrsaliyesiz təhvili təsdiqlə",
     confirmDespatch: "İrsaliyeni təsdiqlə",
     revokeDespatch: "Təsdiqi geri al",
     productsTab: "Məhsullar",
@@ -734,6 +738,9 @@ const copy = {
     despatchReady: "İrsaliye hazır",
     despatchPending: "İrsaliye bekleniyor",
     despatchNumber: "İrsaliye numarası",
+    deliveryWithoutDespatch: "İrsaliyesiz teslim",
+    deliveryWithoutDespatchReady: "İrsaliyesiz teslim için hazır",
+    confirmDeliveryWithoutDespatch: "İrsaliyesiz teslimi onayla",
     confirmDespatch: "İrsaliyeyi onayla",
     revokeDespatch: "Onayı geri al",
     productsTab: "Ürünler",
@@ -853,6 +860,9 @@ const copy = {
     despatchReady: "Dispatch note ready",
     despatchPending: "Waiting for dispatch note",
     despatchNumber: "Dispatch note number",
+    deliveryWithoutDespatch: "Delivery without dispatch note",
+    deliveryWithoutDespatchReady: "Ready for delivery without dispatch note",
+    confirmDeliveryWithoutDespatch: "Confirm delivery without dispatch note",
     confirmDespatch: "Confirm dispatch note",
     revokeDespatch: "Revoke confirmation",
     productsTab: "Products",
@@ -972,6 +982,9 @@ const copy = {
     despatchReady: "Накладная готова",
     despatchPending: "Ожидание накладной",
     despatchNumber: "Номер накладной",
+    deliveryWithoutDespatch: "Доставка без накладной",
+    deliveryWithoutDespatchReady: "Готово к доставке без накладной",
+    confirmDeliveryWithoutDespatch: "Подтвердить доставку без накладной",
     confirmDespatch: "Подтвердить накладную",
     revokeDespatch: "Отменить подтверждение",
     productsTab: "Товары",
@@ -2462,7 +2475,9 @@ function BoardColumn({
                 <div className="parent-order-link">
                   <b>
                     {order.despatchReady
-                      ? `${text.despatchReady}: ${order.despatchNumber}`
+                      ? order.withoutDespatch
+                        ? text.deliveryWithoutDespatchReady
+                        : `${text.despatchReady}: ${order.despatchNumber}`
                       : text.despatchPending}
                   </b>
                 </div>
@@ -2641,7 +2656,8 @@ function DailyArchive({
         const preparing = historyEvent(order, "preparing"); const ready = historyEvent(order, "ready"); const formSaved = auditEvent(order, ["approvalFormSaved"]); const formApproved = auditEvent(order, ["approvalFormApproved"]); const formArchived = auditEvent(order, ["approvalFormArchived", "approvalFormDraftArchived"]); const orderEdits = (order.audit ?? []).filter((entry) => ["customerNameEdited", "orderNoteEdited", "orderEdited", "status"].includes(entry.action));
         const photos = [order.deliveryPhoto, ...(order.attachments ?? []).filter((file) => file.kind === "deliveryProof" && !file.deletedAt && file.mimeType.startsWith("image/")).map((file) => file.url)].filter(Boolean).slice(0, 2) as string[];
         const documents = (order.attachments ?? []).filter((file) => !file.deletedAt).map((file) => `${file.name} · ${file.uploadedBy} · ${formatTime(file.uploadedAt)}`).join("\n");
-        return `<article class="order-block"><div class="order-title"><h2>${escapeHtml(order.customerName)} <small>${escapeHtml(order.number)} · ${escapeHtml(order.approvalForm?.number || "Form yok")} · ${escapeHtml(order.despatchNumber || "İrsaliye yok")}</small></h2><span class="status ${order.status === "delivered" ? "ok" : ""}">${escapeHtml(reportStatusLabel(order.status))}${page.kind === "carried" && !isIncludedInPreparedTotals(order) ? " · Hazırlanmadı, toplama dahil değil" : ""}</span></div><div class="meta"><span><b>Sipariş veren: ${escapeHtml(order.createdBy)}</b>${formatTime(order.createdAt)}</span><span><b>Müşteri temsilcisi: ${escapeHtml(order.approvalForm?.salesRepresentative || "-")}</b>${escapeHtml(order.approvalForm?.customerContact || order.customerName)}</span><span><b>Hazırlamaya başlayan: ${escapeHtml(preparing?.by || order.preparedBy || "-")}</b>${formatTime(preparing?.at)}</span><span><b>Sipariş formu: ${escapeHtml(formSaved?.by || order.approvalForm?.updatedBy || "-")}</b>${formatTime(formSaved?.at || order.approvalForm?.updatedAt)}</span><span><b>İrsaliye yapan: ${escapeHtml(order.despatchReadyBy || "-")}</b>${formatTime(order.despatchReadyAt)}</span><span><b>Fatura yapan: Meliha Keskin</b>${formatTime(order.despatchReadyAt)}</span><span><b>Teslim eden: ${escapeHtml(order.deliveredBy || "-")}</b>${formatTime(order.deliveredAt)}</span></div><table class="products"><colgroup><col style="width:9%"><col style="width:24%"><col style="width:11%"><col style="width:11%"><col style="width:9%"><col style="width:36%"></colgroup><thead><tr><th>Kod</th><th>Ürün</th><th class="num">Sipariş</th><th class="num">Hazırlanan</th><th class="num">Fark</th><th>Hazırlayanlar ve değişiklikler</th></tr></thead><tbody>${safeItems(order).map((item) => { const original = (order.originalItems ?? []).find((entry) => Number(entry.productId) === Number(item.productId)); const requested = Number(original?.quantity ?? item.quantity) || 0; const prepared = Number(item.preparedQuantity ?? (["ready", "delivered"].includes(order.status) ? item.quantity : 0)) || 0; const difference = prepared - requested; const changes = (order.audit ?? []).filter((entry) => Number(entry.productId) === Number(item.productId) && ["preparedQuantity", "preparedRollCount", "cutAllowance", "orderItemEdited"].includes(entry.action)); return `<tr><td><b>${escapeHtml(item.productCode || "-")}</b></td><td><b>${escapeHtml(item.productName)}</b><small>${escapeHtml(item.lineNote || "")}</small></td><td class="num"><b>${formatNumber(requested)} mt</b><small>${formatNumber(Number(original?.orderedRollCount) || 0)} rulo</small></td><td class="num"><b>${formatNumber(prepared)} mt</b><small>${item.cutAllowanceApplied || Number(item.cutPieceCount) > 0 ? `${formatNumber(Number(item.cutPieceCount) || 1)} parça` : `${formatNumber(Number(item.preparedRollCount) || 0)} rulo`}</small><small class="allowance">Pay: ${formatNumber(Number(item.cutAllowanceMeters) || 0)} mt</small></td><td class="num"><b class="${difference >= 0 ? "positive" : "negative"}">${difference > 0 ? "+" : ""}${formatNumber(difference)} mt</b></td><td><b>${escapeHtml(item.preparedBy || ready?.by || order.preparedBy || "-")} · ${formatTime(item.preparedAt || ready?.at)}</b>${changes.map((entry) => `<small class="changes">${escapeHtml(entry.by)} · ${formatTime(entry.at)} · ${entry.action === "preparedQuantity" ? "Metre" : entry.action === "preparedRollCount" ? "Rulo" : entry.action === "cutAllowance" ? "Kesim payı" : "Sipariş satırı"}: ${escapeHtml(entry.oldValue ?? "-")} → ${escapeHtml(entry.newValue ?? "-")}${entry.reason ? ` · Neden: ${escapeHtml(entry.reason)}` : ""}</small>`).join("")}</td></tr>`; }).join("") || `<tr><td colspan="6">Ürün bulunmuyor.</td></tr>`}</tbody></table>${orderEdits.length ? `<div class="edits"><b>Düzenleme geçmişi:</b> ${orderEdits.map((entry) => `${escapeHtml(entry.by)} · ${formatTime(entry.at)} · ${escapeHtml(reportAuditAction(entry))}${entry.reason ? ` · Neden: ${escapeHtml(entry.reason)}` : ""}`).join("<br>")}</div>` : ""}<div class="detail-row"><div class="detail"><b>NOTLAR VE KOŞULLAR</b>\n${escapeHtml(order.note || "Sipariş notu yok.")}\nÖdeme: ${escapeHtml(order.approvalForm?.paymentTerms || "Belirtilmedi")} · Teslimat: ${escapeHtml(order.approvalForm?.deliveryTerms || "Belirtilmedi")}\nEk not: ${escapeHtml(order.approvalForm?.note || "Yok")}</div><div class="detail"><b>FORM / İRSALİYE / TESLİM</b>\nOnay: ${escapeHtml(formApproved?.by || order.approvalForm?.approvedBy || "-")} · ${formatTime(formApproved?.at || order.approvalForm?.approvedAt)}\nArşiv: ${escapeHtml(formArchived?.by || order.approvalForm?.archive?.archivedBy || "-")} · ${formatTime(formArchived?.at || order.approvalForm?.archive?.archivedAt)}\nTeslim notu: ${escapeHtml(order.deliveryNote || "Henüz teslim edilmedi")}\n${escapeHtml(documents || "Ek belge yok")}</div></div>${photos.length ? `<div class="proofs">${photos.map((url) => `<img src="${escapeHtml(url)}" alt="Teslim kanıtı">`).join("")}</div>` : ""}</article>`;
+        const despatchLabel = order.withoutDespatch ? "İrsaliyesiz teslim" : (order.despatchNumber || "İrsaliye yok");
+        return `<article class="order-block"><div class="order-title"><h2>${escapeHtml(order.customerName)} <small>${escapeHtml(order.number)} · ${escapeHtml(order.approvalForm?.number || "Form yok")} · ${escapeHtml(despatchLabel)}</small></h2><span class="status ${order.status === "delivered" ? "ok" : ""}">${escapeHtml(reportStatusLabel(order.status))}${page.kind === "carried" && !isIncludedInPreparedTotals(order) ? " · Hazırlanmadı, toplama dahil değil" : ""}</span></div><div class="meta"><span><b>Sipariş veren: ${escapeHtml(order.createdBy)}</b>${formatTime(order.createdAt)}</span><span><b>Müşteri temsilcisi: ${escapeHtml(order.approvalForm?.salesRepresentative || "-")}</b>${escapeHtml(order.approvalForm?.customerContact || order.customerName)}</span><span><b>Hazırlamaya başlayan: ${escapeHtml(preparing?.by || order.preparedBy || "-")}</b>${formatTime(preparing?.at)}</span><span><b>Sipariş formu: ${escapeHtml(formSaved?.by || order.approvalForm?.updatedBy || "-")}</b>${formatTime(formSaved?.at || order.approvalForm?.updatedAt)}</span><span><b>İrsaliye yapan: ${escapeHtml(order.despatchReadyBy || "-")}</b>${formatTime(order.despatchReadyAt)}</span><span><b>Fatura yapan: Meliha Keskin</b>${formatTime(order.despatchReadyAt)}</span><span><b>Teslim eden: ${escapeHtml(order.deliveredBy || "-")}</b>${formatTime(order.deliveredAt)}</span></div><table class="products"><colgroup><col style="width:9%"><col style="width:24%"><col style="width:11%"><col style="width:11%"><col style="width:9%"><col style="width:36%"></colgroup><thead><tr><th>Kod</th><th>Ürün</th><th class="num">Sipariş</th><th class="num">Hazırlanan</th><th class="num">Fark</th><th>Hazırlayanlar ve değişiklikler</th></tr></thead><tbody>${safeItems(order).map((item) => { const original = (order.originalItems ?? []).find((entry) => Number(entry.productId) === Number(item.productId)); const requested = Number(original?.quantity ?? item.quantity) || 0; const prepared = Number(item.preparedQuantity ?? (["ready", "delivered"].includes(order.status) ? item.quantity : 0)) || 0; const difference = prepared - requested; const changes = (order.audit ?? []).filter((entry) => Number(entry.productId) === Number(item.productId) && ["preparedQuantity", "preparedRollCount", "cutAllowance", "orderItemEdited"].includes(entry.action)); return `<tr><td><b>${escapeHtml(item.productCode || "-")}</b></td><td><b>${escapeHtml(item.productName)}</b><small>${escapeHtml(item.lineNote || "")}</small></td><td class="num"><b>${formatNumber(requested)} mt</b><small>${formatNumber(Number(original?.orderedRollCount) || 0)} rulo</small></td><td class="num"><b>${formatNumber(prepared)} mt</b><small>${item.cutAllowanceApplied || Number(item.cutPieceCount) > 0 ? `${formatNumber(Number(item.cutPieceCount) || 1)} parça` : `${formatNumber(Number(item.preparedRollCount) || 0)} rulo`}</small><small class="allowance">Pay: ${formatNumber(Number(item.cutAllowanceMeters) || 0)} mt</small></td><td class="num"><b class="${difference >= 0 ? "positive" : "negative"}">${difference > 0 ? "+" : ""}${formatNumber(difference)} mt</b></td><td><b>${escapeHtml(item.preparedBy || ready?.by || order.preparedBy || "-")} · ${formatTime(item.preparedAt || ready?.at)}</b>${changes.map((entry) => `<small class="changes">${escapeHtml(entry.by)} · ${formatTime(entry.at)} · ${entry.action === "preparedQuantity" ? "Metre" : entry.action === "preparedRollCount" ? "Rulo" : entry.action === "cutAllowance" ? "Kesim payı" : "Sipariş satırı"}: ${escapeHtml(entry.oldValue ?? "-")} → ${escapeHtml(entry.newValue ?? "-")}${entry.reason ? ` · Neden: ${escapeHtml(entry.reason)}` : ""}</small>`).join("")}</td></tr>`; }).join("") || `<tr><td colspan="6">Ürün bulunmuyor.</td></tr>`}</tbody></table>${orderEdits.length ? `<div class="edits"><b>Düzenleme geçmişi:</b> ${orderEdits.map((entry) => `${escapeHtml(entry.by)} · ${formatTime(entry.at)} · ${escapeHtml(reportAuditAction(entry))}${entry.reason ? ` · Neden: ${escapeHtml(entry.reason)}` : ""}`).join("<br>")}</div>` : ""}<div class="detail-row"><div class="detail"><b>NOTLAR VE KOŞULLAR</b>\n${escapeHtml(order.note || "Sipariş notu yok.")}\nÖdeme: ${escapeHtml(order.approvalForm?.paymentTerms || "Belirtilmedi")} · Teslimat: ${escapeHtml(order.approvalForm?.deliveryTerms || "Belirtilmedi")}\nEk not: ${escapeHtml(order.approvalForm?.note || "Yok")}</div><div class="detail"><b>FORM / İRSALİYE / TESLİM</b>\nOnay: ${escapeHtml(formApproved?.by || order.approvalForm?.approvedBy || "-")} · ${formatTime(formApproved?.at || order.approvalForm?.approvedAt)}\nArşiv: ${escapeHtml(formArchived?.by || order.approvalForm?.archive?.archivedBy || "-")} · ${formatTime(formArchived?.at || order.approvalForm?.archive?.archivedAt)}\nTeslim notu: ${escapeHtml(order.deliveryNote || "Henüz teslim edilmedi")}\n${escapeHtml(documents || "Ek belge yok")}</div></div>${photos.length ? `<div class="proofs">${photos.map((url) => `<img src="${escapeHtml(url)}" alt="Teslim kanıtı">`).join("")}</div>` : ""}</article>`;
       }).join("")}${pageIndex === reportPages.length - 1 ? `<h2 style="margin:5mm 0 2mm;font-size:13pt">Toplam Rapor</h2>${totalsBlock("Teslim edilenler toplamı", deliveredTotals)}${carriedOrders.length ? totalsBlock("Devredenler toplamı", carriedTotals) : ""}${totalsBlock(carriedOrders.length ? "Genel toplam · teslim edilen + devreden" : "Teslim edilenler · genel toplam", overallTotals)}` : ""}<footer class="pdf-footer"><span>Powered by <b>AriX</b> · www.arix.az</span><span>Sayfa ${pageIndex + 1}/${reportPages.length}</span></footer></section>`).join("")}`;
       document.body.appendChild(stage);
       await document.fonts.ready;
@@ -5750,7 +5766,7 @@ function OrderDetail({
     : item);
   const savedWork = useMemo(() => {
     try {
-      return JSON.parse(localStorage.getItem(workDraftKey) || "{}") as { items?: OrderItem[]; deliveryNote?: string; despatchNumber?: string };
+      return JSON.parse(localStorage.getItem(workDraftKey) || "{}") as { items?: OrderItem[]; deliveryNote?: string; despatchNumber?: string; withoutDespatch?: boolean };
     } catch {
       return {};
     }
@@ -5773,12 +5789,15 @@ function OrderDetail({
   const [despatchNumber, setDespatchNumber] = useState(
     savedWork.despatchNumber ?? order.despatchNumber ?? "",
   );
+  const [withoutDespatch, setWithoutDespatch] = useState(
+    savedWork.withoutDespatch ?? order.withoutDespatch ?? false,
+  );
   const [expandedProductKey, setExpandedProductKey] = useState("");
   const [previewAttachment, setPreviewAttachment] =
     useState<OrderAttachment | null>(null);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalMode, setApprovalMode] = useState<"documents" | "packing">("documents");
-  const preserveRestoredWork = useRef(Boolean(savedWork.items?.length || savedWork.deliveryNote || savedWork.despatchNumber));
+  const preserveRestoredWork = useRef(Boolean(savedWork.items?.length || savedWork.deliveryNote || savedWork.despatchNumber || savedWork.withoutDespatch));
   const canPrepare = workflowRole === "owner" || workflowRole === "warehouse" || Boolean(session.permissions?.includes("orders.prepare"));
   const canRollback = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.rollback"));
   const canSell = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.create")) || Boolean(session.permissions?.includes("order_forms.edit"));
@@ -5803,8 +5822,8 @@ function OrderDetail({
       localStorage.removeItem(workDraftKey);
       return;
     }
-    localStorage.setItem(workDraftKey, JSON.stringify({ items, deliveryNote, despatchNumber }));
-  }, [workDraftKey, order.status, items, deliveryNote, despatchNumber]);
+    localStorage.setItem(workDraftKey, JSON.stringify({ items, deliveryNote, despatchNumber, withoutDespatch }));
+  }, [workDraftKey, order.status, items, deliveryNote, despatchNumber, withoutDespatch]);
   const beginActivity = (type: "order_editing_started" | "approval_form_preparing_started" | "approval_form_editing_started") => {
     void api(`/api/orders/${order.id}/activity`, { method: "POST", body: JSON.stringify({ type }) }).catch(() => undefined);
   };
@@ -5905,6 +5924,7 @@ function OrderDetail({
     if (!keepLocalWork) setDeliveryNote(order.deliveryNote ?? "");
     setDeliveryPhoto(order.deliveryPhoto ?? "");
     if (!keepLocalWork) setDespatchNumber(order.despatchNumber ?? "");
+    if (!keepLocalWork) setWithoutDespatch(order.withoutDespatch ?? false);
   }, [order]);
 
   useEffect(() => {
@@ -6092,7 +6112,7 @@ function OrderDetail({
     try {
       const next = await api<Order>(`/api/orders/${order.id}/despatch`, {
         method: "PATCH",
-        body: JSON.stringify({ ready, number: despatchNumber }),
+        body: JSON.stringify({ ready, number: withoutDespatch ? "" : despatchNumber, withoutDespatch }),
       });
       onChanged(next);
     } catch (cause) {
@@ -6788,31 +6808,49 @@ function OrderDetail({
         {order.status === "ready" && (
           <section className="delivery-form readonly">
             <h3>
-              {order.despatchReady ? ui.despatchReady : ui.despatchPending}
+              {order.despatchReady
+                ? order.withoutDespatch
+                  ? ui.deliveryWithoutDespatchReady
+                  : ui.despatchReady
+                : ui.despatchPending}
             </h3>
             {order.despatchReady && (
               <p>
-                <b>{order.despatchNumber}</b>
+                <b>{order.withoutDespatch ? ui.deliveryWithoutDespatch : order.despatchNumber}</b>
                 {order.despatchReadyBy ? ` · ${order.despatchReadyBy}` : ""}
               </p>
             )}
             {canManageDespatch && (
               <div className="prep-inputs">
+                <label className="approval-toggle despatch-without-number">
+                  <input
+                    type="checkbox"
+                    checked={withoutDespatch}
+                    disabled={order.despatchReady}
+                    onChange={(event) => setWithoutDespatch(event.target.checked)}
+                  />
+                  <span>{ui.deliveryWithoutDespatch}</span>
+                </label>
                 <label className="actual">
                   <input
                     value={despatchNumber}
                     onChange={(event) => setDespatchNumber(event.target.value)}
                     placeholder={ui.despatchNumber}
+                    disabled={withoutDespatch || order.despatchReady}
                   />
                 </label>
                 <button
                   className={order.despatchReady ? "secondary" : "primary"}
                   disabled={
-                    busy || (!order.despatchReady && !despatchNumber.trim())
+                    busy || (!order.despatchReady && !withoutDespatch && !despatchNumber.trim())
                   }
                   onClick={() => void updateDespatch(!order.despatchReady)}
                 >
-                  {order.despatchReady ? ui.revokeDespatch : ui.confirmDespatch}
+                  {order.despatchReady
+                    ? ui.revokeDespatch
+                    : withoutDespatch
+                      ? ui.confirmDeliveryWithoutDespatch
+                      : ui.confirmDespatch}
                 </button>
               </div>
             )}
@@ -6984,7 +7022,9 @@ function OrderDetail({
                     </p>
                     <p>
                       {batch.despatchReady
-                        ? `${ui.despatchReady}: ${batch.despatchNumber}`
+                        ? batch.withoutDespatch
+                          ? ui.deliveryWithoutDespatchReady
+                          : `${ui.despatchReady}: ${batch.despatchNumber}`
                         : ui.despatchPending}
                     </p>
                     {safeItems(batch).map((item, index) => (

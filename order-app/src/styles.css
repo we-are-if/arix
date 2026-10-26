@@ -2271,6 +2271,10 @@ textarea {
   grid-template-columns: 140px 165px;
   gap: 8px !important;
 }
+.prep-inputs .despatch-without-number {
+  grid-column: 1 / -1;
+  min-height: 34px;
+}
 .prepared-quantity-fields {
   grid-template-columns: repeat(2, minmax(130px, 1fr));
   width: min(100%, 310px);

@@ -1828,6 +1828,7 @@ function orderRolloverSnapshot(order) {
     audit: structuredClone(Array.isArray(order.audit) ? order.audit : []),
     despatchReady: order.despatchReady,
     despatchNumber: order.despatchNumber,
+    withoutDespatch: order.withoutDespatch,
     despatchReadyAt: order.despatchReadyAt,
     despatchReadyBy: order.despatchReadyBy,
     deliveryNote: order.deliveryNote,
@@ -3481,29 +3482,34 @@ async function handleOrderBoard(req, res, url, parts) {
     if (order.status !== "ready") return send(res, 409, { error: "İrsaliye yalnız hazır sifariş partiyası üçün təsdiqlənə bilər." });
     const body = await parseBody(req);
     const ready = body.ready === true;
-    const number = String(body.number ?? "").trim().slice(0, 80);
-    if (ready && !number) return send(res, 400, { error: "İrsaliye nömrəsi məcburidir." });
+    const withoutDespatch = ready && body.withoutDespatch === true;
+    const number = withoutDespatch ? "" : String(body.number ?? "").trim().slice(0, 80);
+    if (ready && !withoutDespatch && !number) return send(res, 400, { error: "İrsaliye nömrəsi məcburidir." });
     const wasReady = order.despatchReady === true;
     const previousNumber = String(order.despatchNumber || "").trim();
-    if (wasReady === ready && (!ready || previousNumber === number)) {
+    const wasWithoutDespatch = order.withoutDespatch === true;
+    if (wasReady === ready && (!ready || (previousNumber === number && wasWithoutDespatch === withoutDespatch))) {
       return send(res, 200, { data: orderWithPresence(order, req.authUser) });
     }
     const now = new Date().toISOString();
     order.despatchReady = ready;
     order.despatchNumber = ready ? number : "";
+    order.withoutDespatch = ready ? withoutDespatch : false;
     order.despatchReadyAt = ready ? now : null;
     order.despatchReadyBy = ready ? (req.authUser?.name ?? "Satış") : null;
     order.updatedAt = now;
     order.audit ??= [];
-    order.audit.push({ id: randomUUID(), action: ready ? "despatchReady" : "despatchRevoked", newValue: number, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: now });
+    order.audit.push({ id: randomUUID(), action: ready ? "despatchReady" : "despatchRevoked", newValue: withoutDespatch ? "İrsaliyesiz teslim" : number, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: now });
     if (ready && !wasReady) {
       notifyUsers(
         db,
         order,
         db.authUsers.filter((user) => hasPermission(user, "orders.deliver")),
         "despatch_ready",
-        "İrsaliye hazırlandı · Teslim edilebilir",
-        `${number} numaralı irsaliye ${req.authUser?.name || "Satış"} tarafından hazırlandı · ${order.number} · ${order.customerName}`,
+        withoutDespatch ? "İrsaliyesiz teslim için hazır" : "İrsaliye hazırlandı · Teslim edilebilir",
+        withoutDespatch
+          ? `${req.authUser?.name || "Satış"} tarafından irsaliyesiz teslim onaylandı · ${order.number} · ${order.customerName}`
+          : `${number} numaralı irsaliye ${req.authUser?.name || "Satış"} tarafından hazırlandı · ${order.number} · ${order.customerName}`,
         req.authUser,
       );
     }
@@ -3576,6 +3582,8 @@ async function handleOrderBoard(req, res, url, parts) {
       if (previousStatus === "ready" && nextStatus === "preparing") {
         delete order.readyAt;
         order.despatchReady = false;
+        order.despatchNumber = "";
+        order.withoutDespatch = false;
         delete order.despatchReadyAt;
         delete order.despatchReadyBy;
       }
