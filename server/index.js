@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import { access, mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
@@ -148,6 +149,7 @@ const ALLOWED_ORIGINS = new Set([
   ...String(process.env.ARIX_ALLOWED_ORIGINS ?? "").split(",").map((item) => item.trim()).filter(Boolean),
 ]);
 const stateStore = createSQLiteStateStore({ dataDir: DATA_DIR, jsonPath: DB_PATH, sqlitePath: SQLITE_PATH });
+const databaseReadContext = new AsyncLocalStorage();
 
 const defaultAuthUsers = [
   { id: "arif", name: "Arif Mahmud", role: "Sahib", email: "arifmd@icloud.com", active: true, companyId: "ersa-folyo", googleSubject: null },
@@ -581,7 +583,7 @@ async function ensureDb() {
 }
 
 async function readDb() {
-  return stateStore.read();
+  return stateStore.read({ clone: databaseReadContext.getStore()?.clone !== false });
 }
 
 async function writeDb(db) {
@@ -6690,11 +6692,15 @@ function enqueueMutation(task) {
 
 const server = createServer((req, res) => {
   const method = String(req.method ?? "GET").toUpperCase();
-  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
-    void handleApiRequest(req, res);
-    return;
-  }
-  void enqueueMutation(() => handleApiRequest(req, res));
+  const path = String(req.url ?? "").split("?", 1)[0];
+  const readOnly = method === "GET" || method === "HEAD" || method === "OPTIONS" || path.endsWith("/presence");
+  databaseReadContext.run({ clone: !readOnly }, () => {
+    if (readOnly) {
+      void handleApiRequest(req, res);
+      return;
+    }
+    void enqueueMutation(() => handleApiRequest(req, res));
+  });
 });
 
 server.listen(PORT, () => {

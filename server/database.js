@@ -111,12 +111,12 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
     return cloneState(cachedState);
   };
 
-  const read = async () => {
-    if (cachedState) return cloneState(cachedState);
+  const read = async ({ clone = true } = {}) => {
+    if (cachedState) return clone ? cloneState(cachedState) : cachedState;
     const row = open().prepare("SELECT data FROM app_state WHERE id = ?").get(STATE_ID);
     if (!row) throw new Error("SQLite application state is missing.");
     cachedState = normalize(JSON.parse(row.data));
-    return cloneState(cachedState);
+    return clone ? cloneState(cachedState) : cachedState;
   };
 
   const write = async (value) => {

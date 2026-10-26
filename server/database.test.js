@@ -40,3 +40,21 @@ test("refuses to replace a malformed legacy JSON database", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("can return cached state without cloning for read-only requests", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "arix-db-readonly-"));
+  const jsonPath = join(dir, "db.json");
+  const store = createSQLiteStateStore({ dataDir: dir, jsonPath });
+  try {
+    await store.initialize({ value: 1 }, (value) => value);
+    const first = await store.read({ clone: false });
+    const second = await store.read({ clone: false });
+    const isolated = await store.read();
+    assert.equal(first, second);
+    assert.notEqual(first, isolated);
+    assert.deepEqual(isolated, first);
+  } finally {
+    store.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

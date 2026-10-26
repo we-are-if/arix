@@ -3512,12 +3512,10 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [error, setError] = useState("");
   const [pdfRendered, setPdfRendered] = useState(false);
-  const [nativePreviewLoaded, setNativePreviewLoaded] = useState(false);
   const [zoom, setZoom] = useState(1);
   const pagesRef = useRef<HTMLDivElement | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const filename = order.approvalForm?.archive?.filename || `${order.approvalForm?.number || order.number}.pdf`;
-  const directPdfUrl = `/api/orders/${order.id}/approval-form/pdf`;
   const nativeShare = Reflect.get(navigator, "share") as ((data: ShareData) => Promise<void>) | undefined;
   const nativeCanShare = Reflect.get(navigator, "canShare") as ((data: ShareData) => boolean) | undefined;
   const representativeName = (order.approvalForm?.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
@@ -3569,9 +3567,10 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
         for (let pageNumber = 1; pageNumber <= pdfDocument.numPages && !cancelled; pageNumber += 1) {
           const page = await pdfDocument.getPage(pageNumber);
           const baseViewport = page.getViewport({ scale: 1 });
-          const targetWidth = Math.min(1100, Math.max(320, pages.clientWidth || window.innerWidth));
+          const availableWidth = pages.parentElement?.clientWidth || window.innerWidth;
+          const targetWidth = Math.min(1400, Math.max(320, availableWidth));
           const cssScale = targetWidth / baseViewport.width;
-          const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+          const pixelRatio = Math.min(window.devicePixelRatio || 1, 3);
           const viewport = page.getViewport({ scale: cssScale * pixelRatio });
           const canvas = document.createElement("canvas");
           canvas.className = "approval-pdf-page";
@@ -3675,15 +3674,7 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
         }}
       >
         {error && <p className="form-error">{error}</p>}
-        {!error && !nativePreviewLoaded && !pdfRendered && <div className="orders-loading-state"><span />Belge açılıyor…</div>}
-        {!error && !pdfRendered && (
-          <iframe
-            className="approval-native-pdf"
-            src={directPdfUrl}
-            title={filename}
-            onLoad={() => setNativePreviewLoaded(true)}
-          />
-        )}
+        {!error && !pdfRendered && <div className="orders-loading-state"><span />Belge açılıyor…</div>}
         <div className={`approval-pdf-canvas-stage ${pdfRendered ? "is-ready" : ""}`} style={{ width: `${zoom * 100}%` }} ref={pagesRef} aria-label={filename} />
       </main>
     </section>
