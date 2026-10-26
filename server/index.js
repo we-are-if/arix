@@ -3703,6 +3703,21 @@ async function handleOrderBoard(req, res, url, parts) {
       source.audit.push({ id: randomUUID(), action: "mergedIntoReadyOrder", newValue: merged.number, by: actor, userId: req.authUser?.id, at: now });
     }
     db.orderBoard.push(merged);
+    if (!merged.isTest) {
+      const recipients = [
+        ...selected.flatMap((order) => orderActivityRecipients(db, order)),
+        ...db.authUsers.filter((user) => hasPermission(user, "orders.deliver") || hasPermission(user, "orders.despatch")),
+      ];
+      await notifyUsers(
+        db,
+        merged,
+        recipients,
+        "ready_orders_merged",
+        "Hazır siparişler birleştirildi",
+        `${actor} tarafından birleştirildi · ${merged.customerName} · ${selected.map((order) => order.number).join(", ")} → ${merged.number}`,
+        req.authUser,
+      );
+    }
     await writeDb(db);
     return send(res, 201, { data: orderWithPresence(merged, req.authUser) });
   }
