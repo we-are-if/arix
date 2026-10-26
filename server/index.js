@@ -3602,6 +3602,28 @@ async function handleOrderBoard(req, res, url, parts) {
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
     if (order.status !== "preparing") return send(res, 409, { error: "Yalnız hazırlanmaqda olan sifarişdən hazır hissə yaradıla bilər." });
+    const body = await parseBody(req);
+    if (Array.isArray(body.items)) {
+      if (body.items.length !== (order.items || []).length) return send(res, 400, { error: "Hazırlanan ürün satırları eksik veya fazla." });
+      const submittedItems = [];
+      for (const [index, item] of (order.items || []).entries()) {
+        const submitted = body.items[index] || {};
+        if (String(submitted.productId) !== String(item.productId)) return send(res, 400, { error: "Hazırlanan ürün sırası değiştirilemez." });
+        const preparedQuantity = Number(submitted.preparedQuantity);
+        const preparedRollCount = Math.max(0, Math.trunc(Number(submitted.preparedRollCount) || 0));
+        if (!Number.isFinite(preparedQuantity) || preparedQuantity < 0) return send(res, 400, { error: "Hazırlanan metre geçerli olmalıdır." });
+        const merged = {
+          ...item,
+          preparedQuantity: preparedQuantity > 0 ? preparedQuantity : null,
+          preparedRollCount,
+          cutAllowanceApplied: submitted.cutAllowanceApplied === true,
+          cutPieceCount: submitted.cutPieceCount,
+          cutAllowancePerPiece: submitted.cutAllowancePerPiece,
+        };
+        submittedItems.push({ ...merged, ...normalizeOrderCutAllowance(merged) });
+      }
+      order.items = submittedItems;
+    }
     const selected = (order.items || []).filter((item) => Number(item.preparedQuantity) > 0);
     if (!selected.length) return send(res, 400, { error: "Hazıra göndərmək üçün ən az bir faktiki metraj yazın." });
     const now = new Date().toISOString();
@@ -3616,7 +3638,12 @@ async function handleOrderBoard(req, res, url, parts) {
       note: order.note,
       businessDate: order.businessDate || activeOrderDayKey(db),
       status: "ready",
-      items: selected.map((item) => ({ ...item, quantity: Number(item.preparedQuantity), preparedQuantity: Number(item.preparedQuantity) })),
+      items: selected.map((item) => ({
+        ...item,
+        quantity: Number(item.preparedQuantity),
+        orderedRollCount: Math.max(0, Number(item.preparedRollCount) || 0),
+        preparedQuantity: Number(item.preparedQuantity),
+      })),
       createdBy: order.createdBy,
       createdByUserId: order.createdByUserId || null,
       preparedBy: actor,
@@ -3631,7 +3658,8 @@ async function handleOrderBoard(req, res, url, parts) {
       if (prepared <= 0) return [item];
       const remaining = Number(item.quantity) - prepared;
       if (remaining <= 0.000001) return [];
-      const next = { ...item, quantity: remaining, preparedQuantity: null };
+      const remainingRollCount = Math.max(0, (Number(item.orderedRollCount) || 0) - (Number(item.preparedRollCount) || 0));
+      const next = { ...item, quantity: remaining, orderedRollCount: remainingRollCount, preparedQuantity: null };
       delete next.preparedBy;
       delete next.preparedByUserId;
       delete next.preparedAt;

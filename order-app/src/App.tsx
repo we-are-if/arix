@@ -6237,9 +6237,12 @@ function OrderDetail({
             (item) => Number(item.preparedQuantity) >= Number(item.quantity),
           );
         if (!fullyPrepared) {
+          Object.values(draftTimers.current).forEach((timer) =>
+            window.clearTimeout(timer),
+          );
           const result = await api<{ order: Order; batch: Order }>(
             `/api/orders/${order.id}/partial-ready`,
-            { method: "POST" },
+            { method: "POST", body: JSON.stringify({ items }) },
           );
           onChanged(
             result.order.status === "fulfilled" ? result.batch : result.order,
