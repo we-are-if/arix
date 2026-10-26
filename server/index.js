@@ -3773,9 +3773,9 @@ async function handleOrderBoard(req, res, url, parts) {
       }
       if (nextStatus === "delivered") {
         const deliveryNote = String(body.deliveryNote ?? "").trim().slice(0, 500);
-        if (!deliveryNote) return send(res, 400, { error: "Təhvil qeydi məcburidir." });
+        if (!isOwner && !deliveryNote) return send(res, 400, { error: "Təhvil qeydi məcburidir." });
         const hasDeliveryProof = Boolean(order.deliveryPhoto || (order.attachments || []).some((attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt));
-        if (!hasDeliveryProof) return send(res, 400, { error: "Təhvil faylı məcburidir." });
+        if (!isOwner && !hasDeliveryProof) return send(res, 400, { error: "Təhvil faylı məcburidir." });
         order.deliveredAt = now;
         order.deliveredBy = actor;
         order.deliveryNote = deliveryNote;

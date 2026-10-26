@@ -7395,7 +7395,7 @@ function OrderDetail({
             <>
               <button
                 className="primary"
-                disabled={busy || !deliveryNote.trim() || !hasDeliveryProof}
+                disabled={busy || (!isOwner && (!deliveryNote.trim() || !hasDeliveryProof))}
                 onClick={() => changeStatus("delivered")}
               >
                 {ui.delivered}
