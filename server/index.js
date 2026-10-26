@@ -2735,7 +2735,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const actorId = String(req.authUser?.id || "");
     const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
     const data = db.orderBoard
-      .filter((order) => !order.isTest || (
+      .filter((order) => !order.isTest || workflowRole === "owner" || (
         String(order.createdByUserId || "") === actorId ||
         normalizeSalesRepresentativeName(order.createdBy || "") === actorName
       ))
@@ -2804,7 +2804,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
     const data = db.orderBoard
       .filter((order) => !status || order.status === status)
-      .filter((order) => !order.isTest || (
+      .filter((order) => !order.isTest || workflowRole === "owner" || (
         String(order.createdByUserId || "") === actorId ||
         normalizeSalesRepresentativeName(order.createdBy || "") === actorName
       ))
@@ -2935,7 +2935,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (items.some((item) => !item.productId || (!(Number(item.quantity) > 0) && !(Number(item.orderedRollCount) > 0)))) return send(res, 400, { error: "Bütün məhsullar üçün metr və ya rulo miqdarı təsdiqlənməlidir." });
     const now = new Date().toISOString();
     const changeReason = String(body.reason || "").trim().slice(0, 300);
-    const isTest = workflowRole === "owner" && body.isTest === true;
+    const isTest = body.isTest === true;
     const isLoanReturn = body.isLoanReturn === true;
     const customer = findOrderCustomerByName(db.orderCustomers, customerName);
     const isExport = body.isExport === true || customer?.customerType === "foreign";

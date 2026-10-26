@@ -3010,7 +3010,6 @@ function CreateOrder({
   language: Language;
 }) {
   const ui = copy[language];
-  const isOwner = workflowRole(session.role) === "owner";
   const savedDraft = useMemo(() => {
     try {
       return JSON.parse(localStorage.getItem(draftKey) || "{}") as {
@@ -3246,11 +3245,11 @@ function CreateOrder({
         </label>
       </div>
 
-      <div className={`order-type-toggles${isOwner ? "" : " single"}`}>
-        {isOwner && <label className="test-order-toggle">
+      <div className="order-type-toggles">
+        <label className="test-order-toggle">
           <input type="checkbox" checked={isTest} onChange={(event) => setIsTest(event.target.checked)} />
           <span><b>Test siparişi</b><small>Bildirim gönderilmez; stok ve günlük satış toplamlarına dahil edilmez.</small></span>
-        </label>}
+        </label>
         <label className={`test-order-toggle loan-return-toggle${isLoanReturn ? " active" : ""}`}>
           <input type="checkbox" checked={isLoanReturn} onChange={(event) => setIsLoanReturn(event.target.checked)} />
           <span><b>Borç iadesi</b><small>Teslimde stoktan ve müşterinin borç bakiyesinden düşer.</small></span>

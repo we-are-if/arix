@@ -4771,7 +4771,6 @@ textarea {
   background: var(--surface-soft);
 }
 .order-type-toggles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:10px 0 16px; }
-.order-type-toggles.single { grid-template-columns:1fr; }
 .order-type-toggles .test-order-toggle { min-width:0; margin:0; }
 .loan-return-toggle.active { border-color:#34a87b; background:#edfaf4; }
 .theme-dark .loan-return-toggle.active { border-color:#34a87b; background:#153127; }
