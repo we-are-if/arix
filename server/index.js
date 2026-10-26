@@ -3653,6 +3653,60 @@ async function handleOrderBoard(req, res, url, parts) {
     return send(res, 200, { data: { order: orderWithPresence(order, req.authUser), batch: orderWithPresence(batch, req.authUser) } });
   }
 
+  if (req.method === "POST" && parts[1] === "merge-ready") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.edit")) return send(res, 403, { error: "Hazır siparişleri birleştirme yetkiniz yok." });
+    const body = await parseBody(req);
+    const orderIds = [...new Set((Array.isArray(body.orderIds) ? body.orderIds : []).map((value) => String(value || "")).filter(Boolean))];
+    if (orderIds.length < 2) return send(res, 400, { error: "Birleştirmek için en az iki hazır sipariş seçin." });
+    const selected = orderIds.map((orderId) => db.orderBoard.find((item) => String(item.id) === orderId));
+    if (selected.some((order) => !order)) return send(res, 404, { error: "Seçilen siparişlerden biri bulunamadı." });
+    if (selected.some((order) => order.status !== "ready")) return send(res, 409, { error: "Yalnız Hazır aşamasındaki siparişler birleştirilebilir." });
+    if (selected.some((order) => order.despatchReady)) return send(res, 409, { error: "İrsaliyesi hazırlanmış sipariş birleştirilemez." });
+    const customerKey = normalizeSalesRepresentativeName(selected[0].customerName);
+    if (selected.some((order) => normalizeSalesRepresentativeName(order.customerName) !== customerKey)) return send(res, 409, { error: "Yalnız aynı müşteriye ait siparişler birleştirilebilir." });
+    for (const field of ["isTest", "isLoanReturn", "isExport"]) {
+      if (selected.some((order) => Boolean(order[field]) !== Boolean(selected[0][field]))) return send(res, 409, { error: "Farklı işlem türündeki siparişler birleştirilemez." });
+    }
+    const now = new Date().toISOString();
+    const actor = req.authUser?.name ?? "Kullanıcı";
+    const merged = {
+      id: randomUUID(),
+      number: `ORD-B${String(Date.now()).slice(-6)}`,
+      customerName: selected[0].customerName,
+      note: selected.map((order) => order.note).filter(Boolean).join(" · "),
+      businessDate: activeOrderDayKey(db),
+      status: "ready",
+      isTest: Boolean(selected[0].isTest),
+      isLoanReturn: Boolean(selected[0].isLoanReturn),
+      isExport: Boolean(selected[0].isExport),
+      items: selected.flatMap((order) => structuredClone(order.items || [])),
+      originalItems: selected.flatMap((order) => structuredClone(order.originalItems || order.items || [])),
+      mergedOrderIds: selected.map((order) => order.id),
+      mergedOrderNumbers: selected.map((order) => order.number),
+      createdBy: actor,
+      createdByUserId: req.authUser?.id ?? null,
+      preparedBy: selected.map((order) => order.preparedBy).filter(Boolean).join(", ") || actor,
+      createdAt: now,
+      updatedAt: now,
+      readyAt: now,
+      history: [{ status: "ready", at: now, by: actor }],
+      audit: [{ id: randomUUID(), action: "readyOrdersMerged", oldValue: selected.map((order) => order.number).join(", "), newValue: "Tek teslimat", by: actor, userId: req.authUser?.id, at: now }],
+    };
+    for (const source of selected) {
+      source.status = "fulfilled";
+      source.mergedIntoOrderId = merged.id;
+      source.mergedIntoOrderNumber = merged.number;
+      source.updatedAt = now;
+      source.history ??= [];
+      source.history.push({ status: "fulfilled", at: now, by: actor });
+      source.audit ??= [];
+      source.audit.push({ id: randomUUID(), action: "mergedIntoReadyOrder", newValue: merged.number, by: actor, userId: req.authUser?.id, at: now });
+    }
+    db.orderBoard.push(merged);
+    await writeDb(db);
+    return send(res, 201, { data: orderWithPresence(merged, req.authUser) });
+  }
+
   if (req.method === "PATCH" && id && parts[2] === "despatch") {
     if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.despatch")) return send(res, 403, { error: "İrsaliye məlumatını təsdiqləmək icazəniz yoxdur." });
     const order = db.orderBoard.find((item) => String(item.id) === id);
@@ -6800,6 +6854,7 @@ async function handleApiRequest(req, res) {
       else if (resource === "trash") required = ["trash.manage"];
       else if (!resource && req.method === "POST") required = ["orders.create"];
       else if (resource === "match") required = ["orders.create"];
+      else if (resource === "merge-ready") required = ["orders.edit"];
       else if (action === "attachments") required = req.method === "POST" ? ["documents.create", "orders.deliver"] : ["documents.delete", "orders.deliver"];
       else if (action === "approval-form") required = ["order_forms.edit", "order_forms.approve", "orders.approve"];
       else if (action === "delivery-photo") required = ["orders.deliver"];

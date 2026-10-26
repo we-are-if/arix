@@ -385,6 +385,10 @@ type Order = {
   isTest?: boolean;
   isLoanReturn?: boolean;
   isExport?: boolean;
+  mergedOrderIds?: string[];
+  mergedOrderNumbers?: string[];
+  mergedIntoOrderId?: string;
+  mergedIntoOrderNumber?: string;
   exportPackingRequired?: boolean;
   exportPackingStatus?: "pending" | "preparing" | "ready";
 };
@@ -1425,6 +1429,8 @@ export default function App() {
     companyStamp: "",
   });
   const [createOpen, setCreateOpen] = useState(false);
+  const [mergeReadyOpen, setMergeReadyOpen] = useState(false);
+  const [mergeReadyBusy, setMergeReadyBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<"settings" | "stock">("settings");
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
@@ -1778,6 +1784,30 @@ export default function App() {
   const currentWorkflowRole = session ? workflowRole(session.role) : "viewer";
   const canSell =
     currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.create"));
+  const canMergeReady = currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.edit"));
+  const mergeReadyGroups = useMemo(() => {
+    const groups = new Map<string, Order[]>();
+    for (const order of orders.filter((item) => item.status === "ready" && !item.despatchReady)) {
+      const key = `${order.customerName.trim().toLocaleLowerCase("tr")}|${Boolean(order.isTest)}|${Boolean(order.isLoanReturn)}|${Boolean(order.isExport)}`;
+      groups.set(key, [...(groups.get(key) ?? []), order]);
+    }
+    return [...groups.values()].filter((items) => items.length >= 2);
+  }, [orders]);
+
+  const mergeReadyOrders = async (selected: Order[]) => {
+    setMergeReadyBusy(true);
+    setError("");
+    try {
+      const merged = await api<Order>("/api/orders/merge-ready", { method: "POST", body: JSON.stringify({ orderIds: selected.map((order) => order.id) }) });
+      setMergeReadyOpen(false);
+      await load();
+      setActiveOrder(merged);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Hazır siparişler birleştirilemedi.");
+    } finally {
+      setMergeReadyBusy(false);
+    }
+  };
   const canViewApprovalForms =
     currentWorkflowRole === "owner" ||
     Boolean(session?.permissions?.includes("order_forms.view"));
@@ -2266,6 +2296,7 @@ export default function App() {
                 orders={grouped[status]}
                 onOpen={setActiveOrder}
                 language={language}
+                onMerge={status === "ready" && canMergeReady && mergeReadyGroups.length ? () => setMergeReadyOpen(true) : undefined}
               />
             ))}
           </section>
@@ -2325,6 +2356,23 @@ export default function App() {
             void load();
           }}
         />
+      )}
+
+      {mergeReadyOpen && (
+        <Modal title="Hazır siparişleri birleştir" subtitle="Aynı müşteriye ait hazır siparişleri tek teslimatta toplayın." onClose={() => !mergeReadyBusy && setMergeReadyOpen(false)}>
+          <div className="merge-ready-groups">
+            {mergeReadyGroups.map((group) => (
+              <article key={group.map((order) => order.id).join("-")}>
+                <div>
+                  <strong>{group[0].customerName}</strong>
+                  <span>{group.length} hazır sipariş · {group.reduce((sum, order) => sum + order.items.length, 0)} ürün satırı</span>
+                  <small>{group.map((order) => order.number).join(" · ")}</small>
+                </div>
+                <button type="button" className="primary" disabled={mergeReadyBusy} onClick={() => void mergeReadyOrders(group)}>Birleştir</button>
+              </article>
+            ))}
+          </div>
+        </Modal>
       )}
 
       {settingsOpen && (
@@ -2457,11 +2505,13 @@ function BoardColumn({
   orders,
   onOpen,
   language,
+  onMerge,
 }: {
   status: BoardStatus;
   orders: Order[];
   onOpen: (order: Order) => void;
   language: Language;
+  onMerge?: (orders: Order[]) => void;
 }) {
   const meta = statusMeta[status];
   const text = copy[language];
@@ -2471,6 +2521,7 @@ function BoardColumn({
         <span className={`status-dot ${meta.tone}`} />
         <h2>{text[status]}</h2>
         <b>{orders.length}</b>
+        {status === "ready" && onMerge && <button type="button" className="merge-ready-trigger" onClick={() => onMerge(orders)}><Layers3 aria-hidden="true" /><span>Birleştir</span></button>}
       </header>
       <div className="cards">
         {orders.length ? (
@@ -2498,6 +2549,9 @@ function BoardColumn({
                   {text.originalOrder}: <b>{order.parentOrderNumber}</b>
                 </div>
               )}
+              {order.mergedOrderNumbers?.length ? (
+                <div className="parent-order-link">Birleşenler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
+              ) : null}
               {order.status === "ready" && (
                 <div className="parent-order-link">
                   <b>
@@ -6417,6 +6471,9 @@ function OrderDetail({
             {ui.originalOrder}: <b>{order.parentOrderNumber}</b>
           </div>
         )}
+        {order.mergedOrderNumbers?.length ? (
+          <div className="parent-order-link detail">Birleşen hazır siparişler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
+        ) : null}
         {activeEditors.length > 0 && (
           <div className="active-editors">
             <span>{ui.activeEditors}</span>
