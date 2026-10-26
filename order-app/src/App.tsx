@@ -3237,15 +3237,16 @@ function CreateOrder({
         </label>
       </div>
 
-      <label className="test-order-toggle">
-        <input type="checkbox" checked={isTest} onChange={(event) => setIsTest(event.target.checked)} />
-        <span><b>Test siparişi</b><small>Bildirim gönderilmez; stok ve günlük satış toplamlarına dahil edilmez.</small></span>
-      </label>
-
-      <label className="test-order-toggle">
-        <input type="checkbox" checked={isLoanReturn} onChange={(event) => setIsLoanReturn(event.target.checked)} />
-        <span><b>Borç iadesi</b><small>Müşteriden borç alınan ürün geri verilir; teslimde stoktan düşer ve borç bakiyesi azalır.</small></span>
-      </label>
+      <div className="order-type-toggles">
+        <label className="test-order-toggle">
+          <input type="checkbox" checked={isTest} onChange={(event) => setIsTest(event.target.checked)} />
+          <span><b>Test siparişi</b><small>Bildirim gönderilmez; stok ve günlük satış toplamlarına dahil edilmez.</small></span>
+        </label>
+        <label className={`test-order-toggle loan-return-toggle${isLoanReturn ? " active" : ""}`}>
+          <input type="checkbox" checked={isLoanReturn} onChange={(event) => setIsLoanReturn(event.target.checked)} />
+          <span><b>Borç iadesi</b><small>Teslimde stoktan ve müşterinin borç bakiyesinden düşer.</small></span>
+        </label>
+      </div>
 
       {!matches.length ? (
         <>
