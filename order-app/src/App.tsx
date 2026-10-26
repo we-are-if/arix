@@ -1484,12 +1484,12 @@ export default function App() {
     const action = accessStartedRef.current ? "page_view" : "app_open";
     accessStartedRef.current = true;
     void api("/api/orders/access-log", { method: "POST", body: JSON.stringify({ action, page: pageTab }) }).catch(() => undefined);
-  }, [session, pageTab]);
+  }, [session?.id, pageTab]);
 
   useEffect(() => {
     if (!session || !activeOrder) return;
     void api("/api/orders/access-log", { method: "POST", body: JSON.stringify({ action: "order_view", page: pageTab, orderId: activeOrder.id, orderNumber: activeOrder.number }) }).catch(() => undefined);
-  }, [session, activeOrder?.id, pageTab]);
+  }, [session?.id, activeOrder?.id, pageTab]);
 
   useEffect(() => {
     if (!session || activeOrder) return;
@@ -1591,6 +1591,19 @@ export default function App() {
         } else {
           consecutiveEmptyLoadsRef.current = 0;
         }
+        const orderSignature = (items: Order[]) => items.map((item) => [
+          item.id,
+          item.status,
+          item.updatedAt,
+          item.draftUpdatedAt,
+          item.despatchReady,
+          item.approvalForm?.updatedAt,
+          (item.activeEditors ?? []).map((editor) => editor.id || editor.name).join(","),
+        ].join(":" )).join("|");
+        if (orderSignature(current) === orderSignature(orderData)) {
+          setSyncWarning("");
+          return current;
+        }
         if (session && incomingActive.length) {
           try {
             const cache = incomingActive.map((order) => ({
@@ -1636,7 +1649,9 @@ export default function App() {
     const refreshPermissions = () => {
       void api<Session | null>("/api/auth/session")
         .then((fresh) => {
-          if (!cancelled && fresh) setSession(fresh);
+          if (!cancelled && fresh) {
+            setSession((current) => JSON.stringify(current) === JSON.stringify(fresh) ? current : fresh);
+          }
         })
         .catch(() => undefined);
     };
