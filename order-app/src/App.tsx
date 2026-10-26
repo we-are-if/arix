@@ -348,6 +348,7 @@ type Order = {
   status: Status;
   items: OrderItem[];
   createdBy: string;
+  createdByUserId?: string | null;
   businessDate?: string;
   preparedBy?: string;
   createdAt: string;
@@ -3553,8 +3554,12 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
   const isOwner = workflowRole(session.role) === "owner";
   const canEdit = isOwner || Boolean(session.permissions?.includes("order_forms.edit"));
   const canApprove = isOwner || (
-    Boolean(session.permissions?.includes("order_forms.approve")) &&
+    (Boolean(session.permissions?.includes("order_forms.approve")) ||
+      (Boolean(session.permissions?.includes("orders.approve")) &&
+        (order.createdByUserId === session.id || order.createdBy === session.name))) &&
     (Boolean(session.permissions?.includes("order_forms.view_all")) ||
+      order.createdByUserId === session.id ||
+      (!order.createdByUserId && order.createdBy === session.name) ||
       order.approvalForm?.salesRepresentativeUserId === session.id ||
       (!order.approvalForm?.salesRepresentativeUserId && representativeName === sessionName))
   );
@@ -4245,6 +4250,7 @@ function SettingsModal({
     "orders.view": "Siparişleri gör",
     "orders.view_all": "Tüm kullanıcıların siparişlerini gör",
     "orders.create": "Sipariş oluştur",
+    "orders.approve": "Kendi siparişini onayla",
     "orders.edit": "Sipariş düzenle",
     "orders.prepare": "Ürün hazırla, metre ve rulo gir",
     "orders.rollback": "Siparişi önceki aşamaya geri gönder",
@@ -7671,8 +7677,12 @@ function ApprovalFormEditor({
   const normalizedRepresentative = (form.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
   const canApprove =
     workflowRole(session.role) === "owner" ||
-    (Boolean(session.permissions?.includes("order_forms.approve")) &&
+    ((Boolean(session.permissions?.includes("order_forms.approve")) ||
+      (Boolean(session.permissions?.includes("orders.approve")) &&
+        (order.createdByUserId === session.id || order.createdBy === session.name))) &&
       (Boolean(session.permissions?.includes("order_forms.view_all")) ||
+        order.createdByUserId === session.id ||
+        (!order.createdByUserId && order.createdBy === session.name) ||
         form.salesRepresentativeUserId === session.id ||
         (!form.salesRepresentativeUserId && normalizedRepresentative === normalizedSessionName)));
   const save = async (status: ApprovalForm["status"]) => {

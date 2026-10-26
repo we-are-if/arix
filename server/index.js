@@ -535,6 +535,13 @@ function normalizeDb(db) {
     }
     db.permissionMigrations.salesManagerApprovalRestored = new Date().toISOString();
   }
+  if (!db.permissionMigrations.salesOwnOrderApproval) {
+    for (const user of db.authUsers) {
+      if (!['satış', 'satis', 'sales'].includes(normalizedRole(user.role))) continue;
+      user.permissions = [...new Set([...(Array.isArray(user.permissions) ? user.permissions : ROLE_PERMISSIONS['satış']), 'orders.approve'])];
+    }
+    db.permissionMigrations.salesOwnOrderApproval = new Date().toISOString();
+  }
   db.authSessions = (Array.isArray(db.authSessions) ? db.authSessions : [])
     .filter((session) => new Date(session.expiresAt).getTime() > Date.now());
   db.companyJoinCode = String(db.companyJoinCode || COMPANY_JOIN_CODE || createInviteCode()).trim().toUpperCase();
@@ -931,6 +938,7 @@ const PERMISSION_CATALOG = [
   { key: "orders.view", group: "orders", action: "view" },
   { key: "orders.view_all", group: "orders", action: "view_all" },
   { key: "orders.create", group: "orders", action: "create" },
+  { key: "orders.approve", group: "orders", action: "approve" },
   { key: "orders.edit", group: "orders", action: "edit" },
   { key: "orders.prepare", group: "orders", action: "prepare" },
   { key: "orders.rollback", group: "orders", action: "rollback" },
@@ -967,7 +975,7 @@ const ROLE_PERMISSIONS = {
   "administrator": ALL_PERMISSIONS,
   "rəhbər": ALL_PERMISSIONS,
   "satış rəhbəri": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.create", "orders.edit", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.view_all", "order_forms.edit", "order_forms.approve", "money.view", "counterparties.view", "counterparties.manage", "reports.view"],
-  "satış": ["dashboard.view", "products.view", "orders.view", "orders.create", "orders.edit", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.edit", "counterparties.view", "counterparties.manage", "reports.view"],
+  "satış": ["dashboard.view", "products.view", "orders.view", "orders.create", "orders.approve", "orders.edit", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.edit", "counterparties.view", "counterparties.manage", "reports.view"],
   "anbar əməliyyatları": ["dashboard.view", "products.view", "products.manage", "orders.view", "orders.view_all", "orders.edit", "orders.prepare", "documents.view", "documents.create", "documents.edit", "reports.view"],
   "təhvilat": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.deliver", "documents.view"],
   "maliyyə": ["dashboard.view", "products.view", "documents.view", "money.view", "money.manage", "counterparties.view", "company.view", "accounting.view", "accounting.manage", "reports.view"],
@@ -3046,17 +3054,18 @@ async function handleOrderBoard(req, res, url, parts) {
       return send(res, 409, { error: "Təsdiq formu yalnız hazır sifariş üçün yaradıla bilər." });
     }
     const actor = req.authUser?.name ?? "Satış";
-    if (workflowRole !== "owner" && !canPrepareExportPacking && !hasPermission(req.authUser, body.status === "approved" ? "order_forms.approve" : "order_forms.edit")) {
+    const actorId = String(req.authUser?.id || "");
+    const actorName = normalizeSalesRepresentativeName(actor);
+    const assignedUserId = String(body.salesRepresentativeUserId || order.approvalForm?.salesRepresentativeUserId || "").trim();
+    const assignedName = normalizeSalesRepresentativeName(body.salesRepresentative || order.approvalForm?.salesRepresentative || "");
+    const ownsOrder = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
+    const isAssignedRepresentative = assignedUserId ? assignedUserId === actorId : Boolean(assignedName && actorName && assignedName === actorName);
+    const canApproveOwnOrder = body.status === "approved" && hasPermission(req.authUser, "orders.approve") && (ownsOrder || isAssignedRepresentative);
+    if (workflowRole !== "owner" && !canPrepareExportPacking && !canApproveOwnOrder && !hasPermission(req.authUser, body.status === "approved" ? "order_forms.approve" : "order_forms.edit")) {
       return send(res, 403, { error: body.status === "approved" ? "Sifariş formasını təsdiqləmək icazəniz yoxdur." : "Sifariş formasını dəyişmək icazəniz yoxdur." });
     }
     if (body.status === "approved" && workflowRole !== "owner") {
-      const assignedUserId = String(body.salesRepresentativeUserId || order.approvalForm?.salesRepresentativeUserId || "").trim();
-      const assignedName = normalizeSalesRepresentativeName(body.salesRepresentative || order.approvalForm?.salesRepresentative || "");
-      const actorName = normalizeSalesRepresentativeName(actor);
-      const isAssignedRepresentative = assignedUserId
-        ? assignedUserId === String(req.authUser?.id || "")
-        : Boolean(assignedName && actorName && assignedName === actorName);
-      if (!isAssignedRepresentative) return send(res, 403, { error: "Bu formanı yalnız təyin edilmiş satış nümayəndəsi və ya şirkət sahibi təsdiqləyə bilər." });
+      if (!isAssignedRepresentative && !canApproveOwnOrder) return send(res, 403, { error: "Bu formanı yalnız siparişi oluşturan, təyin edilmiş satış nümayəndəsi və ya şirkət sahibi təsdiqləyə bilər." });
     }
     const sourceItems = Array.isArray(order.items) ? order.items : [];
     const lines = Array.isArray(body.lines) ? body.lines : [];
@@ -6646,7 +6655,7 @@ async function handleApiRequest(req, res) {
       else if (!resource && req.method === "POST") required = ["orders.create"];
       else if (resource === "match") required = ["orders.create"];
       else if (action === "attachments") required = req.method === "POST" ? ["documents.create", "orders.deliver"] : ["documents.delete", "orders.deliver"];
-      else if (action === "approval-form") required = ["order_forms.edit", "order_forms.approve"];
+      else if (action === "approval-form") required = ["order_forms.edit", "order_forms.approve", "orders.approve"];
       else if (action === "delivery-photo") required = ["orders.deliver"];
       else if (action === "draft" || action === "partial-ready") required = ["orders.prepare"];
       else if (action === "despatch") required = ["orders.despatch"];
