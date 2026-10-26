@@ -3821,9 +3821,10 @@ function StockPage({
         </aside>
         <aside className="stock-page-movements stock-documents-panel">
           <header><b>Stok evrakları</b><button type="button" onClick={() => setCreateDocumentOpen(true)}>＋ Evrak oluştur</button></header>
-          <div>{documents.map((document) => <article key={document.id} className="stock-document-row" role="button" tabIndex={0} onClick={() => setActiveDocument(document)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setActiveDocument(document); }}>
+          <div>{documents.map((document) => <article key={document.id} className="stock-document-row">
             <span><b>{document.documentNumber}</b><small>{document.type === "purchase" ? "Normal alış" : document.type === "loan_purchase" ? "Borç alış" : document.type === "writeoff" ? "Stoktan silme" : document.type === "transfer" ? "Yer değiştirme" : "Stok düzeltme"}</small></span>
             <strong>{document.type === "loan_purchase" ? `${document.lines.reduce((sum, line) => sum + Number(line.loanOutstandingRollCount ?? line.rollCount ?? 0), 0).toLocaleString(language)} rulo · ${document.lines.reduce((sum, line) => sum + Number(line.loanOutstanding ?? line.quantity ?? 0), 0).toLocaleString(language)} mt kalan` : `${document.lines.length} ürün`}</strong><p>{document.counterparty || document.note}</p><time>{new Date(document.createdAt).toLocaleString(language)}</time>
+            <button type="button" className="stock-document-detail-button" onClick={() => setActiveDocument(document)}>İçeriği gör</button>
           </article>)}{!documents.length && <p className="stock-overview-empty">Henüz stok evrakı oluşturulmadı.</p>}</div>
         </aside>
       </div>
