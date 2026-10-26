@@ -2449,7 +2449,8 @@ async function handleOrderBoard(req, res, url, parts) {
       beforeQuantity, afterQuantity: product.physicalQuantity, beforeRollCount, afterRollCount: product.rollCount,
       fromLocation: String(body.fromLocation || "").trim(), toLocation: String(body.toLocation || "").trim(),
       counterparty: String(body.counterparty || "").trim(), note: String(body.note || "").trim().slice(0, 500),
-      loanOutstanding: type === "loan_purchase" ? quantity : 0, attachment,
+      loanOutstanding: type === "loan_purchase" ? quantity : 0,
+      loanOutstandingRollCount: type === "loan_purchase" ? rollCount : 0, attachment,
       createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "",
     };
     db.stockTransactions.unshift(transaction);
@@ -2907,8 +2908,8 @@ async function handleOrderBoard(req, res, url, parts) {
       product.rollCount = beforeRollCount + direction * rollCount;
       product.stockUpdatedAt = now;
       product.stockUpdatedBy = req.authUser?.name ?? "Kullanıcı";
-      const line = { productId: product.id, productCode: product.code || product.sku || "", productName: product.name, quantity, rollCount, signedQuantity: direction * quantity, beforeQuantity, afterQuantity: product.physicalQuantity, beforeRollCount, afterRollCount: product.rollCount };
-      db.stockTransactions.unshift({ id: randomUUID(), documentNumber, type, ...line, fromLocation: String(body.fromLocation || "").trim(), toLocation: String(body.toLocation || "").trim(), counterparty: String(body.counterparty || "").trim(), note: String(body.note || "").trim(), loanOutstanding: type === "loan_purchase" ? quantity : 0, attachments, createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "" });
+      const line = { productId: product.id, productCode: product.code || product.sku || "", productName: product.name, quantity, rollCount, signedQuantity: direction * quantity, beforeQuantity, afterQuantity: product.physicalQuantity, beforeRollCount, afterRollCount: product.rollCount, ...(type === "loan_purchase" ? { loanOutstanding: quantity, loanOutstandingRollCount: rollCount } : {}) };
+      db.stockTransactions.unshift({ id: randomUUID(), documentNumber, type, ...line, fromLocation: String(body.fromLocation || "").trim(), toLocation: String(body.toLocation || "").trim(), counterparty: String(body.counterparty || "").trim(), note: String(body.note || "").trim(), loanOutstanding: type === "loan_purchase" ? quantity : 0, loanOutstandingRollCount: type === "loan_purchase" ? rollCount : 0, attachments, createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "" });
       return line;
     });
     db.stockDocuments ??= [];
@@ -3788,23 +3789,43 @@ async function handleOrderBoard(req, res, url, parts) {
           item.stockPostedAt = now;
           Object.assign(item, allowance);
           let loanReturnedQuantity = 0;
+          let loanReturnedRollCount = 0;
           if (order.isLoanReturn) {
             let remaining = allowance.stockConsumptionQuantity;
+            let remainingRolls = Math.max(0, Number(item.preparedRollCount) || 0);
             const loanTransactions = (db.stockTransactions || [])
               .filter((entry) => entry.type === "loan_purchase"
                 && Number(entry.productId) === Number(item.productId)
                 && normalizeSalesRepresentativeName(entry.counterparty || "") === normalizeSalesRepresentativeName(order.customerName)
-                && Number(entry.loanOutstanding) > 0)
+                && (Number(entry.loanOutstanding) > 0 || Number(entry.loanOutstandingRollCount) > 0))
               .sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")));
             for (const transaction of loanTransactions) {
-              if (remaining <= 0.000001) break;
-              const applied = Math.min(remaining, Number(transaction.loanOutstanding) || 0);
-              transaction.loanOutstanding = Number(((Number(transaction.loanOutstanding) || 0) - applied).toFixed(3));
-              remaining = Number((remaining - applied).toFixed(3));
-              loanReturnedQuantity += applied;
+              if (remaining > 0.000001) {
+                const applied = Math.min(remaining, Number(transaction.loanOutstanding) || 0);
+                transaction.loanOutstanding = Number(((Number(transaction.loanOutstanding) || 0) - applied).toFixed(3));
+                remaining = Number((remaining - applied).toFixed(3));
+                loanReturnedQuantity += applied;
+              }
+              if (remainingRolls > 0) {
+                const appliedRolls = Math.min(remainingRolls, Math.max(0, Number(transaction.loanOutstandingRollCount) || 0));
+                transaction.loanOutstandingRollCount = Math.max(0, (Number(transaction.loanOutstandingRollCount) || 0) - appliedRolls);
+                remainingRolls -= appliedRolls;
+                loanReturnedRollCount += appliedRolls;
+              }
             }
             item.loanReturnedQuantity = Number(loanReturnedQuantity.toFixed(3));
+            item.loanReturnedRollCount = loanReturnedRollCount;
             item.loanReturnUnmatchedQuantity = Number(Math.max(0, remaining).toFixed(3));
+            item.loanReturnUnmatchedRollCount = Math.max(0, remainingRolls);
+            for (const document of db.stockDocuments || []) {
+              if (document.type !== "loan_purchase" || normalizeSalesRepresentativeName(document.counterparty || "") !== normalizeSalesRepresentativeName(order.customerName)) continue;
+              for (const line of document.lines || []) {
+                if (Number(line.productId) !== Number(item.productId)) continue;
+                const related = (db.stockTransactions || []).filter((entry) => entry.type === "loan_purchase" && entry.documentNumber === document.documentNumber && Number(entry.productId) === Number(item.productId));
+                line.loanOutstanding = Number(related.reduce((sum, entry) => sum + (Number(entry.loanOutstanding) || 0), 0).toFixed(3));
+                line.loanOutstandingRollCount = related.reduce((sum, entry) => sum + Math.max(0, Number(entry.loanOutstandingRollCount) || 0), 0);
+              }
+            }
           }
           db.orderStockMovements.push({
             id: movementId, orderId: order.id, orderNumber: order.number, customerName: order.customerName,
@@ -3815,6 +3836,7 @@ async function handleOrderBoard(req, res, url, parts) {
             rollCount: Math.max(0, Number(item.preparedRollCount) || 0),
             movementType: order.isLoanReturn ? "loan_return" : "sale",
             loanReturnedQuantity: order.isLoanReturn ? Number(loanReturnedQuantity.toFixed(3)) : 0,
+            loanReturnedRollCount: order.isLoanReturn ? loanReturnedRollCount : 0,
             createdAt: now, createdBy: actor,
           });
         }
