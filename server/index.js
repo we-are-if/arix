@@ -2211,6 +2211,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const currency = String(url.searchParams.get("currency") || "USD").toUpperCase();
     if (!["TRY", "USD", "EUR"].includes(currency)) return send(res, 400, { error: "Dəstəklənməyən valyuta." });
     const requestedDate = String(url.searchParams.get("date") || new Date().toISOString().slice(0, 10));
+    res.setHeader("cache-control", "no-store, no-cache, must-revalidate");
     try { return send(res, 200, { data: await latestTcmbRate(currency, requestedDate) }); }
     catch (cause) { return send(res, 503, { error: cause instanceof Error ? cause.message : "TCMB məzənnəsi alınmadı." }); }
   }

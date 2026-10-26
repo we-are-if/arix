@@ -1139,6 +1139,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
           ...(init?.headers ?? {}),
         },
         ...init,
+        cache: method === "GET" ? "no-store" : init?.cache,
         signal: init?.signal ?? controller.signal,
       });
       const raw = await response.text();
@@ -2349,6 +2350,7 @@ export default function App() {
       )}
       {activeApprovalOrder && (
         <ApprovalFormEditor
+          key={activeApprovalOrder.id}
           order={activeApprovalOrder}
           customers={customers}
           printSettings={printSettings}
@@ -7246,6 +7248,7 @@ function OrderDetail({
       )}
       {approvalOpen && (
         <ApprovalFormEditor
+          key={order.id}
           order={order}
           customers={customers}
           printSettings={printSettings}
