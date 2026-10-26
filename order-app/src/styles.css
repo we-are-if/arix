@@ -4473,24 +4473,12 @@ textarea {
 
 /* Phone navigation and compact controls */
 .arix-header-icon {
-  position: relative;
   display: inline-grid;
   width: 22px;
   height: 22px;
   flex: 0 0 22px;
   place-items: center;
   color: #5142e6;
-}
-.arix-header-icon::after {
-  position: absolute;
-  right: -1px;
-  bottom: 0;
-  width: 5px;
-  height: 5px;
-  border: 1px solid currentColor;
-  border-radius: 1px;
-  background: #35c995;
-  content: "";
 }
 .arix-header-icon svg { width: 20px; height: 20px; stroke-width: 1.9; }
 .arix-header-icon.is-sun { color: #d89300; }

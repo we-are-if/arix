@@ -1953,7 +1953,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <AriXLogo className="glass-logo h-11 w-11" />
             <div className="hidden text-lg font-semibold tracking-tight sm:block">
-              AriX Panel
+              AriX Order
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
