@@ -65,6 +65,9 @@ type Employee = {
   active: boolean;
   permissions?: string[];
   notificationPreferences?: { inApp: boolean; push: boolean; events: Record<string, boolean> };
+  pushDeviceCount?: number;
+  pushLastRegisteredAt?: string | null;
+  pushLastError?: string;
 };
 type PermissionDefinition = { key: string; group: string; action: string };
 type StockImportHistory = {
@@ -5271,6 +5274,11 @@ function SettingsModal({
               <div className="order-user-identity">
                 <b>{employee.name}</b>
                 <span>{employee.email}</span>
+                <small className={employee.pushDeviceCount ? "push-device-status active" : "push-device-status missing"}>
+                  {employee.pushDeviceCount
+                    ? `${employee.pushDeviceCount} bildirim cihazı kayıtlı`
+                    : "Bildirim cihazı kayıtlı değil"}
+                </small>
               </div>
               <select
                 value={employee.role}

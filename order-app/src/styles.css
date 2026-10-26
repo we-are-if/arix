@@ -4485,6 +4485,11 @@ textarea {
 .arix-header-icon.is-moon { color: #8b7cf6; }
 .theme-dark .arix-header-icon { color: #a99dff; }
 .theme-dark .arix-header-icon.is-sun { color: #f0b83f; }
+.push-device-status { display:block; width:max-content; max-width:100%; margin-top:5px; border-radius:6px; padding:3px 7px; font-size:11px; font-weight:700; }
+.push-device-status.active { background:#dcfce7; color:#16734a; }
+.push-device-status.missing { background:#fff1f2; color:#be3144; }
+.theme-dark .push-device-status.active { background:rgba(34,197,94,.14); color:#86efac; }
+.theme-dark .push-device-status.missing { background:rgba(244,63,94,.14); color:#fda4af; }
 .order-view-tabs button > svg { display:none; }
 @media (max-width:600px) {
   .app-shell > header { background:#fff !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }

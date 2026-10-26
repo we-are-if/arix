@@ -1013,7 +1013,8 @@ function publicAuthUser(user) {
   };
 }
 
-function publicEmployee(user) {
+function publicEmployee(user, pushSubscriptions = []) {
+  const userSubscriptions = pushSubscriptions.filter((item) => String(item.userId) === String(user.id));
   return {
     id: user.id,
     name: user.name,
@@ -1028,6 +1029,9 @@ function publicEmployee(user) {
     passwordChangeRequired: Boolean(user.passwordChangeRequired),
     permissions: effectivePermissions(user),
     notificationPreferences: user.notificationPreferences ?? { inApp: true, push: true, events: {} },
+    pushDeviceCount: userSubscriptions.length,
+    pushLastRegisteredAt: userSubscriptions.map((item) => item.createdAt).filter(Boolean).sort().at(-1) || null,
+    pushLastError: userSubscriptions.map((item) => item.lastError).filter(Boolean).at(-1) || "",
   };
 }
 
@@ -1036,7 +1040,7 @@ function notificationAllowed(user, type, channel = "inApp") {
   return preferences[channel] !== false && preferences.events?.[type] !== false;
 }
 
-function addOrderNotification(db, { order, recipient, type, title, message, actor }) {
+async function addOrderNotification(db, { order, recipient, type, title, message, actor }) {
   if (order?.isTest || !recipient || recipient.active === false || String(recipient.id) === String(actor?.id || "")) return;
   db.orderNotifications ??= [];
   if (notificationAllowed(recipient, type, "inApp")) {
@@ -1046,14 +1050,24 @@ function addOrderNotification(db, { order, recipient, type, title, message, acto
   }
   if (VAPID_PUBLIC_KEY && notificationAllowed(recipient, type, "push")) {
     const payload = JSON.stringify({ title, body: message, orderId: order.id, type, url: "/" });
+    const invalidEndpoints = new Set();
     for (const item of (db.pushSubscriptions || []).filter((entry) => entry.userId === recipient.id)) {
-      void webPush.sendNotification(item.subscription, payload).catch(() => {});
+      try {
+        await webPush.sendNotification(item.subscription, payload, { TTL: 86_400, urgency: "high" });
+        item.lastSuccessAt = new Date().toISOString();
+        delete item.lastError;
+      } catch (error) {
+        item.lastError = `${error?.statusCode || "push"}: ${error?.message || "Bildirim gönderilemedi"}`.slice(0, 300);
+        item.lastErrorAt = new Date().toISOString();
+        if ([404, 410].includes(error?.statusCode)) invalidEndpoints.add(item.endpoint);
+      }
     }
+    if (invalidEndpoints.size) db.pushSubscriptions = db.pushSubscriptions.filter((entry) => !invalidEndpoints.has(entry.endpoint));
   }
 }
 
-function notifyUsers(db, order, users, type, title, message, actor) {
-  for (const recipient of [...new Map(users.filter(Boolean).map((user) => [user.id, user])).values()]) addOrderNotification(db, { order, recipient, type, title, message, actor });
+async function notifyUsers(db, order, users, type, title, message, actor) {
+  for (const recipient of [...new Map(users.filter(Boolean).map((user) => [user.id, user])).values()]) await addOrderNotification(db, { order, recipient, type, title, message, actor });
 }
 
 function addDayCloseNotification(db, { recipient, date, title, message, actor }) {
@@ -1521,7 +1535,7 @@ async function handleEmployees(req, res, parts) {
   if (req.method === "GET" && !id) {
     const employees = db.authUsers
       .filter((user) => user.companyId === req.authUser.companyId)
-      .map(publicEmployee);
+      .map((user) => publicEmployee(user, db.pushSubscriptions || []));
     return send(res, 200, { data: employees });
   }
 
@@ -1547,7 +1561,7 @@ async function handleEmployees(req, res, parts) {
     setPassword(employee, temporaryPassword, true);
     db.authUsers.push(employee);
     await writeDb(db);
-    return send(res, 201, { data: publicEmployee(employee), inviteCode: "", temporaryPassword });
+    return send(res, 201, { data: publicEmployee(employee, db.pushSubscriptions || []), inviteCode: "", temporaryPassword });
   }
 
   if (req.method === "PATCH" && id) {
@@ -1584,7 +1598,7 @@ async function handleEmployees(req, res, parts) {
     }
     if (employee.active === false) db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(employee.id));
     await writeDb(db);
-    return send(res, 200, { data: publicEmployee(employee), temporaryPassword });
+    return send(res, 200, { data: publicEmployee(employee, db.pushSubscriptions || []), temporaryPassword });
   }
 
   if (req.method === "DELETE" && id) {
@@ -2925,7 +2939,7 @@ async function handleOrderBoard(req, res, url, parts) {
       audit: [{ id: randomUUID(), action: "created", by: req.authUser?.name ?? "Satışçı", userId: req.authUser?.id, at: now }],
     };
     db.orderBoard.push(order);
-    if (!isTest) notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "order_created", "Yeni sipariş", `${req.authUser?.name || "Satış"} tarafından oluşturuldu · ${order.number} · ${order.customerName}`, req.authUser);
+    if (!isTest) await notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "order_created", "Yeni sipariş", `${req.authUser?.name || "Satış"} tarafından oluşturuldu · ${order.number} · ${order.customerName}`, req.authUser);
     await writeDb(db);
     return send(res, 201, { data: order });
   }
@@ -2966,7 +2980,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (workflowRole !== "owner" && !hasPermission(req.authUser, activity.permission)) {
       return send(res, 403, { error: "Bu işlemi başlatma yetkiniz yok." });
     }
-    if (!order.isTest) notifyUsers(db, order, orderActivityRecipients(db, order), type, activity.title, `${req.authUser?.name || "Bir kullanıcı"} tarafından · ${order.approvalForm?.number || order.number} · ${order.customerName}`, req.authUser);
+    if (!order.isTest) await notifyUsers(db, order, orderActivityRecipients(db, order), type, activity.title, `${req.authUser?.name || "Bir kullanıcı"} tarafından · ${order.approvalForm?.number || order.number} · ${order.customerName}`, req.authUser);
     await writeDb(db);
     return send(res, 201, { data: { sent: true } });
   }
@@ -3161,7 +3175,7 @@ async function handleOrderBoard(req, res, url, parts) {
       const assignedUser = db.authUsers.find((user) => String(user.id) === order.approvalForm.salesRepresentativeUserId) || db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === order.approvalForm.salesRepresentative);
       const formEventType = previousForm ? "approval_form_edited" : "approval_form_prepared";
       const formEventTitle = previousForm ? "Sipariş formu düzenlendi" : "Sipariş formu hazırlandı";
-      notifyUsers(db, order, orderActivityRecipients(db, order), formEventType, formEventTitle, `${actor} tarafından · ${order.approvalForm.number} · ${order.approvalForm.customerName}`, req.authUser);
+      await notifyUsers(db, order, orderActivityRecipients(db, order), formEventType, formEventTitle, `${actor} tarafından · ${order.approvalForm.number} · ${order.approvalForm.customerName}`, req.authUser);
       pushNotification({ recipientUserId: assignedUser?.id || order.approvalForm.salesRepresentativeUserId, recipientName: assignedUser?.name || order.approvalForm.salesRepresentative, type: "approval_requested", title: "Sipariş formu onay bekliyor", message: `${actor} tarafından gönderildi · ${order.approvalForm.number} · ${order.approvalForm.customerName}` });
       for (const ownerUser of db.authUsers.filter((user) => orderWorkflowRole(user) === "owner")) pushNotification({ recipientUserId: ownerUser.id, recipientName: ownerUser.name, type: "approval_requested", title: "Sipariş formu onay bekliyor", message: `${actor} tarafından gönderildi · ${order.approvalForm.number} · ${order.approvalForm.customerName}` });
     } else if (!order.isTest) {
@@ -3169,7 +3183,7 @@ async function handleOrderBoard(req, res, url, parts) {
       const preparer = db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === normalizeSalesRepresentativeName(preparerName));
       pushNotification({ recipientUserId: preparer?.id || "", recipientName: preparer?.name || preparerName, type: "approval_completed", title: "Sipariş formu onaylandı", message: `${actor} tarafından onaylandı · ${order.approvalForm.number}` });
       if (documentType === "proforma") {
-        notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "export_packing_requested", "Palet hazırlama bekliyor", `${actor} tarafından Proforma onaylandı · ${order.number} · ${order.customerName}`, req.authUser);
+        await notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "export_packing_requested", "Palet hazırlama bekliyor", `${actor} tarafından Proforma onaylandı · ${order.number} · ${order.customerName}`, req.authUser);
       }
     }
     order.audit ??= [];
@@ -3275,7 +3289,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const windowsRoot = isExport ? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT" : "\\\\ERSARIF\\SharedFolder\\ErsaShare\\YURT İÇİ";
     const windowsPath = `${windowsRoot}\\${relativePath.replaceAll("/", "\\")}`;
     order.approvalForm.archive = { path: destination, windowsPath, relativePath, filename, archivedAt, archivedBy: req.authUser?.name ?? "Satış", status: order.approvalForm.status };
-    if (!order.isTest) notifyUsers(db, order, orderActivityRecipients(db, order), "approval_form_archived", "Sipariş formu arşivlendi", `${req.authUser?.name || "Satış"} tarafından · ${order.approvalForm.number}`, req.authUser);
+    if (!order.isTest) await notifyUsers(db, order, orderActivityRecipients(db, order), "approval_form_archived", "Sipariş formu arşivlendi", `${req.authUser?.name || "Satış"} tarafından · ${order.approvalForm.number}`, req.authUser);
     order.audit ??= [];
     order.audit.push({ id: randomUUID(), action: archiveIsApproved ? "approvalFormArchived" : "approvalFormDraftArchived", newValue: destination, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: archivedAt });
     order.updatedAt = archivedAt;
@@ -3568,7 +3582,7 @@ async function handleOrderBoard(req, res, url, parts) {
     order.audit ??= [];
     order.audit.push({ id: randomUUID(), action: ready ? "despatchReady" : "despatchRevoked", newValue: withoutDespatch ? "İrsaliyesiz teslim" : number, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: now });
     if (ready && !wasReady) {
-      notifyUsers(
+      await notifyUsers(
         db,
         order,
         db.authUsers.filter((user) => hasPermission(user, "orders.deliver")),
@@ -3687,12 +3701,12 @@ async function handleOrderBoard(req, res, url, parts) {
         }
       }
       if (nextStatus === "ready") {
-        notifyUsers(db, order, orderActivityRecipients(db, order), "order_ready", "Sipariş hazırlandı", `${actor} tarafından hazırlandı · ${order.number} · ${order.customerName}`, req.authUser);
+        await notifyUsers(db, order, orderActivityRecipients(db, order), "order_ready", "Sipariş hazırlandı", `${actor} tarafından hazırlandı · ${order.number} · ${order.customerName}`, req.authUser);
       }
       if (statusWasRolledBack) {
         const previousLabel = previousStatus === "ready" ? "Hazır" : "Hazırlanıyor";
         const nextLabel = nextStatus === "preparing" ? "Hazırlanıyor" : "Yeni";
-        notifyUsers(
+        await notifyUsers(
           db,
           order,
           orderActivityRecipients(db, order),
@@ -3702,10 +3716,10 @@ async function handleOrderBoard(req, res, url, parts) {
           req.authUser,
         );
       } else if (nextStatus === "preparing") {
-        notifyUsers(db, order, orderActivityRecipients(db, order), "order_preparing_started", "Sipariş hazırlanmaya başladı", `${actor} tarafından · ${order.number} · ${order.customerName}`, req.authUser);
+        await notifyUsers(db, order, orderActivityRecipients(db, order), "order_preparing_started", "Sipariş hazırlanmaya başladı", `${actor} tarafından · ${order.number} · ${order.customerName}`, req.authUser);
       }
       if (nextStatus === "delivered") {
-        notifyUsers(db, order, orderActivityRecipients(db, order), "order_delivered", "Sipariş teslim edildi", `${actor} tarafından teslim edildi · ${order.number} · ${order.customerName}`, req.authUser);
+        await notifyUsers(db, order, orderActivityRecipients(db, order), "order_delivered", "Sipariş teslim edildi", `${actor} tarafından teslim edildi · ${order.number} · ${order.customerName}`, req.authUser);
       }
     }
     order.audit ??= [];
@@ -3724,7 +3738,7 @@ async function handleOrderBoard(req, res, url, parts) {
         if (oldSummary !== newSummary || String(oldItem?.lineNote || "") !== String(newItem?.lineNote || "")) order.audit.push({ id: randomUUID(), action: "orderItemEdited", itemIndex: index, productId: newItem?.productId || oldItem?.productId, productName: newItem?.productName || oldItem?.productName, oldValue: oldSummary, newValue: newSummary, reason, by: actor, userId: req.authUser?.id, at: now });
       }
       order.audit.push({ id: randomUUID(), action: "orderEdited", reason, by: actor, userId: req.authUser?.id, at: now });
-      notifyUsers(
+      await notifyUsers(
         db,
         order,
         orderActivityRecipients(db, order),
