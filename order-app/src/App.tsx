@@ -1429,7 +1429,7 @@ export default function App() {
     companyStamp: "",
   });
   const [createOpen, setCreateOpen] = useState(false);
-  const [mergeReadyOpen, setMergeReadyOpen] = useState(false);
+  const [mergeReadySelection, setMergeReadySelection] = useState<Order[] | null>(null);
   const [mergeReadyBusy, setMergeReadyBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<"settings" | "stock">("settings");
@@ -1799,7 +1799,7 @@ export default function App() {
     setError("");
     try {
       const merged = await api<Order>("/api/orders/merge-ready", { method: "POST", body: JSON.stringify({ orderIds: selected.map((order) => order.id) }) });
-      setMergeReadyOpen(false);
+      setMergeReadySelection(null);
       await load();
       setActiveOrder(merged);
     } catch (cause) {
@@ -2296,7 +2296,7 @@ export default function App() {
                 orders={grouped[status]}
                 onOpen={setActiveOrder}
                 language={language}
-                onMerge={status === "ready" && canMergeReady && mergeReadyGroups.length ? () => setMergeReadyOpen(true) : undefined}
+                onMerge={status === "ready" && canMergeReady && mergeReadyGroups.length ? setMergeReadySelection : undefined}
               />
             ))}
           </section>
@@ -2358,19 +2358,17 @@ export default function App() {
         />
       )}
 
-      {mergeReadyOpen && (
-        <Modal title="Hazır siparişleri birleştir" subtitle="Aynı müşteriye ait hazır siparişleri tek teslimatta toplayın." onClose={() => !mergeReadyBusy && setMergeReadyOpen(false)}>
+      {mergeReadySelection && (
+        <Modal title="Hazır siparişleri birleştir" subtitle={`${mergeReadySelection[0].customerName} · ${mergeReadySelection.length} hazır sipariş tek teslimatta birleşecek.`} onClose={() => !mergeReadyBusy && setMergeReadySelection(null)}>
           <div className="merge-ready-groups">
-            {mergeReadyGroups.map((group) => (
-              <article key={group.map((order) => order.id).join("-")}>
+              <article>
                 <div>
-                  <strong>{group[0].customerName}</strong>
-                  <span>{group.length} hazır sipariş · {group.reduce((sum, order) => sum + order.items.length, 0)} ürün satırı</span>
-                  <small>{group.map((order) => order.number).join(" · ")}</small>
+                  <strong>{mergeReadySelection.length} sipariş birleştirilecek</strong>
+                  <span>{mergeReadySelection.reduce((sum, order) => sum + order.items.length, 0)} ürün satırı</span>
+                  <small>{mergeReadySelection.map((order) => order.number).join(" · ")}</small>
                 </div>
-                <button type="button" className="primary" disabled={mergeReadyBusy} onClick={() => void mergeReadyOrders(group)}>Birleştir</button>
+                <button type="button" className="primary" disabled={mergeReadyBusy} onClick={() => void mergeReadyOrders(mergeReadySelection)}>{mergeReadySelection.length} siparişi birleştir</button>
               </article>
-            ))}
           </div>
         </Modal>
       )}
@@ -2521,13 +2519,19 @@ function BoardColumn({
         <span className={`status-dot ${meta.tone}`} />
         <h2>{text[status]}</h2>
         <b>{orders.length}</b>
-        {status === "ready" && onMerge && <button type="button" className="merge-ready-trigger" onClick={() => onMerge(orders)}><Layers3 aria-hidden="true" /><span>Birleştir</span></button>}
       </header>
       <div className="cards">
         {orders.length ? (
-          orders.map((order) => (
+          orders.map((order) => {
+            const mergeGroup = status === "ready" && !order.despatchReady
+              ? orders.filter((candidate) => !candidate.despatchReady
+                && candidate.customerName.trim().toLocaleLowerCase("tr") === order.customerName.trim().toLocaleLowerCase("tr")
+                && Boolean(candidate.isTest) === Boolean(order.isTest)
+                && Boolean(candidate.isLoanReturn) === Boolean(order.isLoanReturn)
+                && Boolean(candidate.isExport) === Boolean(order.isExport))
+              : [];
+            return <div className="order-card-stack" key={order.id}>
             <button
-              key={order.id}
               className="order-card"
               onClick={() => onOpen(order)}
             >
@@ -2591,7 +2595,14 @@ function BoardColumn({
                 </span>
               </footer>
             </button>
-          ))
+            {onMerge && mergeGroup.length >= 2 && (
+              <button type="button" className="merge-ready-card-action" onClick={() => onMerge(mergeGroup)}>
+                <Layers3 aria-hidden="true" />
+                <span>{mergeGroup.length} siparişi birleştir</span>
+              </button>
+            )}
+            </div>;
+          })
         ) : (
           <div className="empty">
             <span>✓</span>
