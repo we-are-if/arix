@@ -3697,14 +3697,26 @@ async function handleOrderBoard(req, res, url, parts) {
     const selected = orderIds.map((orderId) => db.orderBoard.find((item) => String(item.id) === orderId));
     if (selected.some((order) => !order)) return send(res, 404, { error: "Seçilen siparişlerden biri bulunamadı." });
     if (selected.some((order) => order.status !== "ready")) return send(res, 409, { error: "Yalnız Hazır aşamasındaki siparişler birleştirilebilir." });
-    if (selected.some((order) => order.despatchReady)) return send(res, 409, { error: "İrsaliyesi hazırlanmış sipariş birleştirilemez." });
     const customerKey = normalizeSalesRepresentativeName(selected[0].customerName);
     if (selected.some((order) => normalizeSalesRepresentativeName(order.customerName) !== customerKey)) return send(res, 409, { error: "Yalnız aynı müşteriye ait siparişler birleştirilebilir." });
     for (const field of ["isTest", "isLoanReturn", "isExport"]) {
       if (selected.some((order) => Boolean(order[field]) !== Boolean(selected[0][field]))) return send(res, 409, { error: "Farklı işlem türündeki siparişler birleştirilemez." });
     }
+    const hasDespatch = selected.some((order) => order.despatchReady);
+    if (hasDespatch) {
+      if (selected.some((order) => !order.despatchReady || order.withoutDespatch || !String(order.despatchNumber || "").trim())) {
+        return send(res, 409, { error: "İrsaliyeli siparişler yalnız aynı irsaliye numarasına sahipse birleştirilebilir." });
+      }
+      const despatchKey = String(selected[0].despatchNumber).trim().toLocaleLowerCase("tr");
+      if (selected.some((order) => String(order.despatchNumber).trim().toLocaleLowerCase("tr") !== despatchKey)) {
+        return send(res, 409, { error: "Yalnız aynı irsaliye numarasına sahip siparişler birleştirilebilir." });
+      }
+    }
     const now = new Date().toISOString();
     const actor = req.authUser?.name ?? "Kullanıcı";
+    const mergedOrderIds = [...new Set(selected.flatMap((order) => order.mergedOrderIds?.length ? order.mergedOrderIds : [order.id]))];
+    const mergedOrderNumbers = [...new Set(selected.flatMap((order) => order.mergedOrderNumbers?.length ? order.mergedOrderNumbers : [order.number]))];
+    const despatchSource = hasDespatch ? selected[0] : null;
     const merged = {
       id: randomUUID(),
       number: `ORD-B${String(Date.now()).slice(-6)}`,
@@ -3717,8 +3729,15 @@ async function handleOrderBoard(req, res, url, parts) {
       isExport: Boolean(selected[0].isExport),
       items: selected.flatMap((order) => structuredClone(order.items || [])),
       originalItems: selected.flatMap((order) => structuredClone(order.originalItems || order.items || [])),
-      mergedOrderIds: selected.map((order) => order.id),
-      mergedOrderNumbers: selected.map((order) => order.number),
+      mergedOrderIds,
+      mergedOrderNumbers,
+      despatchReady: Boolean(despatchSource),
+      despatchNumber: despatchSource?.despatchNumber || "",
+      withoutDespatch: false,
+      ...(despatchSource ? {
+        despatchReadyAt: despatchSource.despatchReadyAt || now,
+        despatchReadyBy: [...new Set(selected.map((order) => order.despatchReadyBy).filter(Boolean))].join(", ") || actor,
+      } : {}),
       createdBy: actor,
       createdByUserId: req.authUser?.id ?? null,
       preparedBy: selected.map((order) => order.preparedBy).filter(Boolean).join(", ") || actor,

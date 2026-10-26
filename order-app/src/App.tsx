@@ -1112,6 +1112,16 @@ function preparedQuantityLabel(item: OrderItem) {
   return parts.length ? parts.join(" · ") : "0 mt";
 }
 
+function readyMergeKey(order: Order) {
+  const despatchKey = order.despatchReady
+    ? (!order.withoutDespatch && String(order.despatchNumber || "").trim()
+      ? `despatch:${String(order.despatchNumber).trim().toLocaleLowerCase("tr")}`
+      : "")
+    : "pending";
+  if (!despatchKey) return "";
+  return `${order.customerName.trim().toLocaleLowerCase("tr")}|${Boolean(order.isTest)}|${Boolean(order.isLoanReturn)}|${Boolean(order.isExport)}|${despatchKey}`;
+}
+
 function printableAuditValue(value: unknown): string {
   if (value === undefined || value === null || value === "") return "-";
   if (
@@ -1788,8 +1798,9 @@ export default function App() {
   const canMergeReady = currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.merge_ready"));
   const mergeReadyGroups = useMemo(() => {
     const groups = new Map<string, Order[]>();
-    for (const order of orders.filter((item) => item.status === "ready" && !item.despatchReady)) {
-      const key = `${order.customerName.trim().toLocaleLowerCase("tr")}|${Boolean(order.isTest)}|${Boolean(order.isLoanReturn)}|${Boolean(order.isExport)}`;
+    for (const order of orders.filter((item) => item.status === "ready")) {
+      const key = readyMergeKey(order);
+      if (!key) continue;
       groups.set(key, [...(groups.get(key) ?? []), order]);
     }
     return [...groups.values()].filter((items) => items.length >= 2);
@@ -2558,12 +2569,9 @@ function BoardColumn({
       <div className="cards">
         {orders.length ? (
           orders.map((order) => {
-            const mergeGroup = status === "ready" && !order.despatchReady
-              ? orders.filter((candidate) => !candidate.despatchReady
-                && candidate.customerName.trim().toLocaleLowerCase("tr") === order.customerName.trim().toLocaleLowerCase("tr")
-                && Boolean(candidate.isTest) === Boolean(order.isTest)
-                && Boolean(candidate.isLoanReturn) === Boolean(order.isLoanReturn)
-                && Boolean(candidate.isExport) === Boolean(order.isExport))
+            const mergeKey = status === "ready" ? readyMergeKey(order) : "";
+            const mergeGroup = mergeKey
+              ? orders.filter((candidate) => readyMergeKey(candidate) === mergeKey)
               : [];
             return <div className="order-card-stack" key={order.id}>
             <button
