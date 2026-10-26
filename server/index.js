@@ -1179,8 +1179,18 @@ function sendDayCloseNotifications(db, { date, nextDate, actor, automatic, order
 
   for (const recipient of db.authUsers.filter((user) => user.active !== false)) {
     const role = orderWorkflowRole(recipient);
+    const recipientRole = normalizedRole(recipient.role);
+    const receivesManagementSummary = role === "owner" || [
+      "rəhbər",
+      "rehber",
+      "admin",
+      "administrator",
+      "yönetici",
+      "yonetici",
+      "manager",
+    ].includes(recipientRole);
     let message = "";
-    if (role === "owner") {
+    if (receivesManagementSummary) {
       message = `${actorLabel}. ${delivered.length} sipariş teslim edildi; ${ready.length} hazır, ${waiting.length} hazırlanmamış sipariş ${nextLabel} gününe devredildi. Teslim toplamı: ${format(metrics.rolls)} rulo, ${format(metrics.totalMeters)} mt.`;
     } else if (role === "warehouse" || hasPermission(recipient, "orders.prepare")) {
       message = `${actorLabel}. ${nextLabel} gününe ${ready.length} hazır ve ${waiting.length} hazırlanmayı bekleyen sipariş devredildi.`;
@@ -1979,7 +1989,7 @@ function closeOrderDay(db, date, actor, { automatic = false, now = new Date(), a
     record = { date };
     db.orderDays.push(record);
   }
-  if (record.closed) return { record, carried: 0 };
+  if (isEffectiveClosedOrderDay(record)) return { record, carried: 0 };
 
   let nextDate = nextOrderDayKey(date);
   while (db.orderDays.some((item) => item.date === nextDate && isEffectiveClosedOrderDay(item))) {

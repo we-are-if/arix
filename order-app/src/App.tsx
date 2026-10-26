@@ -1987,20 +1987,23 @@ export default function App() {
       ? ["ready", "delivered"]
       : ["new", "preparing", "ready", "delivered"];
 
-  const toggleDay = async () => {
-    if (!orderDay || !canManageDays || dayToggleBusyRef.current) return;
+  const toggleDay = async (): Promise<boolean> => {
+    if (!orderDay || !canManageDays || dayToggleBusyRef.current) return false;
     dayToggleBusyRef.current = true;
+    setError("");
     try {
       const next = await api<OrderDay>(`/api/orders/day?date=${encodeURIComponent(orderDay.date)}`, {
         method: "POST",
         body: JSON.stringify({ closed: !orderDay.closed }),
       });
       setOrderDay(next);
-      void load();
+      await Promise.all([load(), loadNotifications()]);
+      return true;
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "İş günü dəyişdirilmədi.",
       );
+      return false;
     } finally {
       dayToggleBusyRef.current = false;
     }
@@ -2722,7 +2725,7 @@ function DailyArchive({
   groups: Array<[string, Order[]]>;
   currentDay: OrderDay | null;
   isOwner: boolean;
-  onToggleDay: () => void;
+  onToggleDay: () => Promise<boolean>;
   onOpen: (order: Order) => void;
   language: Language;
 }) {
@@ -2731,6 +2734,34 @@ function DailyArchive({
   const [reportError, setReportError] = useState("");
   const [reportPreview, setReportPreview] = useState<{ url: string; filename: string } | null>(null);
   const [copiedSummaryDay, setCopiedSummaryDay] = useState("");
+  const [dayCloseConfirmOpen, setDayCloseConfirmOpen] = useState(false);
+  const [dayActionBusy, setDayActionBusy] = useState(false);
+  const currentDayOrders = useMemo(
+    () => groups.find(([day]) => day === currentDay?.date)?.[1].filter((order) => !order.reportRolloverTo) ?? [],
+    [groups, currentDay?.date],
+  );
+  const dayCloseSummary = useMemo(() => {
+    const delivered = currentDayOrders.filter((order) => order.status === "delivered").length;
+    const carried = currentDayOrders.filter((order) => !["delivered", "fulfilled", "cancelled"].includes(order.status));
+    return {
+      delivered,
+      ready: carried.filter((order) => order.status === "ready").length,
+      waiting: carried.filter((order) => order.status !== "ready").length,
+    };
+  }, [currentDayOrders]);
+  const nextDayLabel = useMemo(() => {
+    if (!currentDay?.date) return "sonraki güne";
+    const next = new Date(`${currentDay.date}T12:00:00`);
+    next.setDate(next.getDate() + 1);
+    return next.toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" });
+  }, [currentDay?.date]);
+  const runDayToggle = async () => {
+    if (dayActionBusy) return;
+    setDayActionBusy(true);
+    const changed = await onToggleDay();
+    setDayActionBusy(false);
+    if (changed) setDayCloseConfirmOpen(false);
+  };
   useEffect(() => () => {
     if (reportPreview?.url) URL.revokeObjectURL(reportPreview.url);
   }, [reportPreview]);
@@ -3049,6 +3080,7 @@ function DailyArchive({
     }
   };
   return (
+    <>
     <section className="daily-archive">
       <div className={`day-control ${currentDay?.closed ? "closed" : "open"}`}>
         <div>
@@ -3062,9 +3094,10 @@ function DailyArchive({
         {isOwner && (
           <button
             className={currentDay?.closed ? "primary" : "secondary"}
-            onClick={onToggleDay}
+            disabled={dayActionBusy}
+            onClick={() => currentDay?.closed ? void runDayToggle() : setDayCloseConfirmOpen(true)}
           >
-            {currentDay?.closed ? ui.openDay : ui.closeDay}
+            {dayActionBusy ? "İşleniyor…" : currentDay?.closed ? ui.openDay : ui.closeDay}
           </button>
         )}
       </div>
@@ -3189,6 +3222,31 @@ function DailyArchive({
         />
       )}
     </section>
+    {dayCloseConfirmOpen && currentDay && (
+      <Modal
+        title="İş gününü kapat"
+        subtitle={`${new Date(`${currentDay.date}T12:00:00`).toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" })} günü için kapanışı onaylayın.`}
+        onClose={() => !dayActionBusy && setDayCloseConfirmOpen(false)}
+        className="day-close-confirm"
+      >
+        <div className="day-close-confirm-summary" aria-label="Gün kapanış özeti">
+          <div><Check aria-hidden="true" /><span>Teslim edilen</span><b>{dayCloseSummary.delivered}</b></div>
+          <div><Truck aria-hidden="true" /><span>Hazır devreden</span><b>{dayCloseSummary.ready}</b></div>
+          <div><CalendarDays aria-hidden="true" /><span>Hazır olmayan</span><b>{dayCloseSummary.waiting}</b></div>
+        </div>
+        <div className="day-close-confirm-note">
+          <Bell aria-hidden="true" />
+          <p><b>Bildirimler gönderilecek.</b> Gün özeti yöneticilere, görev özeti ilgili çalışanlara iletilecek. Hazır ve hazırlanmamış siparişler {nextDayLabel} tarihine devredilecek.</p>
+        </div>
+        <div className="modal-actions day-close-confirm-actions">
+          <button type="button" className="secondary" disabled={dayActionBusy} onClick={() => setDayCloseConfirmOpen(false)}>Vazgeç</button>
+          <button type="button" className="primary" disabled={dayActionBusy} onClick={() => void runDayToggle()}>
+            {dayActionBusy ? "Kapatılıyor…" : "Günü kapat ve bildirimleri gönder"}
+          </button>
+        </div>
+      </Modal>
+    )}
+    </>
   );
 }
 
