@@ -85,7 +85,10 @@ try {
       Write-SyncLog "Geçersiz göreli yol reddedildi: $relativePath"
       continue
     }
-    $section = if ([string]$item.archiveKind -eq "export") { "IHRACAT" } else { "YURT İÇİ" }
+    # Windows PowerShell 5 may read a UTF-8 script without a BOM as ANSI.
+    # Build the Turkish folder name from code points so its path stays correct.
+    $domesticSection = "YURT " + [char]0x0130 + [char]0x00C7 + [char]0x0130
+    $section = if ([string]$item.archiveKind -eq "export") { "IHRACAT" } else { $domesticSection }
     $sectionRoot = Join-Path ([string]$config.shareRoot) $section
     $target = Join-Path $sectionRoot ($relativePath -replace '/', '\')
     $resolvedRoot = [IO.Path]::GetFullPath($sectionRoot).TrimEnd('\') + '\'
