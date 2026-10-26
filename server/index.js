@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
@@ -113,9 +113,10 @@ const EXPORT_ARCHIVE_ROOT = String(
   process.env.ARIX_EXPORT_ARCHIVE_ROOT ?? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT",
 ).trim();
 const ARCHIVE_SYNC_TOKEN = String(process.env.ARIX_ARCHIVE_SYNC_TOKEN ?? "").trim();
-const EDGE_EXECUTABLE = String(
-  process.env.ARIX_EDGE_PATH ?? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+const PDF_BROWSER_EXECUTABLE = String(
+  process.env.ARIX_PDF_BROWSER_PATH ?? process.env.ARIX_EDGE_PATH ?? "",
 ).trim();
+let resolvedPdfBrowserExecutable = "";
 const execFileAsync = promisify(execFile);
 const DB_PATH = join(DATA_DIR, "db.json");
 const SQLITE_PATH = join(DATA_DIR, "arix.sqlite");
@@ -827,7 +828,8 @@ async function renderOrderApprovalPdf(html) {
   const pdfPath = join(jobDirectory, "approval.pdf");
   try {
     await writeFile(htmlPath, source, "utf8");
-    await execFileAsync(EDGE_EXECUTABLE, [
+    const browserExecutable = await findPdfBrowserExecutable();
+    const browserArguments = [
       "--headless=new",
       "--disable-gpu",
       "--disable-extensions",
@@ -836,13 +838,47 @@ async function renderOrderApprovalPdf(html) {
       `--user-data-dir=${join(jobDirectory, "profile")}`,
       `--print-to-pdf=${pdfPath}`,
       new URL(`file:///${htmlPath.replace(/\\/g, "/")}`).href,
-    ], { windowsHide: true, timeout: 45_000, maxBuffer: 2_000_000 });
+    ];
+    if (process.platform === "linux") browserArguments.unshift("--no-sandbox", "--disable-dev-shm-usage");
+    await execFileAsync(browserExecutable, browserArguments, { windowsHide: true, timeout: 45_000, maxBuffer: 2_000_000 });
     const pdf = await readFile(pdfPath);
-    if (!pdf.length || pdf.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("Edge etibarlı PDF yarada bilmədi.");
+    if (!pdf.length || pdf.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("PDF tarayıcısı geçerli bir dosya oluşturamadı.");
     return pdf;
   } finally {
     await rm(jobDirectory, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+async function findPdfBrowserExecutable() {
+  if (resolvedPdfBrowserExecutable) return resolvedPdfBrowserExecutable;
+  const platformCandidates = process.platform === "win32"
+    ? [
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      ]
+    : process.platform === "darwin"
+      ? [
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+          "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ]
+      : [
+          "/usr/bin/google-chrome-stable",
+          "/usr/bin/google-chrome",
+          "/usr/bin/chromium",
+          "/usr/bin/chromium-browser",
+        ];
+  const candidates = [...new Set([PDF_BROWSER_EXECUTABLE, ...platformCandidates].filter(Boolean))];
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      resolvedPdfBrowserExecutable = candidate;
+      return candidate;
+    } catch {
+      // Try the next supported browser location.
+    }
+  }
+  throw new Error(`PDF tarayıcısı bulunamadı. ARIX_PDF_BROWSER_PATH ayarını yapın. Denenen yollar: ${candidates.join(", ")}`);
 }
 
 async function handleDocumentEmail(req, res) {
