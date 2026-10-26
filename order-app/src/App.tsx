@@ -2066,25 +2066,25 @@ export default function App() {
                 )}
               </button>
               {notificationMenuOpen && (
-                <div className={`surface-popover absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border shadow-xl ${isDark ? "glass-panel-dark border-white/10" : "glass-panel border-white/70"}`}>
-                  <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3">
+                <div className={`notification-popover surface-popover absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border shadow-xl ${isDark ? "glass-panel-dark border-white/10" : "glass-panel border-white/70"}`}>
+                  <div className="notification-popover-header flex items-center justify-between border-b px-4 py-3">
                     <span><strong className="block text-sm">Bildirimler</strong>{unreadNotificationCount > 0 && <button type="button" className="mt-1 text-[11px] font-semibold text-slate-500" onClick={() => void markAllNotificationsRead()}>Tümünü okundu yap</button>}</span>
                     {pushEnabled ? <span className="flex items-center gap-3"><button type="button" className="text-xs font-semibold text-emerald-600" onClick={() => void testPushNotification()}>Test et</button><button type="button" className="text-xs font-semibold text-indigo-600" onClick={() => void enablePushNotifications()}>Yenile</button></span> : <button type="button" className="text-xs font-semibold text-indigo-600" onClick={() => void enablePushNotifications()}>Bu cihazda bildirimleri aç</button>}
                   </div>
-                  <div className="max-h-96 overflow-y-auto p-2">
+                  <div className="notification-popover-list max-h-96 overflow-y-auto p-2">
                     {notifications.length ? notifications.map((notification) => (
                       <button
                         key={notification.id}
                         type="button"
                         onClick={() => void runNotificationAction(notification)}
-                        className={`mb-2 block w-full rounded-xl border px-3 py-3 text-left transition last:mb-0 ${notification.readAt ? "border-slate-200 bg-white/60 hover:bg-slate-50" : "border-indigo-200 bg-indigo-50 hover:bg-indigo-100"}`}
+                        className={`notification-popover-item mb-2 block w-full rounded-xl border px-3 py-3 text-left transition last:mb-0 ${notification.readAt ? "is-read" : "is-unread"}`}
                       >
                         <div className="flex items-start gap-3">
                           <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${notification.readAt ? "bg-slate-300" : "bg-indigo-600"}`} />
                           <span className="min-w-0 flex-1">
                             <b className="block text-sm">{notification.title}</b>
-                            <small className="mt-1 block text-xs text-slate-600">{notification.message}</small>
-                            <small className="mt-1.5 block text-[11px] text-slate-400">{new Date(notification.createdAt).toLocaleString("tr-TR")}</small>
+                            <small className="notification-popover-message mt-1 block text-xs">{notification.message}</small>
+                            <small className="notification-popover-time mt-1.5 block text-[11px]">{new Date(notification.createdAt).toLocaleString("tr-TR")}</small>
                           </span>
                         </div>
                         {(notification.orderId || notification.dayKey) && <span className="mt-2 block text-right text-[11px] font-semibold text-indigo-600">{notification.dayKey ? "Gün raporunu görüntüle" : "İlgili kaydı aç"}</span>}
