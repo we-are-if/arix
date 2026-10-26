@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, Download, Eye, FileText, HandCoins, Layers3, ListChecks, NotepadText, Pencil, Printer, ScanText, Scissors, Share2, Trash2, Truck, UserRound } from "lucide-react";
+import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Moon, NotepadText, Pencil, Printer, ScanText, Scissors, Settings2, Share2, Sun, Trash2, Truck, UserRound } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -1967,7 +1967,9 @@ export default function App() {
                 className={`mobile-header-control inline-flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`}
                 aria-label={text.settings}
               >
-                <span>⚙️</span>
+                <span className="arix-header-icon" aria-hidden="true">
+                  <Settings2 />
+                </span>
                 <span className="hidden sm:inline">{text.settings}</span>
               </button>
             )}
@@ -1985,7 +1987,9 @@ export default function App() {
                 aria-label="Dil"
                 aria-expanded={languageMenuOpen}
               >
-                <HeaderIcon.Globe className="h-5 w-5" />
+                <span className="arix-header-icon" aria-hidden="true">
+                  <HeaderIcon.Globe />
+                </span>
                 <span className="hidden sm:inline">
                   {languageOptions.find((item) => item.id === language)?.label}
                 </span>
@@ -2029,7 +2033,9 @@ export default function App() {
               className={`mobile-header-control inline-flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`}
               aria-label="Tema"
             >
-              <span aria-hidden="true">{isDark ? "🌙" : "☀️"}</span>
+              <span className={`arix-header-icon ${isDark ? "is-moon" : "is-sun"}`} aria-hidden="true">
+                {isDark ? <Moon /> : <Sun />}
+              </span>
               <span className="mobile-control-label">{isDark ? "Dark" : "Light"}</span>
             </button>
 
@@ -2046,7 +2052,9 @@ export default function App() {
                 aria-label="Bildirimler"
                 aria-expanded={notificationMenuOpen}
               >
-                <Bell className="h-5 w-5" />
+                <span className="arix-header-icon" aria-hidden="true">
+                  <Bell />
+                </span>
                 {unreadNotificationCount > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-bold text-white ring-2 ring-white">
                     {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
