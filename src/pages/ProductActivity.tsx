@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction, type SVGProps } from "react";
 import { createPortal } from "react-dom";
+import { renderToStaticMarkup } from "react-dom/server";
 import { requestJson } from "../api";
 import DocumentCreatePanel, { type ApiDocumentDraft, type DocumentCreateKind } from "../components/DocumentCreatePanel";
 import EDocumentWorkflowDialog, { type EDocumentType } from "../components/EDocumentWorkflowDialog";
@@ -8,6 +9,7 @@ import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type Pr
 import { blobToBase64, htmlDocumentToPdf } from "../pdf";
 import orderDocumentStyles from "../../order-app/src/styles.css?raw";
 import { showToast } from "../toast";
+import OrderDocumentPaper from "../components/OrderDocumentPaper";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -962,6 +964,7 @@ const buildSalesExportPrintHtml = (
   options: DocumentPrintOptions,
   printSettings: PrintSettings,
 ) => {
+  const legacyPackingMode = options.formMode === "packingList";
   const formKey = salesPrintFormKey(options.formMode);
   const form = printSettings.forms[formKey];
   const title = salesPrintTitle(options.formMode);
@@ -1019,19 +1022,55 @@ const buildSalesExportPrintHtml = (
     const customerName = snapshot.customerName || row.recipient;
     const formNumber = snapshot.number || document?.documentNumber || document?.number || docNo;
     const company = printSettings.companyDetails;
-    const logo = printSettings.companyLogo ? `<img class="approval-company-logo" src="${escapeHtml(printSettings.companyLogo)}" alt="${escapeHtml(printSettings.companyName)}"/>` : `<span class="approval-company-monogram">${escapeHtml(printSettings.companyName.slice(0, 2).toUpperCase())}</span>`;
-    return `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><title>${escapeHtml(formNumber)}</title><style>${orderDocumentStyles}
-      html,body{margin:0;background:#eef2f7}.approval-paper{width:203mm;min-height:290mm;margin:3.5mm auto;box-sizing:border-box;aspect-ratio:auto}.approval-preview-shell{padding:1px}@media print{.approval-preview-shell{padding:0}}
-    </style></head><body><main class="approval-preview-shell"><article class="approval-paper">
-      <header class="approval-paper-header"><div class="approval-brand-bar"><div class="approval-company-identity">${logo}<span><b>${escapeHtml(printSettings.companyName)}</b><small>${escapeHtml(printSettings.brandSubtitle)}</small><small>${escapeHtml(company.address)}</small><span class="approval-company-contact-line">${escapeHtml([company.phone,company.email,company.website].filter(Boolean).join(" · "))}</span><span class="approval-company-tax-line">Vergi dairesi: ${escapeHtml(company.taxOffice || "-")} · VKN/TCKN: ${escapeHtml(company.taxNumber || "-")}</span></span></div><div class="approval-provider-block"><div class="approval-brand-lockup"><img class="approval-logo" src="/arix-icon.svg"/><span><b>AriX Sipariş sistemi</b><small class="approval-arix-site">www.arix.az</small></span></div></div></div>
-      <div class="approval-heading-row"><div class="approval-title-block"><small>SATIŞ BELGESİ</small><h2>Sipariş Onay Formu</h2><span>Sipariş, belirtilen bilgiler doğrultusunda hazırlanmıştır.</span></div><div class="approval-status-badge ${row.status === "Təsdiqlənib" ? "approved" : "draft"}"><i></i><span><b>${row.status === "Təsdiqlənib" ? "Onaylandı" : "Taslak"}</b><small>${row.status === "Təsdiqlənib" ? `${escapeHtml(document?.salesRepresentative || "Satış temsilcisi")} onayladı` : "Satış temsilcisi onayı bekleniyor"}</small></span></div></div>
-      <div class="approval-summary-strip"><div><span><small>FORM NO</small><b>${escapeHtml(formNumber)}</b><em>${escapeHtml(row.order)}</em></span></div><div><span><small>BELGE TARİHİ</small><b>${escapeHtml(date)}</b></span></div><div><span><small>SATIŞ TEMSİLCİSİ</small><b>${escapeHtml(document?.salesRepresentative || "-")}</b></span></div><div><span><small>KAYNAK</small><b>ERSA DEPO</b></span></div><div><span><small>KUR</small><b>${escapeHtml(snapshot.currency || "TRY")} · ${Number(snapshot.exchangeRate || 1).toLocaleString("tr-TR")}</b></span></div></div>
-      <div class="approval-company-panel"><strong>MÜŞTERİ BİLGİLERİ</strong><div class="approval-company-panel-content"><span class="approval-company-monogram">${escapeHtml(customerName.slice(0,2).toUpperCase())}</span><div><b>${escapeHtml(customerName)}</b><span>${escapeHtml(snapshot.customerContact ? `Temsilci: ${snapshot.customerContact}` : "Temsilci bilgisi girilmedi")}</span><span>${escapeHtml(snapshot.customerAddress || "Adres bilgisi girilmedi")}</span></div><div class="approval-company-panel-contact"><span>${escapeHtml(snapshot.customerPhone || "Telefon bilgisi girilmedi")}</span><span>${escapeHtml(snapshot.customerEmail || "E-posta bilgisi girilmedi")}</span><span>Vergi dairesi: <b>-</b></span><span>VKN/TCKN: -</span></div></div></div></header>
-      <table><thead><tr><th>#</th><th>Ürün</th><th>Rulo</th><th>Miktar</th><th>m² Fiyatı</th><th>Toplam</th></tr></thead><tbody>${confirmationLines.map((item)=>`<tr><td>${item.index}</td><td><b>${escapeHtml(item.line.name || "")}</b><small>${escapeHtml(item.line.sku || "")}</small></td><td>${item.line.preparedRollCount || 0}</td><td class="approval-quantity-cell"><b>${money(item.squareMeters)} m²</b><small>${money(item.qty)} mt</small></td><td><b>₺${money(Number(item.line.price || 0))}</b></td><td><b>₺${money(item.net)}</b></td></tr>`).join("")}</tbody></table>
-      <div class="approval-bottom-grid"><div class="approval-general-terms approval-general-terms-main"><div class="approval-condition-heading"><span><b>Genel koşullar</b><small>Yurtiçi satış koşulları</small></span></div><ul><li>Fiyatlarımıza KDV dahil değildir.</li><li>Faturadaki döviz kuru, bir önceki iş gününün TCMB kapanış satış kuru olarak alınacaktır.</li><li>Belirtilen fiyatlar depo teslim fiyatlarıdır. Kargo ve nakliye bedeli alıcıya aittir.</li><li>Ürünler mümkün olan en kısa sürede alıcının belirttiği taşıyıcıya yönlendirilir.</li><li>Anlaşılmayan hususlarda ilgili satış sorumlusu ile iletişime geçiniz.</li></ul><div class="approval-inline-conditions"><span><span><b>Ödeme koşulu</b><small>${escapeHtml(paymentTerms)}</small></span></span><span><span><b>Teslimat koşulu</b><small>${escapeHtml(deliveryTerms)}</small></span></span></div></div><div class="approval-totals"><span>Ara toplam <b><i>₺${money(confirmationTotals.net)}</i></b></span><span>KDV <b><i>₺${money(confirmationTotals.vat)}</i></b></span><span>Ek masraf <b><i>₺0,00</i></b></span><strong>Genel toplam <b><i>₺${money(confirmationTotals.total)}</i></b></strong></div></div>
-      <section class="approval-document-conditions"><div class="approval-note-box approval-note-box-bottom"><span><b>Ek not</b><small>${escapeHtml(document?.note || snapshot.note || "Bu sipariş için ek not bulunmuyor.")}</small></span></div></section>
-      <footer class="approval-page-footer"><span>Powered by <img src="/arix-icon.svg" style="width:17px;height:17px"/> <b>AriX</b> Sipariş sistemi</span><span>Güvenli belge yönetimi &nbsp; | &nbsp; 2026</span></footer>
-    </article></main><script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));</script></body></html>`;
+    const paper = renderToStaticMarkup(<OrderDocumentPaper
+      kind="domestic"
+      company={{ name: printSettings.companyName, subtitle: printSettings.brandSubtitle, address: company.address, phone: company.phone, email: company.email, website: company.website, taxOffice: company.taxOffice, taxNumber: company.taxNumber, logo: printSettings.companyLogo, stamp: printSettings.companyStamp }}
+      status={row.status === "Təsdiqlənib" ? "approved" : "draft"}
+      approvedBy={document?.salesRepresentative}
+      number={formNumber}
+      orderNumber={row.order}
+      date={date}
+      representative={document?.salesRepresentative || "-"}
+      currency={`${snapshot.currency || "TRY"} · ${Number(snapshot.exchangeRate || 1).toLocaleString("tr-TR")}`}
+      customer={{ name: customerName, contact: snapshot.customerContact, address: snapshot.customerAddress, phone: snapshot.customerPhone, email: snapshot.customerEmail }}
+      lines={confirmationLines.map((item) => ({ name: String(item.line.name || ""), code: String(item.line.sku || ""), rolls: Number(item.line.preparedRollCount || 0), quantity: item.qty, width: item.width, unitPrice: `₺${money(Number(item.line.price || 0))}`, amount: `₺${money(item.net)}` }))}
+      totals={{ subtotal: `₺${money(confirmationTotals.net)}`, tax: `₺${money(confirmationTotals.vat)}`, extra: "₺0,00", total: `₺${money(confirmationTotals.total)}` }}
+      paymentTerms={paymentTerms}
+      deliveryTerms={deliveryTerms}
+      note={document?.note || snapshot.note}
+    />);
+    return `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><title>${escapeHtml(formNumber)}</title><style>${orderDocumentStyles}html,body{margin:0;background:#eef2f7}.approval-paper{width:203mm;min-height:290mm;margin:3.5mm auto;box-sizing:border-box;aspect-ratio:auto}</style></head><body>${paper}<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));</script></body></html>`;
+  }
+
+  if (options.formMode === "proforma" || options.formMode === "commercial" || options.formMode === "packingList") {
+    const snapshot = document?.approvalFormSnapshot ?? {};
+    const company = printSettings.companyDetails;
+    const kind = options.formMode === "commercial" ? "commercial_invoice" : options.formMode === "packingList" ? "packing_list" : "proforma";
+    const exportLines = options.formMode === "packingList"
+      ? packingRows.map((item) => ({ name: item.productName, code: item.code, rolls: item.rollCount, quantity: item.qty, width: sqmFactor, unitPrice: "", amount: "", pallet: Number(String(item.pallet).replace(/\D/g, "")) || 1, netWeight: item.netKg, grossWeight: item.grossKg }))
+      : productRows.map((item) => ({ name: item.product.name, code: item.product.sku || item.product.barcode, rolls: Math.max(1, Math.round(item.qty / 100)), quantity: item.qty, width: sqmFactor, unitPrice: `${currency}${money(item.product.price)}`, amount: `${currency}${money(item.amount)}`, origin: "CHINA" }));
+    const paper = renderToStaticMarkup(<OrderDocumentPaper
+      kind={kind}
+      company={{ name: printSettings.companyName, subtitle: printSettings.brandSubtitle, address: company.address, phone: company.phone, email: company.email, website: company.website, taxOffice: company.taxOffice, taxNumber: company.taxNumber, logo: printSettings.companyLogo, stamp: printSettings.companyStamp }}
+      status={row.status === "Təsdiqlənib" ? "approved" : "draft"}
+      approvedBy={document?.salesRepresentative}
+      number={snapshot.number || document?.documentNumber || docNo}
+      orderNumber={row.order}
+      date={date}
+      proformaDate={formatCustomsDate(row.documentDate)}
+      representative={document?.salesRepresentative || "Ekrem Tiryaki"}
+      invoiceNumber={document?.documentNumber || "-"}
+      currency={snapshot.currency || "EUR"}
+      customer={{ name: snapshot.customerName || row.recipient, contact: snapshot.customerContact, address: snapshot.customerAddress, phone: snapshot.customerPhone, email: snapshot.customerEmail }}
+      lines={exportLines}
+      totals={{ subtotal: `${currency}${money(totals.amount)}`, tax: `${currency}0,00`, extra: `${currency}0,00`, total: `${currency}${money(totals.amount)}` }}
+      paymentTerms={document?.paymentTerms || snapshot.paymentTerms || "Bank transfer"}
+      deliveryTerms={document?.deliveryTerms || snapshot.deliveryTerms || "FCA Istanbul"}
+      note={document?.note || snapshot.note}
+      bank={{ name: "ALBARAKA TÜRK", swift: "BTFHTRISXXX", iban: "TR56 0020 3000 0998 7324 0000 02" }}
+      exportDetails={{ packageType: "STANDARD EXPORT PACKAGE", description: "PVC FOIL", incoterm: "FCA Istanbul", shipmentPort: "ISTANBUL / TURKEY", destination: row.recipient, origin: "CHINA", loadingPlace: "Istanbul", declaration: "We hereby certify that this invoice is true and correct." }}
+    />);
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"/><title>${escapeHtml(title.title)} ${escapeHtml(docNo)}</title><style>${orderDocumentStyles}html,body{margin:0;background:#eef2f7}.approval-paper{width:203mm;min-height:290mm;margin:3.5mm auto;box-sizing:border-box;aspect-ratio:auto}</style></head><body>${paper}<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));</script></body></html>`;
   }
 
   return `<!doctype html>
@@ -1040,7 +1079,7 @@ const buildSalesExportPrintHtml = (
   <meta charset="utf-8" />
   <title>${escapeHtml(title.title)} ${escapeHtml(docNo)}</title>
   <style>
-    @page { size: A4 ${options.formMode === "packingList" ? "portrait" : options.paperMode}; margin: 10mm; }
+    @page { size: A4 ${legacyPackingMode ? "portrait" : options.paperMode}; margin: 10mm; }
     ${arixPrintBaseCss}
     body { color: #172033; }
     .doc-title { display:flex; align-items:flex-end; justify-content:space-between; margin:5mm 0 3mm; border-bottom:1px solid #dfe7ef; padding-bottom:3mm; text-align:left; }
@@ -1086,7 +1125,7 @@ const buildSalesExportPrintHtml = (
       <div><span>${printDocumentNumberLabel(options.formMode)}:</span><strong>${escapeHtml(docNo)}</strong></div>
     </div>
   </section>` : ""}
-  ${options.formMode === "packingList" ? `
+  ${legacyPackingMode ? `
     ${printTemplateHasSlot(form, "PACKING_TABLE") ? `<table class="sales">
       <thead><tr><th>No</th><th>PALLET</th><th>PRODUCTS</th><th>CODE</th><th>ROLL</th><th>LM</th><th>SQM</th><th>Net Weight / KG</th><th>Gross Weight / KG</th><th>Qeyd</th></tr></thead>
       <tbody>${packingRows.map((item, index) => `<tr><td class="center">${index + 1}</td><td class="center">${escapeHtml(item.pallet)}</td><td>${escapeHtml(item.productName)}</td><td class="center">${escapeHtml(item.code)}</td><td class="center">${item.rollCount}</td><td class="right">${money(item.qty)}</td><td class="right">${money(item.sqm)}</td><td class="right">${money(item.netKg)}</td><td class="right">${money(item.grossKg)}</td><td class="center">${item.full ? "FULL PALET" : escapeHtml(item.rollNumbers)}</td></tr>`).join("")}</tbody>

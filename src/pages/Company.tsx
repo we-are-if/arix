@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type SVGProps } from "react";
 import { createPortal } from "react-dom";
+import { renderToStaticMarkup } from "react-dom/server";
 import QRCode from "qrcode";
 import { requestJson } from "../api";
 import AriXLogo from "../components/AriXLogo";
@@ -7,7 +8,8 @@ import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type Pr
 import EDocumentsSettings from "../components/EDocumentsSettings";
 import { PaymentIntegrationSettings } from "./OnlineCollections";
 import { showToast } from "../toast";
-import { Building2, CalendarDays, CircleDollarSign, FileText, HandCoins, Layers3, ListChecks, NotepadText, Truck, UserRound } from "lucide-react";
+import OrderDocumentPaper from "../components/OrderDocumentPaper";
+import orderDocumentStyles from "../../order-app/src/styles.css?raw";
 
 export type CompanySection = "settings" | "employees" | "stores" | "accounts" | "loyalty" | "printForms" | "eDocuments" | "paymentIntegrations";
 type StockMode = "simple" | "bondedRolls";
@@ -1935,46 +1937,29 @@ function SectionTitle({ title }: { title: string }) {
 function ExportDocumentPreview({ settings, formKey, form }: { settings: PrintSettings; formKey: PrintFormKey; form: PrintSettings["forms"][PrintFormKey] }) {
   const packing = formKey === "packingList";
   const domestic = formKey === "orderConfirmation";
-  const commercial = formKey === "commercial";
-  const documentTitle = packing ? "PACKING LIST" : domestic ? "SİPARİŞ ONAY FORMU" : formKey === "proforma" ? "PROFORMA INVOICE" : "COMMERCIAL INVOICE";
+  const kind = domestic ? "domestic" : formKey === "commercial" ? "commercial_invoice" : packing ? "packing_list" : "proforma";
   const documentNo = packing ? "PL-2026-014" : domestic ? "SOF-9137308" : formKey === "proforma" ? "PI-2026-002" : "CI-2026-014";
-  return <article className="approval-paper arix-order-template-preview">
-    <header>
-      <div className="approval-brand-bar">
-        <div className="approval-company-identity">
-          {settings.companyLogo ? <img className="approval-company-logo" src={settings.companyLogo} alt="Şirket logosu" /> : <span className="approval-company-monogram">ER</span>}
-          <span><b>{settings.companyName}</b><small>{settings.brandSubtitle}</small><small>{settings.companyDetails.address}</small><span className="approval-company-contact-line">{[settings.companyDetails.phone, settings.companyDetails.email, settings.companyDetails.website].filter(Boolean).join(" · ")}</span><span className="approval-company-tax-line">Vergi dairesi: {settings.companyDetails.taxOffice || "-"} · VKN/TCKN: {settings.companyDetails.taxNumber || "-"}</span></span>
-        </div>
-        <div className="approval-provider-block"><div className="approval-brand-lockup"><AriXLogo className="approval-logo" /><span><b>AriX Sipariş sistemi</b><small className="approval-arix-site">www.arix.az</small></span></div></div>
-      </div>
-      {printTemplateHasSlot(form, "DOCUMENT_TITLE") && <div className="approval-heading-row"><div className="approval-title-block"><small>{domestic ? "SATIŞ BELGESİ" : "EXPORT SALES DOCUMENT"}</small><h2>{documentTitle}</h2><span>{packing ? "Packing details for the exported goods." : domestic ? "Sipariş, belirtilen bilgiler doğrultusunda hazırlanmıştır." : "Issued for export documentation purposes."}</span></div><div className="approval-status-badge draft"><i /><span><b>Taslak</b><small>{domestic ? "Satış temsilcisi onayı bekleniyor" : "Approval pending"}</small></span></div></div>}
-      <div className="approval-summary-strip"><div><ApprovalPreviewIcon kind="document" /><span><small>{domestic ? "FORM NO" : packing ? "PACKING LIST NO" : "PROFORMA NO"}</small><b>{documentNo}</b><em>ORD-9137308</em></span></div><div><ApprovalPreviewIcon kind="calendar" /><span><small>{domestic ? "BELGE TARİHİ" : "ISSUE DATE"}</small><b>25.10.2026</b></span></div><div><ApprovalPreviewIcon kind="representative" /><span><small>{domestic ? "SATIŞ TEMSİLCİSİ" : "SALES REPRESENTATIVE"}</small><b>{domestic ? "Mustafa Yazman" : "Ekrem Tiryaki"}</b></span></div><div><ApprovalPreviewIcon kind="source" /><span><small>{domestic ? "KAYNAK" : "INVOICE NO"}</small><b>{commercial ? "EXP2026000148" : domestic ? "ERSA DEPO" : "-"}</b></span></div><div><ApprovalPreviewIcon kind="currency" /><span><small>{domestic ? "KUR" : "CURRENCY"}</small><b>{domestic ? "TL · 1" : "EUR"}</b></span></div></div>
-      {printTemplateHasSlot(form, "PARTIES") && <div className="approval-company-panel"><strong>{domestic ? "MÜŞTERİ BİLGİLERİ" : "BUYER INFORMATION"}</strong><div className="approval-company-panel-content"><ApprovalPreviewIcon kind="company" /><div><b>{domestic ? "AKYÜZ GRUP" : "SAMPLE IMPORT GmbH"}</b><span>{domestic ? "Temsilci: Mustafa Yazman" : "Contact: Purchasing Department"}</span><span>{domestic ? "İstanbul · Türkiye" : "Berlin · Germany"}</span></div><div className="approval-company-panel-contact"><span>+49 30 000 00 00</span><span>purchasing@example.com</span><span>{domestic ? "Vergi dairesi" : "VAT / Tax No"}: <b>-</b></span>{domestic && <span>VKN/TCKN: -</span>}</div></div></div>}
-    </header>
-    {packing ? printTemplateHasSlot(form, "PACKING_TABLE") && <PackingTable /> : printTemplateHasSlot(form, "PRODUCT_TABLE") && <SalesExportTable />}
-    <div className="approval-bottom-grid">
-      {packing ? <div className="approval-commercial-panel approval-packing-summary-panel"><div className="approval-condition-heading"><ApprovalPreviewIcon kind="terms" /><span><b>Packing summary</b><small>Pallet, roll and weight totals</small></span></div><div className="approval-packing-summary-grid"><span><small>Total pallets</small><b>2</b></span><span><small>Total rolls</small><b>6</b></span><span><small>Total net weight</small><b>1,022.40 kg</b></span><span><small>Total gross weight</small><b>1,089.00 kg</b></span></div></div> : commercial ? <div className="approval-commercial-panel approval-commercial-shipment-panel"><div className="approval-condition-heading"><ApprovalPreviewIcon kind="delivery" /><span><b>Shipment & customs</b><small>Transport, package and customs details</small></span></div><div className="approval-commercial-panel-grid"><span><small>Packaging</small>STANDARD EXPORT PACKAGE</span><span><small>Buyer PO / Contract</small>-</span><span><small>Delivery term</small>FCA Istanbul</span><span><small>Transport mode</small>ROAD</span><span><small>Loading / destination</small>Istanbul → Berlin</span><span><small>Net / Gross</small>1,022.40 / 1,089.00 kg</span></div></div> : <div className="approval-general-terms approval-general-terms-main"><div className="approval-condition-heading"><ApprovalPreviewIcon kind="terms" /><span><b>{domestic ? "Genel koşullar" : "Terms and export details"}</b><small>{domestic ? "Yurtiçi satış koşulları" : "Proforma invoice conditions"}</small></span></div><ul><li>{domestic ? "Fiyatlarımıza KDV dahil değildir." : "Prices are stated in the selected currency."}</li><li>{domestic ? "Kargo ve nakliye bedeli alıcıya aittir." : "Final shipment details will be confirmed before dispatch."}</li><li>{domestic ? "Ürünler bildirilen taşıyıcıya yönlendirilir." : "Country of origin: CHINA."}</li></ul><div className="approval-inline-conditions"><span><ApprovalPreviewIcon kind="payment" /><span><b>{domestic ? "Ödeme koşulu" : "Payment terms"}</b><small>{domestic ? "Sipariş onayında peşin ödeme" : "Bank transfer"}</small></span></span><span><ApprovalPreviewIcon kind="delivery" /><span><b>{domestic ? "Teslimat koşulu" : "Delivery terms"}</b><small>{domestic ? "Depo teslim" : "FCA Istanbul / Turkey"}</small></span></span></div>{!domestic && <div className="approval-bank-line"><b>Bank</b><span>ALBARAKA TÜRK · SWIFT: BTFHTRISXXX · IBAN: TR56 0020 3000 0998 7324 0000 02</span></div>}</div>}
-      {!packing && <div className="approval-totals"><span>{domestic ? "Ara toplam" : "Subtotal"}<b><i>{domestic ? "₺117.378,00" : "€2,378.40"}</i></b></span><span>{domestic ? "KDV (%20)" : "Tax"}<b><i>{domestic ? "₺23.475,60" : "€0.00"}</i></b></span><span>{domestic ? "Ek masraf" : "Additional charge"}<b><i>{domestic ? "₺0,00" : "€0.00"}</i></b></span><strong>{domestic ? "Genel toplam" : "Total"}<b><i>{domestic ? "₺140.853,60" : "€2,378.40"}</i></b></strong></div>}
-      {packing && <div className="approval-commercial-panel approval-packing-shipment-panel"><div className="approval-condition-heading"><ApprovalPreviewIcon kind="delivery" /><span><b>Shipment details</b><small>Packing list reference information</small></span></div><div className="approval-packing-shipment-grid"><span><small>Invoice no.</small>EXP2026000148</span><span><small>Shipment date</small>25.10.2026</span><span><small>Place of loading</small>Istanbul</span><span><small>Destination</small>Berlin</span></div></div>}
-    </div>
-    {commercial && <section className="approval-commercial-panels"><div className="approval-general-terms approval-general-terms-main approval-commercial-terms-panel"><div className="approval-condition-heading"><ApprovalPreviewIcon kind="terms" /><span><b>Terms and export details</b><small>Commercial invoice conditions</small></span></div><ul><li>Prices are stated in the selected currency.</li><li>Country of origin: CHINA.</li></ul><div className="approval-inline-conditions"><span><ApprovalPreviewIcon kind="payment" /><span><b>Payment terms</b><small>Bank transfer</small></span></span><span><ApprovalPreviewIcon kind="delivery" /><span><b>Delivery terms</b><small>FCA Istanbul</small></span></span></div></div><div className="approval-commercial-panel approval-commercial-stamp-panel"><div className="approval-commercial-declaration"><div className="approval-condition-heading"><ApprovalPreviewIcon kind="note" /><span><b>Exporter declaration</b><small>Certified commercial invoice statement</small></span></div><span>We hereby certify that this invoice is true and correct.</span></div><div className="approval-commercial-stamp"><div className="approval-condition-heading"><ApprovalPreviewIcon kind="company" /><span><b>Authorized signature / stamp</b><small>Exporter approval</small></span></div>{settings.companyStamp ? <img src={settings.companyStamp} alt="Company stamp and signature" /> : <span>Stamp / signature</span>}</div></div><div className="approval-commercial-panel approval-commercial-bank-panel"><div className="approval-condition-heading"><ApprovalPreviewIcon kind="payment" /><span><b>Beneficiary bank</b><small>Payment account details</small></span></div><div className="approval-commercial-bank-details"><span><small>Bank</small>ALBARAKA TÜRK</span><span><small>SWIFT</small>BTFHTRISXXX</span><span><small>IBAN</small>TR56 0020 3000 0998 7324 0000 02</span></div></div></section>}
-    {!commercial && !packing && <section className="approval-document-conditions"><div className="approval-note-box approval-note-box-bottom"><ApprovalPreviewIcon kind="note" /><span><b>Ek not</b><small>{form.footerNote || "Bu sipariş için ek not bulunmuyor."}</small></span></div></section>}
-    <footer className="approval-page-footer"><span>Powered by <AriXLogo className="h-4 w-4" /> <b>AriX</b> Sipariş sistemi</span><span>Güvenli belge yönetimi &nbsp; | &nbsp; 2026</span></footer>
-  </article>;
-}
-
-function ApprovalPreviewIcon({ kind }: { kind: "document" | "calendar" | "representative" | "source" | "currency" | "company" | "note" | "terms" | "payment" | "delivery" }) {
-  const icons = { document: FileText, calendar: CalendarDays, representative: UserRound, source: Layers3, currency: CircleDollarSign, company: Building2, note: NotepadText, terms: ListChecks, payment: HandCoins, delivery: Truck };
-  const Icon = icons[kind];
-  return <Icon className={`approval-vector-icon ${kind}`} aria-hidden="true" />;
-}
-
-function SalesExportTable() {
-  return <table className="w-full border-collapse text-[8px]"><thead><tr className="bg-[#eef5f6] text-[#2f6973]">{["No", "PRODUCTS", "CODE", "ROLL", "LM", "SQM", "UNIT PRICE", "AMOUNT EUR"].map((x) => <th key={x} className="border border-[#d7e4e7] p-1.5">{x}</th>)}</tr></thead><tbody>{sampleProducts.map((item, i) => <tr key={item.sku}><td className="border p-1 text-center">{i + 1}</td><td className="border p-1">{item.name}</td><td className="border p-1 text-center">{item.sku}</td><td className="border p-1 text-center">{i + 2}</td><td className="border p-1 text-right">{item.qty}</td><td className="border p-1 text-right">{(item.qty * 1.22).toFixed(2)}</td><td className="border p-1 text-right">€{item.price.toFixed(2)}</td><td className="border p-1 text-right">€{item.total.toFixed(2)}</td></tr>)}</tbody></table>;
-}
-
-function PackingTable() {
-  return <table className="w-full border-collapse text-[8px]"><thead><tr className="bg-[#eef5f6] text-[#2f6973]">{["No", "PALLET", "PRODUCTS", "CODE", "ROLL", "LM", "SQM", "NET KG", "GROSS KG", "QEYD"].map((x) => <th key={x} className="border border-[#d7e4e7] p-1.5">{x}</th>)}</tr></thead><tbody>{sampleProducts.map((item, i) => <tr key={item.sku}>{[i + 1, `P-${i + 1}`, item.name, item.sku, i + 2, item.qty, (item.qty * 1.22).toFixed(2), (item.qty * 1.55).toFixed(2), (item.qty * 1.65).toFixed(2), i === 0 ? "FULL PALET" : `RULO ${i + 1}-${i + 3}`].map((x, j) => <td key={j} className="whitespace-nowrap border p-1 text-center">{x}</td>)}</tr>)}</tbody></table>;
+  const paper = <OrderDocumentPaper
+    kind={kind}
+    company={{ name: settings.companyName, subtitle: settings.brandSubtitle, address: settings.companyDetails.address, phone: settings.companyDetails.phone, email: settings.companyDetails.email, website: settings.companyDetails.website, taxOffice: settings.companyDetails.taxOffice, taxNumber: settings.companyDetails.taxNumber, logo: settings.companyLogo, stamp: settings.companyStamp }}
+    status="draft"
+    number={documentNo}
+    orderNumber="ORD-9137308"
+    date="25.10.2026"
+    representative={domestic ? "Mustafa Yazman" : "Ekrem Tiryaki"}
+    invoiceNumber={formKey === "commercial" ? "EXP2026000148" : "-"}
+    currency={domestic ? "TL · 1" : "EUR"}
+    customer={{ name: domestic ? "AKYÜZ GRUP" : "SAMPLE IMPORT GmbH", contact: domestic ? "Mustafa Yazman" : "Purchasing Department", address: domestic ? "İstanbul · Türkiye" : "Berlin · Germany", phone: "+49 30 000 00 00", email: "purchasing@example.com" }}
+    lines={sampleProducts.map((item, index) => ({ name: item.name, code: item.sku, rolls: index + 2, quantity: item.qty, width: 1.42, unitPrice: domestic ? `₺${item.price.toFixed(2)}` : `€${item.price.toFixed(2)}`, amount: domestic ? `₺${item.total.toFixed(2)}` : `€${item.total.toFixed(2)}`, pallet: index < 2 ? 1 : 2, netWeight: item.qty * 1.55, grossWeight: item.qty * 1.65, dimensions: "120 × 100 × 130 cm", origin: "CHINA" }))}
+    totals={{ subtotal: domestic ? "₺117.378,00" : "€2,378.40", tax: domestic ? "₺23.475,60" : "€0.00", extra: domestic ? "₺0,00" : "€0.00", total: domestic ? "₺140.853,60" : "€2,378.40" }}
+    paymentTerms={domestic ? "Sipariş onayında peşin ödeme" : "Bank transfer"}
+    deliveryTerms={domestic ? "Depo teslim" : "FCA Istanbul / Turkey"}
+    note={form.footerNote}
+    bank={{ name: "ALBARAKA TÜRK", swift: "BTFHTRISXXX", iban: "TR56 0020 3000 0998 7324 0000 02" }}
+    exportDetails={{ packageType: "STANDARD EXPORT PACKAGE", description: "PVC FOIL", incoterm: "FCA Istanbul", shipmentPort: "ISTANBUL / TURKEY", destination: "Berlin / Germany", origin: "CHINA", loadingPlace: "Istanbul", transportMode: "ROAD", declaration: "We hereby certify that this invoice is true and correct." }}
+  />;
+  const source = `<!doctype html><html><head><meta charset="utf-8"><style>${orderDocumentStyles}html,body{margin:0;background:#fff}.approval-paper{width:210mm;min-height:297mm;box-sizing:border-box;aspect-ratio:auto;border-radius:0;box-shadow:none}</style></head><body>${renderToStaticMarkup(paper)}</body></html>`;
+  return <iframe title={`${form.title} A4 önizleme`} srcDoc={source} className="h-[297mm] w-[210mm] border-0 bg-white" />;
 }
 
 function CustomsPreview({ form }: { form: PrintSettings["forms"][PrintFormKey] }) {
