@@ -1723,12 +1723,7 @@ export default function App() {
   useEffect(() => {
     if (!activeOrder) return;
     const fresh = orders.find((order) => order.id === activeOrder.id);
-    if (
-      fresh &&
-      (fresh.updatedAt !== activeOrder.updatedAt ||
-        fresh.draftUpdatedAt !== activeOrder.draftUpdatedAt)
-    )
-      setActiveOrder(fresh);
+    if (fresh && fresh !== activeOrder) setActiveOrder(fresh);
   }, [orders, activeOrder]);
 
   const grouped = useMemo(
@@ -5811,7 +5806,9 @@ function OrderDetail({
       return {};
     }
   }, [workDraftKey]);
-  const [items, setItems] = useState(() => Array.isArray(savedWork.items) ? savedWork.items : prepareItems(order));
+  const [items, setItems] = useState(() => order.status === "preparing" && Array.isArray(savedWork.items)
+    ? savedWork.items
+    : prepareItems(order));
   const [customerName, setCustomerName] = useState(order.customerName);
   const [note, setNote] = useState(order.note ?? "");
   const [editReason, setEditReason] = useState("");
@@ -5862,8 +5859,18 @@ function OrderDetail({
       localStorage.removeItem(workDraftKey);
       return;
     }
-    localStorage.setItem(workDraftKey, JSON.stringify({ items, deliveryNote, despatchNumber, withoutDespatch }));
+    localStorage.setItem(workDraftKey, JSON.stringify({
+      ...(order.status === "preparing" ? { items } : {}),
+      deliveryNote,
+      despatchNumber,
+      withoutDespatch,
+    }));
   }, [workDraftKey, order.status, items, deliveryNote, despatchNumber, withoutDespatch]);
+
+  useEffect(() => {
+    if (!["ready", "delivered"].includes(order.status)) return;
+    setItems(order.items.map((item) => ({ ...item })));
+  }, [order]);
   const beginActivity = (type: "order_editing_started" | "approval_form_preparing_started" | "approval_form_editing_started") => {
     void api(`/api/orders/${order.id}/activity`, { method: "POST", body: JSON.stringify({ type }) }).catch(() => undefined);
   };
