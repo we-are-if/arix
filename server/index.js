@@ -3737,6 +3737,14 @@ async function handleOrderBoard(req, res, url, parts) {
     const now = new Date().toISOString();
     const actor = req.authUser?.name ?? "Anbar";
     const existingBatches = db.orderBoard.filter((item) => String(item.parentOrderId || "") === String(order.id)).length;
+    if (!Array.isArray(order.partialOriginalItems) || !order.partialOriginalItems.length) {
+      order.partialOriginalItems = structuredClone(order.items || []).map((item) => ({
+        ...item,
+        preparedQuantity: null,
+        preparedRollCount: 0,
+      }));
+    }
+    const partialReadyAudit = { id: randomUUID(), action: "partialReady", newValue: `${order.number}-H${existingBatches + 1}`, by: actor, userId: req.authUser?.id, at: now };
     const batch = {
       id: randomUUID(),
       number: `${order.number}-H${existingBatches + 1}`,
@@ -3752,14 +3760,19 @@ async function handleOrderBoard(req, res, url, parts) {
         orderedRollCount: Math.max(0, Number(item.preparedRollCount) || 0),
         preparedQuantity: Number(item.preparedQuantity),
       })),
+      originalItems: selected.map((item) => structuredClone(
+        order.partialOriginalItems.find((original) => String(original.productId) === String(item.productId)) || item,
+      )),
+      ...(order.approvalForm ? { approvalForm: structuredClone(order.approvalForm) } : {}),
       createdBy: order.createdBy,
       createdByUserId: order.createdByUserId || null,
       preparedBy: actor,
-      createdAt: now,
+      createdAt: order.createdAt || now,
+      batchCreatedAt: now,
       updatedAt: now,
       readyAt: now,
-      history: [{ status: "ready", at: now, by: actor }],
-      audit: [{ id: randomUUID(), action: "partialReadyCreated", by: actor, userId: req.authUser?.id, at: now }],
+      history: [...structuredClone(order.history || []), { status: "ready", at: now, by: actor }],
+      audit: [...structuredClone(order.audit || []), partialReadyAudit, { id: randomUUID(), action: "partialReadyCreated", by: actor, userId: req.authUser?.id, at: now }],
     };
     order.items = (order.items || []).flatMap((item) => {
       const prepared = Number(item.preparedQuantity) || 0;
@@ -3783,7 +3796,7 @@ async function handleOrderBoard(req, res, url, parts) {
     order.draftUpdatedAt = now;
     order.draftUpdatedBy = actor;
     order.audit ??= [];
-    order.audit.push({ id: randomUUID(), action: "partialReady", newValue: batch.number, by: actor, userId: req.authUser?.id, at: now });
+    order.audit.push(partialReadyAudit);
     db.orderBoard.push(batch);
     await writeDb(db);
     return send(res, 200, { data: { order: orderWithPresence(order, req.authUser), batch: orderWithPresence(batch, req.authUser) } });
@@ -4149,6 +4162,13 @@ async function handleOrderBoard(req, res, url, parts) {
     if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, "orders.delete")) return send(res, 403, { error: "Sifarişi silmək icazəniz yoxdur." });
     const index = db.orderBoard.findIndex((item) => String(item.id) === id);
     if (index < 0) return notFound(res);
+    const deletingOrder = db.orderBoard[index];
+    const hasPartialDelivery = db.orderBoard.some((item) => String(item.parentOrderId || "") === String(deletingOrder.id));
+    const hasRemainingQuantity = (deletingOrder.items || []).some((item) => Number(item.quantity) > 0);
+    const forceDelete = normalizedRole(req.authUser?.role) === "sahib" && url.searchParams.get("force") === "1";
+    if (hasPartialDelivery && hasRemainingQuantity && !forceDelete) {
+      return send(res, 409, { error: "Bu siparişin hazır ayrılan kısmı var ve kalan miktarı henüz tamamlanmadı. Kalan satırları kaybetmemek için sipariş silinemez." });
+    }
     db.orderTrash ??= [];
     const [order] = db.orderBoard.splice(index, 1);
     order.deletedAt = new Date().toISOString();
