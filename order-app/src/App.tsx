@@ -2514,6 +2514,11 @@ function BoardColumn({
                   <b>Palet hazırlanacak · Packing List bekliyor</b>
                 </div>
               )}
+              {order.isLoanReturn && (
+                <div className="order-kind-badge loan-return">
+                  <b>Borç iadesi</b>
+                </div>
+              )}
               <h3>{order.customerName}</h3>
               <ul>
                 {order.items.slice(0, 4).map((item, index) => (
@@ -2794,6 +2799,9 @@ function DailyArchive({
                 {ui.originalOrder}: <b>{order.parentOrderNumber}</b>
               </div>
             )}
+            {order.isLoanReturn && (
+              <div className="day-document-badge loan-return"><b>Borç iadesi</b></div>
+            )}
             {(order.attachments || []).some((attachment) => !attachment.deletedAt) && (
               <div className="day-document-badge">
                 {ui.documents}: <b>{(order.attachments || []).filter((attachment) => !attachment.deletedAt).length}</b>
@@ -3002,6 +3010,7 @@ function CreateOrder({
   language: Language;
 }) {
   const ui = copy[language];
+  const isOwner = workflowRole(session.role) === "owner";
   const savedDraft = useMemo(() => {
     try {
       return JSON.parse(localStorage.getItem(draftKey) || "{}") as {
@@ -3237,11 +3246,11 @@ function CreateOrder({
         </label>
       </div>
 
-      <div className="order-type-toggles">
-        <label className="test-order-toggle">
+      <div className={`order-type-toggles${isOwner ? "" : " single"}`}>
+        {isOwner && <label className="test-order-toggle">
           <input type="checkbox" checked={isTest} onChange={(event) => setIsTest(event.target.checked)} />
           <span><b>Test siparişi</b><small>Bildirim gönderilmez; stok ve günlük satış toplamlarına dahil edilmez.</small></span>
-        </label>
+        </label>}
         <label className={`test-order-toggle loan-return-toggle${isLoanReturn ? " active" : ""}`}>
           <input type="checkbox" checked={isLoanReturn} onChange={(event) => setIsLoanReturn(event.target.checked)} />
           <span><b>Borç iadesi</b><small>Teslimde stoktan ve müşterinin borç bakiyesinden düşer.</small></span>
@@ -6369,7 +6378,7 @@ function OrderDetail({
       <Modal
         className={`order-detail-modal status-${order.status}`}
         title={editing ? ui.editOrder : order.customerName}
-        subtitle={`${order.number} · ${statusMeta[order.status].label}`}
+        subtitle={`${order.number} · ${order.isLoanReturn ? "Borç iadesi · " : ""}${statusMeta[order.status].label}`}
         onClose={onClose}
       >
         <div className="order-audit">
