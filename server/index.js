@@ -3312,13 +3312,13 @@ async function handleOrderBoard(req, res, url, parts) {
     const windowsRoot = isExport ? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT" : "\\\\ERSARIF\\SharedFolder\\ErsaShare\\YURT İÇİ";
     const windowsPath = `${windowsRoot}\\${relativePath.replaceAll("/", "\\")}`;
     order.approvalForm.archive = { path: destination, windowsPath, relativePath, filename, archivedAt, archivedBy: req.authUser?.name ?? "Satış", status: order.approvalForm.status };
-    if (!order.isTest) await notifyUsers(
+    if (!order.isTest && archiveIsApproved) await notifyUsers(
       db,
       order,
       orderActivityRecipients(db, order),
-      archiveIsApproved ? "approval_completed" : "approval_form_archived",
-      archiveIsApproved ? "Sipariş formu onaylandı" : "Sipariş formu arşivlendi",
-      `${req.authUser?.name || "Satış"} tarafından ${archiveIsApproved ? "onaylandı" : "arşivlendi"} · ${order.approvalForm.number}`,
+      "approval_completed",
+      "Sipariş formu onaylandı",
+      `${req.authUser?.name || "Satış"} tarafından onaylandı · ${order.approvalForm.number}`,
       req.authUser,
     );
     order.audit ??= [];
