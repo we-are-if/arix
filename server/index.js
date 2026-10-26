@@ -1113,7 +1113,7 @@ function addDayCloseNotification(db, { recipient, date, title, message, actor })
 }
 
 function sendDayCloseNotifications(db, { date, nextDate, actor, automatic, orders }) {
-  const delivered = orders.filter((order) => order.status === "delivered");
+  const delivered = orders.filter((order) => order.status === "delivered" && !order.isLoanReturn);
   const carried = orders.filter((order) => !["delivered", "fulfilled", "cancelled"].includes(order.status));
   const ready = carried.filter((order) => order.status === "ready");
   const waiting = carried.filter((order) => order.status !== "ready");
@@ -2935,6 +2935,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const now = new Date().toISOString();
     const changeReason = String(body.reason || "").trim().slice(0, 300);
     const isTest = workflowRole === "owner" && body.isTest === true;
+    const isLoanReturn = body.isLoanReturn === true;
     const customer = findOrderCustomerByName(db.orderCustomers, customerName);
     const isExport = body.isExport === true || customer?.customerType === "foreign";
     const order = {
@@ -2946,6 +2947,7 @@ async function handleOrderBoard(req, res, url, parts) {
       businessDate: activeOrderDayKey(db),
       status: "new",
       isTest,
+      isLoanReturn,
       isExport,
       items: items.map((item) => ({ ...item, ...normalizeOrderCutAllowance({ ...item, cutAllowanceApplied: false, cutPieceCount: 0, cutAllowancePerPiece: 0 }), preparedQuantity: null })),
       originalItems: items.map((item) => ({ ...item, ...normalizeOrderCutAllowance({ ...item, cutAllowanceApplied: false, cutPieceCount: 0, cutAllowancePerPiece: 0 }), preparedQuantity: null })),
@@ -2957,7 +2959,7 @@ async function handleOrderBoard(req, res, url, parts) {
       audit: [{ id: randomUUID(), action: "created", by: req.authUser?.name ?? "Satışçı", userId: req.authUser?.id, at: now }],
     };
     db.orderBoard.push(order);
-    if (!isTest) await notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "order_created", "Yeni sipariş", `${req.authUser?.name || "Satış"} tarafından oluşturuldu · ${order.number} · ${order.customerName}`, req.authUser);
+    if (!isTest) await notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "order_created", isLoanReturn ? "Yeni borç iadesi" : "Yeni sipariş", `${req.authUser?.name || "Satış"} tarafından oluşturuldu · ${order.number} · ${order.customerName}${isLoanReturn ? " · Borç iadesi" : ""}`, req.authUser);
     await writeDb(db);
     return send(res, 201, { data: order });
   }
@@ -3778,18 +3780,42 @@ async function handleOrderBoard(req, res, url, parts) {
           const movementId = randomUUID();
           if (product) {
             product.physicalQuantity = Number(((Number(product.physicalQuantity) || 0) - allowance.stockConsumptionQuantity).toFixed(3));
+            product.rollCount = Math.max(0, (Number(product.rollCount) || 0) - (Number(item.preparedRollCount) || 0));
             product.stockUpdatedAt = now;
             product.stockUpdatedBy = actor;
           }
           item.stockMovementId = movementId;
           item.stockPostedAt = now;
           Object.assign(item, allowance);
+          let loanReturnedQuantity = 0;
+          if (order.isLoanReturn) {
+            let remaining = allowance.stockConsumptionQuantity;
+            const loanTransactions = (db.stockTransactions || [])
+              .filter((entry) => entry.type === "loan_purchase"
+                && Number(entry.productId) === Number(item.productId)
+                && normalizeSalesRepresentativeName(entry.counterparty || "") === normalizeSalesRepresentativeName(order.customerName)
+                && Number(entry.loanOutstanding) > 0)
+              .sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")));
+            for (const transaction of loanTransactions) {
+              if (remaining <= 0.000001) break;
+              const applied = Math.min(remaining, Number(transaction.loanOutstanding) || 0);
+              transaction.loanOutstanding = Number(((Number(transaction.loanOutstanding) || 0) - applied).toFixed(3));
+              remaining = Number((remaining - applied).toFixed(3));
+              loanReturnedQuantity += applied;
+            }
+            item.loanReturnedQuantity = Number(loanReturnedQuantity.toFixed(3));
+            item.loanReturnUnmatchedQuantity = Number(Math.max(0, remaining).toFixed(3));
+          }
           db.orderStockMovements.push({
             id: movementId, orderId: order.id, orderNumber: order.number, customerName: order.customerName,
             productId: item.productId, productCode: item.productCode, productName: item.productName,
             customerQuantity, cutAllowanceQuantity: allowance.cutAllowanceMeters,
             cutPieceCount: allowance.cutPieceCount, cutAllowancePerPiece: allowance.cutAllowancePerPiece,
-            stockQuantity: allowance.stockConsumptionQuantity, createdAt: now, createdBy: actor,
+            stockQuantity: allowance.stockConsumptionQuantity,
+            rollCount: Math.max(0, Number(item.preparedRollCount) || 0),
+            movementType: order.isLoanReturn ? "loan_return" : "sale",
+            loanReturnedQuantity: order.isLoanReturn ? Number(loanReturnedQuantity.toFixed(3)) : 0,
+            createdAt: now, createdBy: actor,
           });
         }
       }

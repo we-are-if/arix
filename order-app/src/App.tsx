@@ -383,6 +383,7 @@ type Order = {
   }>;
   reportRolloverTo?: string;
   isTest?: boolean;
+  isLoanReturn?: boolean;
   isExport?: boolean;
   exportPackingRequired?: boolean;
   exportPackingStatus?: "pending" | "preparing" | "ready";
@@ -2616,6 +2617,7 @@ function DailyArchive({
         .sort((left, right) => (carriedStatusOrder[left.status] ?? 9) - (carriedStatusOrder[right.status] ?? 9) || String(left.createdAt).localeCompare(String(right.createdAt)));
       const isIncludedInPreparedTotals = (order: Order) => ["ready", "delivered"].includes(order.status);
       const sumOrders = (source: Order[], prepared: boolean) => source.reduce((totals, order) => {
+        if (order.isLoanReturn) return totals;
         for (const item of safeItems(order)) {
           const enteredPreparedQuantity = Number(item.preparedQuantity) || 0;
           const quantity = prepared
@@ -3009,6 +3011,7 @@ function CreateOrder({
         note?: string;
         matches?: Match[];
         isTest?: boolean;
+        isLoanReturn?: boolean;
       };
     } catch {
       return {};
@@ -3020,6 +3023,7 @@ function CreateOrder({
   const [text, setText] = useState(savedDraft.text ?? "");
   const [note, setNote] = useState(savedDraft.note ?? "");
   const [isTest, setIsTest] = useState(savedDraft.isTest === true);
+  const [isLoanReturn, setIsLoanReturn] = useState(savedDraft.isLoanReturn === true);
   const [matches, setMatches] = useState<Match[]>(
     Array.isArray(savedDraft.matches) ? savedDraft.matches.map(withoutCutAllowance) : [],
   );
@@ -3042,9 +3046,9 @@ function CreateOrder({
     }
     localStorage.setItem(
       draftKey,
-      JSON.stringify({ customerName, text, note, matches, isTest }),
+      JSON.stringify({ customerName, text, note, matches, isTest, isLoanReturn }),
     );
-  }, [customerName, text, note, matches, isTest, draftKey]);
+  }, [customerName, text, note, matches, isTest, isLoanReturn, draftKey]);
 
   const customerSuggestions = useMemo(() => {
     if (!customerName.trim()) return customers.slice(0, 6);
@@ -3152,6 +3156,7 @@ function CreateOrder({
     setText("");
     setNote("");
     setIsTest(false);
+    setIsLoanReturn(false);
     setMatches([]);
     setError("");
     setShowCustomerDropdown(false);
@@ -3166,7 +3171,7 @@ function CreateOrder({
     try {
       await api("/api/orders", {
         method: "POST",
-        body: JSON.stringify({ customerName, note, text, items: matches.map(withoutCutAllowance), isTest }),
+        body: JSON.stringify({ customerName, note, text, items: matches.map(withoutCutAllowance), isTest, isLoanReturn }),
       });
       localStorage.removeItem(draftKey);
       onCreated();
@@ -3236,6 +3241,11 @@ function CreateOrder({
       <label className="test-order-toggle">
         <input type="checkbox" checked={isTest} onChange={(event) => setIsTest(event.target.checked)} />
         <span><b>Test siparişi</b><small>Bildirim gönderilmez; stok ve günlük satış toplamlarına dahil edilmez.</small></span>
+      </label>
+
+      <label className="test-order-toggle">
+        <input type="checkbox" checked={isLoanReturn} onChange={(event) => setIsLoanReturn(event.target.checked)} />
+        <span><b>Borç iadesi</b><small>Müşteriden borç alınan ürün geri verilir; teslimde stoktan düşer ve borç bakiyesi azalır.</small></span>
       </label>
 
       {!matches.length ? (
@@ -6341,6 +6351,12 @@ function OrderDetail({
           </div>
           <button type="button" className={order.isTest ? "secondary" : "primary"} disabled={busy} onClick={() => void setOrderTestMode(!order.isTest)}>{order.isTest ? "Test modunu kapat" : "Test moduna al"}</button>
         </div>}
+        {order.isLoanReturn && <div className="order-test-mode-banner active">
+          <div>
+            <b>BORÇ İADESİ</b>
+            <span>Teslim edildiğinde fiziksel stok ve bu müşteriye ait borç alış bakiyesi azalır; satış toplamına dahil edilmez.</span>
+          </div>
+        </div>}
         {order.parentOrderNumber && (
           <div className="parent-order-link detail">
             {ui.originalOrder}: <b>{order.parentOrderNumber}</b>
@@ -7236,11 +7252,18 @@ function OrderDetail({
         {notice && <p className="form-success">{notice}</p>}
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">
-          {canEditOrder && !editing && (
+          {canEditOrder && !editing && !correctingPrepared && (
             <button
               className="secondary"
               disabled={busy}
               onClick={() => {
+                if (order.status === "ready" && workflowRole === "owner") {
+                  setItems(order.items.map((item) => ({ ...item })));
+                  setCorrectingPrepared(true);
+                  setNotice("");
+                  setError("");
+                  return;
+                }
                 beginActivity("order_editing_started");
                 setEditing(true);
               }}
@@ -7289,20 +7312,6 @@ function OrderDetail({
           )}
           {order.status === "ready" && canRollback && !order.parentOrderId && (
             <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("preparing"); }}>{ui.back}</button>
-          )}
-          {order.status === "ready" && workflowRole === "owner" && !correctingPrepared && (
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => {
-                setItems(order.items.map((item) => ({ ...item })));
-                setCorrectingPrepared(true);
-                setNotice("");
-                setError("");
-              }}
-            >
-              Hazır bilgiyi düzelt
-            </button>
           )}
           {order.status === "ready" && workflowRole === "owner" && correctingPrepared && (
             <>
