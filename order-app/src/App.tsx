@@ -1781,12 +1781,6 @@ export default function App() {
 
   const grouped = useMemo(
     () => {
-      const today = new Intl.DateTimeFormat("sv-SE", {
-        timeZone: "Europe/Istanbul",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(new Date());
       return {
         new: orders.filter((order) => order.status === "new"),
         preparing: orders.filter((order) => order.status === "preparing"),
@@ -1796,8 +1790,7 @@ export default function App() {
           const deliveredDate = String(order.deliveredAt || "").slice(0, 10);
           return !orderDay?.date
             || order.businessDate === orderDay.date
-            || deliveredDate === orderDay.date
-            || deliveredDate === today;
+            || deliveredDate === orderDay.date;
         }),
       };
     },
@@ -1805,13 +1798,25 @@ export default function App() {
   );
   const deliveredByDay = useMemo(() => {
     const groups = new Map<string, Order[]>();
+    const rolloverTargetDate = (order: Order, rollover: NonNullable<Order["rolloverHistory"]>[number]) => {
+      const laterActivityDates = [
+        ...(order.history ?? []).map((entry) => entry.at),
+        ...(order.audit ?? []).map((entry) => entry.at),
+        order.deliveredAt,
+      ]
+        .filter((value): value is string => Boolean(value) && String(value) > String(rollover.at || ""))
+        .map((value) => String(value).slice(0, 10))
+        .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date > rollover.fromDate)
+        .sort();
+      return laterActivityDates[0] || rollover.toDate;
+    };
     for (const order of orders) {
       for (const rollover of order.rolloverHistory ?? []) {
         const archivedOrder = {
           ...order,
           ...rollover.snapshot,
           businessDate: rollover.fromDate,
-          reportRolloverTo: rollover.toDate,
+          reportRolloverTo: rolloverTargetDate(order, rollover),
         } as Order;
         groups.set(rollover.fromDate, [
           ...(groups.get(rollover.fromDate) ?? []),

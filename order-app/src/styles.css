@@ -4767,6 +4767,11 @@ textarea {
 .theme-dark .push-device-status.active { background:rgba(34,197,94,.14); color:#86efac; }
 .theme-dark .push-device-status.missing { background:rgba(244,63,94,.14); color:#fda4af; }
 .order-view-tabs button > svg { display:none; }
+@media (min-width:601px) {
+  .board { height:min(720px, calc(100dvh - 300px)); min-height:320px; align-items:stretch; overflow:hidden; }
+  .column { display:flex; height:100%; min-height:0; flex-direction:column; overflow:hidden; }
+  .column .cards { min-height:0; flex:1; overflow-x:hidden; overflow-y:auto; padding-right:4px; padding-bottom:8px; overscroll-behavior:contain; scrollbar-gutter:stable; }
+}
 @media (max-width:600px) {
   .app-shell > header { background:#fff !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }
   .theme-dark.app-shell > header { background:#111827 !important; }

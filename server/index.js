@@ -1982,23 +1982,11 @@ function compactUnchangedAutomaticRollovers(order) {
   order.rolloverHistory = compacted;
 }
 
-function closeOrderDay(db, date, actor, { automatic = false, now = new Date(), actorUser = null } = {}) {
-  const closedAt = now.toISOString();
-  let record = db.orderDays.find((item) => item.date === date);
-  if (!record) {
-    record = { date };
-    db.orderDays.push(record);
-  }
-  if (isEffectiveClosedOrderDay(record)) return { record, carried: 0 };
-
-  let nextDate = nextOrderDayKey(date);
-  while (db.orderDays.some((item) => item.date === nextDate && isEffectiveClosedOrderDay(item))) {
-    nextDate = nextOrderDayKey(nextDate);
-  }
+function rolloverOpenOrders(db, date, nextDate, actor, { automatic = false, closedAt = new Date().toISOString() } = {}) {
   const dayOrders = db.orderBoard.filter((order) => order.businessDate === date);
   let carried = 0;
-  for (const order of db.orderBoard) {
-    if (order.businessDate !== date || ["delivered", "fulfilled", "cancelled"].includes(order.status)) continue;
+  for (const order of dayOrders) {
+    if (["delivered", "fulfilled", "cancelled"].includes(order.status)) continue;
     order.rolloverHistory ??= [];
     const previousRollover = order.rolloverHistory[order.rolloverHistory.length - 1];
     const unchangedAutomaticContinuation = automatic
@@ -2020,6 +2008,23 @@ function closeOrderDay(db, date, actor, { automatic = false, now = new Date(), a
     order.updatedAt = closedAt;
     carried += 1;
   }
+  return { carried, dayOrders };
+}
+
+function closeOrderDay(db, date, actor, { automatic = false, now = new Date(), actorUser = null } = {}) {
+  const closedAt = now.toISOString();
+  let record = db.orderDays.find((item) => item.date === date);
+  if (!record) {
+    record = { date };
+    db.orderDays.push(record);
+  }
+  if (isEffectiveClosedOrderDay(record)) return { record, carried: 0 };
+
+  let nextDate = nextOrderDayKey(date);
+  while (db.orderDays.some((item) => item.date === nextDate && isEffectiveClosedOrderDay(item))) {
+    nextDate = nextOrderDayKey(nextDate);
+  }
+  const { carried, dayOrders } = rolloverOpenOrders(db, date, nextDate, actor, { automatic, closedAt });
 
   record.closed = true;
   record.closedAt = closedAt;
@@ -2043,22 +2048,39 @@ async function closeExpiredOrderDays() {
   return queueOrderMutation(async () => {
     const db = await readDb();
     const today = orderDayKey();
-    const dates = new Set(
-      db.orderBoard
-        .map((order) => String(order.businessDate || ""))
-        .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date < today),
-    );
-    for (const day of db.orderDays) {
-      if (!day.closed && day.date < today) dates.add(day.date);
-    }
-    const yesterday = new Date(`${today}T12:00:00Z`);
-    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-    dates.add(yesterday.toISOString().slice(0, 10));
     let changed = false;
-    for (const date of [...dates].sort()) {
-      const existing = db.orderDays.find((item) => item.date === date);
-      if (existing?.closed) continue;
-      closeOrderDay(db, date, "Otomatik gün kapanışı", { automatic: true });
+    for (let pass = 0; pass < 370; pass += 1) {
+      const dates = new Set(
+        db.orderBoard
+          .map((order) => String(order.businessDate || ""))
+          .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today),
+      );
+      for (const day of db.orderDays) {
+        if (day.date < today && !isEffectiveClosedOrderDay(day)) dates.add(day.date);
+      }
+      const yesterday = new Date(`${today}T12:00:00Z`);
+      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+      dates.add(yesterday.toISOString().slice(0, 10));
+
+      let passChanged = false;
+      for (const date of [...dates].sort()) {
+        const existing = db.orderDays.find((item) => item.date === date);
+        if (isEffectiveClosedOrderDay(existing)) {
+          const stranded = db.orderBoard.some((order) => order.businessDate === date && !["delivered", "fulfilled", "cancelled"].includes(order.status));
+          if (!stranded) continue;
+          const nextDate = existing.carriedToDate || nextOrderDayKey(date);
+          const result = rolloverOpenOrders(db, date, nextDate, existing.closedBy || "Otomatik gün kapanışı", {
+            automatic: existing.automatic === true,
+            closedAt: existing.closedAt || new Date().toISOString(),
+          });
+          if (result.carried > 0) passChanged = true;
+          continue;
+        }
+        if (date >= today) continue;
+        closeOrderDay(db, date, "Otomatik gün kapanışı", { automatic: true });
+        passChanged = true;
+      }
+      if (!passChanged) break;
       changed = true;
     }
     if (changed) await writeDb(db);
