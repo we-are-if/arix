@@ -3516,9 +3516,21 @@ textarea {
   color: #f1f5f9;
   box-shadow: 0 24px 60px rgba(0, 0, 0, .38);
 }
-.theme-dark .modal-header {
+.theme-dark .modal-header,
+.theme-dark .modal > header {
   border-bottom-color: rgba(148, 163, 184, .18);
   background: #1e293b;
+}
+.theme-dark .modal > header h2 { color: #f1f5f9; }
+.theme-dark .modal > header p { color: #94a3b8; }
+.theme-dark .modal > header .close {
+  border-color: #46546a;
+  background: #182130;
+  color: #f1f5f9;
+}
+.theme-dark .modal > header .close:hover {
+  border-color: #818cf8;
+  background: #253247;
 }
 .theme-dark input,
 .theme-dark textarea,
@@ -3632,6 +3644,26 @@ textarea {
 }
 .theme-dark .primary:hover {
   background: #4338ca;
+}
+
+.theme-dark,
+.theme-dark * {
+  scrollbar-color: #64748b #182333;
+}
+.theme-dark ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.theme-dark ::-webkit-scrollbar-track {
+  background: #182333;
+}
+.theme-dark ::-webkit-scrollbar-thumb {
+  border: 2px solid #182333;
+  border-radius: 999px;
+  background: #64748b;
+}
+.theme-dark ::-webkit-scrollbar-thumb:hover {
+  background: #818cf8;
 }
 
 /* Order documents */
