@@ -1800,6 +1800,21 @@ textarea {
 .owner-line-edit select {
   min-width: 0;
 }
+.remove-order-line {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  min-height:38px;
+  border:1px solid #fecaca;
+  border-radius:7px;
+  background:#fff1f2;
+  color:#be123c;
+  font-weight:700;
+}
+.remove-order-line svg { width:16px; height:16px; }
+.remove-order-line:disabled { cursor:not-allowed; opacity:.45; }
+.theme-dark .remove-order-line { border-color:#6f3040; background:#321923; color:#fda4af; }
 .danger-button {
   border: 1px solid #fecaca;
   border-radius: 9px;

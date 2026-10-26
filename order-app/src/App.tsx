@@ -3395,6 +3395,16 @@ function CreateOrder({
                   placeholder={ui.lineNote}
                   aria-label={ui.lineNote}
                 />
+                <button
+                  type="button"
+                  className="remove-order-line"
+                  title="Sipariş satırını kaldır"
+                  aria-label="Sipariş satırını kaldır"
+                  onClick={() => setMatches((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                >
+                  <Trash2 aria-hidden="true" />
+                  <span>Satırı kaldır</span>
+                </button>
                 {newProductIndex === index && (
                   <div className="inline-product-create">
                     <label><span>Ürün kodu</span><input value={newProductCode} onChange={(event) => setNewProductCode(event.target.value)} placeholder="ERSA 000" /></label>
@@ -5862,6 +5872,7 @@ function OrderDetail({
   const [customerName, setCustomerName] = useState(order.customerName);
   const [note, setNote] = useState(order.note ?? "");
   const [editReason, setEditReason] = useState("");
+  const [removedItems, setRemovedItems] = useState<Array<{ productId?: number; productCode?: string; productName: string; reason: string }>>([]);
   const [rollbackTarget, setRollbackTarget] = useState<Status | null>(null);
   const [rollbackReason, setRollbackReason] = useState("");
   const [editing, setEditing] = useState(false);
@@ -6195,10 +6206,11 @@ function OrderDetail({
     try {
       const next = await api<Order>(`/api/orders/${order.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ customerName, note, items, editReason }),
+        body: JSON.stringify({ customerName, note, items, editReason, removedItems }),
       });
       setEditing(false);
       setEditReason("");
+      setRemovedItems([]);
       onChanged(next);
     } catch (cause) {
       setError(
@@ -6578,6 +6590,26 @@ function OrderDetail({
                         )
                       }
                     />
+                    <button
+                      type="button"
+                      className="remove-order-line"
+                      title="Sipariş satırını kaldır"
+                      aria-label={`${item.productName} satırını kaldır`}
+                      disabled={items.length <= 1}
+                      onClick={() => {
+                        const reason = window.prompt(`${item.productName} neden siparişten kaldırılıyor?`, "")?.trim();
+                        if (!reason) {
+                          setError("Ürün satırını kaldırmak için neden yazmalısınız.");
+                          return;
+                        }
+                        setError("");
+                        setRemovedItems((current) => [...current, { productId: item.productId ?? undefined, productCode: item.productCode, productName: item.productName, reason }]);
+                        setItems((current) => current.filter((_, rowIndex) => rowIndex !== index));
+                      }}
+                    >
+                      <Trash2 aria-hidden="true" />
+                      <span>Satırı kaldır</span>
+                    </button>
                   </div>
                 ) : (order.status === "preparing" && canPrepare) || (order.status === "ready" && correctingPrepared) ? (
                   <div className="prep-inputs prepared-quantity-fields">

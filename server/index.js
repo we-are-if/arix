@@ -3736,6 +3736,11 @@ async function handleOrderBoard(req, res, url, parts) {
       }
       if (body.note !== undefined) order.note = String(body.note).trim();
       if (Array.isArray(body.items)) {
+        const removedCount = Math.max(0, (order.items || []).length - body.items.length);
+        const removedItems = Array.isArray(body.removedItems) ? body.removedItems : [];
+        if (removedCount > 0 && (removedItems.length < removedCount || removedItems.some((item) => !String(item?.reason || "").trim()))) {
+          return send(res, 400, { error: "Siparişten kaldırılan her ürün için neden yazılmalıdır." });
+        }
         if (!body.items.length || body.items.some((item) => !item.productId || !(Number(item.quantity) > 0))) {
           return send(res, 400, { error: "Bütün məhsullar və metrajlar düzgün doldurulmalıdır." });
         }
@@ -3871,6 +3876,11 @@ async function handleOrderBoard(req, res, url, parts) {
     }
     if (orderEdited) {
       const reason = String(body.editReason || "Düzenleme nedeni belirtilmedi").trim().slice(0, 300);
+      for (const removed of (Array.isArray(body.removedItems) ? body.removedItems : [])) {
+        const removalReason = String(removed?.reason || "").trim().slice(0, 300);
+        if (!removalReason) continue;
+        order.audit.push({ id: randomUUID(), action: "orderItemRemoved", productId: removed.productId, productName: String(removed.productName || removed.productCode || "Ürün"), oldValue: `${removed.productCode || ""} ${removed.productName || ""}`.trim(), newValue: "Siparişten kaldırıldı", reason: removalReason, by: actor, userId: req.authUser?.id, at: now });
+      }
       if (beforeEdit.customerName !== order.customerName) order.audit.push({ id: randomUUID(), action: "customerNameEdited", oldValue: beforeEdit.customerName, newValue: order.customerName, reason, by: actor, userId: req.authUser?.id, at: now });
       if (String(beforeEdit.note || "") !== String(order.note || "")) order.audit.push({ id: randomUUID(), action: "orderNoteEdited", oldValue: beforeEdit.note || "-", newValue: order.note || "-", reason, by: actor, userId: req.authUser?.id, at: now });
       for (let index = 0; index < Math.max(beforeEdit.items.length, order.items.length); index += 1) {
