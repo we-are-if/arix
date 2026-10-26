@@ -954,6 +954,7 @@ const PERMISSION_CATALOG = [
   { key: "orders.rollback", group: "orders", action: "rollback" },
   { key: "orders.despatch", group: "orders", action: "despatch" },
   { key: "orders.deliver", group: "orders", action: "deliver" },
+  { key: "orders.deliver_without_proof", group: "orders", action: "deliver_without_proof" },
   { key: "orders.delete", group: "orders", action: "delete" },
   { key: "orders.days.view", group: "orders", action: "days_view" },
   { key: "orders.days.manage", group: "orders", action: "days_manage" },
@@ -2107,6 +2108,7 @@ async function handleOrderBoard(req, res, url, parts) {
   const canSell = workflowRole === "owner" || hasPermission(req.authUser, "orders.create") || hasPermission(req.authUser, "order_forms.edit");
   const canPrepare = workflowRole === "owner" || workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare");
   const canDeliver = workflowRole === "owner" || hasPermission(req.authUser, "orders.deliver");
+  const canDeliverWithoutProof = workflowRole === "owner" || hasPermission(req.authUser, "orders.deliver_without_proof");
 
   if (req.method === "GET" && parts[1] === "print-settings") {
     const settings = db.companySettings?.printSettings ?? defaultPrintSettings;
@@ -3773,9 +3775,9 @@ async function handleOrderBoard(req, res, url, parts) {
       }
       if (nextStatus === "delivered") {
         const deliveryNote = String(body.deliveryNote ?? "").trim().slice(0, 500);
-        if (!isOwner && !deliveryNote) return send(res, 400, { error: "Təhvil qeydi məcburidir." });
+        if (!canDeliverWithoutProof && !deliveryNote) return send(res, 400, { error: "Təhvil qeydi məcburidir." });
         const hasDeliveryProof = Boolean(order.deliveryPhoto || (order.attachments || []).some((attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt));
-        if (!isOwner && !hasDeliveryProof) return send(res, 400, { error: "Təhvil faylı məcburidir." });
+        if (!canDeliverWithoutProof && !hasDeliveryProof) return send(res, 400, { error: "Təhvil faylı məcburidir." });
         order.deliveredAt = now;
         order.deliveredBy = actor;
         order.deliveryNote = deliveryNote;

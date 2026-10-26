@@ -4311,6 +4311,7 @@ function SettingsModal({
     "orders.rollback": "Siparişi önceki aşamaya geri gönder",
     "orders.despatch": "İrsaliye durumunu yönet",
     "orders.deliver": "Siparişi teslim et",
+    "orders.deliver_without_proof": "Teslim notu ve dosyası olmadan teslim et",
     "orders.delete": "Sipariş sil ve geri yükle",
     "orders.days.view": "Gün arşivini gör",
     "orders.days.manage": "İş gününü aç ve kapat",
@@ -5902,6 +5903,8 @@ function OrderDetail({
   const canSell = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.create")) || Boolean(session.permissions?.includes("order_forms.edit"));
   const canDeliver =
     workflowRole === "owner" || Boolean(session.permissions?.includes("orders.deliver"));
+  const canDeliverWithoutProof =
+    workflowRole === "owner" || Boolean(session.permissions?.includes("orders.deliver_without_proof"));
   const deliveryProofFiles = (order.attachments || []).filter(
     (attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt,
   );
@@ -7395,7 +7398,7 @@ function OrderDetail({
             <>
               <button
                 className="primary"
-                disabled={busy || (!isOwner && (!deliveryNote.trim() || !hasDeliveryProof))}
+                disabled={busy || (!canDeliverWithoutProof && (!deliveryNote.trim() || !hasDeliveryProof))}
                 onClick={() => changeStatus("delivered")}
               >
                 {ui.delivered}
