@@ -1765,18 +1765,27 @@ export default function App() {
   }, [orders, activeOrder]);
 
   const grouped = useMemo(
-    () => ({
-      new: orders.filter((order) => order.status === "new"),
-      preparing: orders.filter((order) => order.status === "preparing"),
-      ready: orders.filter((order) => order.status === "ready"),
-      delivered: orders.filter(
-        (order) =>
-          order.status === "delivered" &&
-          (!orderDay?.date ||
-            order.businessDate === orderDay.date ||
-            String(order.deliveredAt || "").slice(0, 10) === orderDay.date),
-      ),
-    }),
+    () => {
+      const today = new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Europe/Istanbul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+      return {
+        new: orders.filter((order) => order.status === "new"),
+        preparing: orders.filter((order) => order.status === "preparing"),
+        ready: orders.filter((order) => order.status === "ready"),
+        delivered: orders.filter((order) => {
+          if (order.status !== "delivered") return false;
+          const deliveredDate = String(order.deliveredAt || "").slice(0, 10);
+          return !orderDay?.date
+            || order.businessDate === orderDay.date
+            || deliveredDate === orderDay.date
+            || deliveredDate === today;
+        }),
+      };
+    },
     [orders, orderDay?.date],
   );
   const deliveredByDay = useMemo(() => {
@@ -1795,7 +1804,9 @@ export default function App() {
         ]);
       }
       if (order.status === "cancelled") continue;
-      const value = order.businessDate || order.createdAt || new Date().toISOString();
+      const value = order.status === "delivered" && order.deliveredAt
+        ? order.deliveredAt
+        : order.businessDate || order.createdAt || new Date().toISOString();
       if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
         groups.set(value, [...(groups.get(value) ?? []), order]);
         continue;

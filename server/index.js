@@ -3744,7 +3744,7 @@ async function handleOrderBoard(req, res, url, parts) {
       parentOrderNumber: order.number,
       customerName: order.customerName,
       note: order.note,
-      businessDate: order.businessDate || activeOrderDayKey(db),
+      businessDate: activeOrderDayKey(db),
       status: "ready",
       items: selected.map((item) => ({
         ...item,
