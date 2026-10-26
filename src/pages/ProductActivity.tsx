@@ -9,7 +9,10 @@ import { defaultPrintSettings, mergePrintSettings, printTemplateHasSlot, type Pr
 import { blobToBase64, htmlDocumentToPdf } from "../pdf";
 import orderDocumentStyles from "../../order-app/src/styles.css?raw";
 import { showToast } from "../toast";
-import OrderDocumentPaper from "../components/OrderDocumentPaper";
+import OrderDocumentPaper, {
+  type OrderDocumentForm,
+  type OrderDocumentLine,
+} from "../components/OrderDocumentPaper";
 
 const cx = (...s: (string | false | undefined)[]) => s.filter(Boolean).join(" ");
 
@@ -167,20 +170,7 @@ type ApiDocument = {
   deliveryTerms?: string;
   note?: string;
   salesRepresentative?: string;
-  approvalFormSnapshot?: {
-    number?: string;
-    documentType?: "domestic" | "proforma" | "commercial_invoice" | "packing_list";
-    customerName?: string;
-    customerContact?: string;
-    customerAddress?: string;
-    customerPhone?: string;
-    customerEmail?: string;
-    paymentTerms?: string;
-    deliveryTerms?: string;
-    note?: string;
-    currency?: string;
-    exchangeRate?: number;
-  };
+  approvalFormSnapshot?: Partial<OrderDocumentForm>;
   sourceOrderId?: string;
   lines?: ApiDocumentLine[];
   bondedStock?: {
@@ -957,6 +947,127 @@ const applyPackingStrategy = (rows: PackingRow[], options: DocumentPrintOptions)
   });
 };
 
+const orderDocumentTypeForMode = (
+  mode: PrintFormMode,
+): NonNullable<OrderDocumentForm["documentType"]> | null => {
+  if (mode === "orderConfirmation") return "domestic";
+  if (mode === "proforma") return "proforma";
+  if (mode === "commercial") return "commercial_invoice";
+  if (mode === "packingList") return "packing_list";
+  return null;
+};
+
+const orderDocumentCurrency = (
+  value: unknown,
+  fallback: OrderDocumentForm["currency"],
+): OrderDocumentForm["currency"] => (
+  value === "TRY" || value === "USD" || value === "EUR" ? value : fallback
+);
+
+const buildOrderDocumentForm = (
+  row: ActivityRow,
+  products: ProductLine[],
+  document: ApiDocument | undefined,
+  documentType: NonNullable<OrderDocumentForm["documentType"]>,
+  displayDate: string,
+): OrderDocumentForm => {
+  const snapshot = document?.approvalFormSnapshot ?? {};
+  const sourceLines: ApiDocumentLine[] = document?.lines?.length
+    ? document.lines
+    : products.map((product) => ({
+        productId: product.productId,
+        name: product.name,
+        barcode: product.barcode,
+        sku: product.sku || product.barcode,
+        qty: product.qty,
+        price: product.price,
+        discount: product.discount,
+        total: product.total,
+        preparedRollCount: 0,
+        width: 1.42,
+        taxRate: documentType === "domestic" ? 20 : 0,
+      }));
+  const fallbackLines: OrderDocumentLine[] = sourceLines.map((line) => ({
+    productId: Number.isFinite(Number(line.productId)) ? Number(line.productId) : null,
+    productCode: String(line.sku || line.barcode || ""),
+    productName: String(line.name || ""),
+    quantity: Number(line.qty || 0),
+    rollCount: Number(line.preparedRollCount || 0),
+    width: Number(line.width || 1.42),
+    unitPrice: Number(line.price || 0),
+    discountRate: 0,
+    vatRate: documentType === "domestic" ? Number(line.taxRate ?? line.vatRate ?? 20) : 0,
+  }));
+  const lines = snapshot.lines?.length
+    ? snapshot.lines.map((line) => ({
+        ...line,
+        productId: line.productId ?? null,
+        productCode: String(line.productCode || ""),
+        productName: String(line.productName || ""),
+        quantity: Number(line.quantity || 0),
+        rollCount: Number(line.rollCount || 0),
+        unitPrice: Number(line.unitPrice || 0),
+        discountRate: Number(line.discountRate || 0),
+        vatRate: Number(line.vatRate || 0),
+      }))
+    : fallbackLines;
+  const documentNumber = String(
+    snapshot.number || document?.documentNumber || document?.number || row.documentId || row.id,
+  );
+  const defaultCurrency: OrderDocumentForm["currency"] = documentType === "domestic" ? "TRY" : "EUR";
+
+  return {
+    ...snapshot,
+    number: documentNumber,
+    documentType,
+    proformaNumber: String(snapshot.proformaNumber || documentNumber),
+    invoiceNumber: String(snapshot.invoiceNumber || (documentType === "commercial_invoice" ? document?.documentNumber || "" : "")),
+    shipmentDate: String(snapshot.shipmentDate || displayDate),
+    date: String(snapshot.date || displayDate),
+    salesRepresentative: String(snapshot.salesRepresentative || document?.salesRepresentative || (documentType === "domestic" ? "" : "Ekrem Tiryaki")),
+    currency: orderDocumentCurrency(snapshot.currency, defaultCurrency),
+    exchangeRate: Number(snapshot.exchangeRate || 1),
+    vatIncluded: Boolean(snapshot.vatIncluded),
+    lines,
+    overallDiscountRate: Number(snapshot.overallDiscountRate || 0),
+    extraCharge: Number(snapshot.extraCharge || 0),
+    extraChargeLabel: String(snapshot.extraChargeLabel || "Nakliye / ek ücret"),
+    paymentTerms: String(snapshot.paymentTerms ?? document?.paymentTerms ?? ""),
+    deliveryTerms: String(snapshot.deliveryTerms ?? document?.deliveryTerms ?? ""),
+    note: String(snapshot.note ?? document?.note ?? ""),
+    status: snapshot.status === "approved" || row.status === "Təsdiqlənib" ? "approved" : "draft",
+    approvedBy: String(snapshot.approvedBy || document?.salesRepresentative || ""),
+    customerName: String(snapshot.customerName || row.recipient),
+    customerContact: String(snapshot.customerContact || ""),
+    customerAddress: String(snapshot.customerAddress || ""),
+    customerPhone: String(snapshot.customerPhone || ""),
+    customerEmail: String(snapshot.customerEmail || ""),
+    customerTaxOffice: String(snapshot.customerTaxOffice || ""),
+    customerTaxNumber: String(snapshot.customerTaxNumber || ""),
+    packageType: String(snapshot.packageType || "STANDARD EXPORT PACKAGING"),
+    productDescription: String(snapshot.productDescription || "PVC FOIL"),
+    incoterm: String(snapshot.incoterm || "FCA Istanbul, Türkiye - Incoterms® 2020"),
+    shipmentPort: String(snapshot.shipmentPort || "Istanbul / Türkiye"),
+    destination: String(snapshot.destination || snapshot.customerAddress || row.recipient),
+    countryOfOrigin: String(snapshot.countryOfOrigin || "CHINA"),
+    bankName: String(snapshot.bankName || "ALBARAKA TÜRK PARTICIPATION BANK"),
+    swiftCode: String(snapshot.swiftCode || "BTFHTRISXXX"),
+    iban: String(snapshot.iban || "TR56 0020 3000 0998 7324 0000 02"),
+    buyerOrderNumber: String(snapshot.buyerOrderNumber || ""),
+    transportMode: String(snapshot.transportMode || "ROAD"),
+    vehicleContainerNumber: String(snapshot.vehicleContainerNumber || ""),
+    transportDocumentNumber: String(snapshot.transportDocumentNumber || ""),
+    loadingPlace: String(snapshot.loadingPlace || "Istanbul / Türkiye"),
+    marksAndNumbers: String(snapshot.marksAndNumbers || ""),
+    freightAmount: Number(snapshot.freightAmount || 0),
+    insuranceAmount: Number(snapshot.insuranceAmount || 0),
+    exporterDeclaration: String(
+      snapshot.exporterDeclaration
+        || "We hereby certify that the information contained in this invoice is true and correct.",
+    ),
+  };
+};
+
 const buildSalesExportPrintHtml = (
   row: ActivityRow,
   products: ProductLine[],
@@ -998,79 +1109,44 @@ const buildSalesExportPrintHtml = (
     grossKg: sum.grossKg + item.grossKg,
   }), { pallets: new Set<string>(), roll: 0, qty: 0, sqm: 0, netKg: 0, grossKg: 0 });
 
-  if (options.formMode === "orderConfirmation") {
-    const snapshot = document?.approvalFormSnapshot ?? {};
-    const confirmationLines = (document?.lines ?? []).map((line, index) => {
-      const qty = Number(line.qty || 0);
-      const width = Number(line.width || 1.42);
-      const squareMeters = qty * width;
-      const gross = qty * Number(line.price || 0);
-      const net = Number(line.total ?? gross - Number(line.discount || 0));
-      const vatRate = Number(line.taxRate ?? line.vatRate ?? 20);
-      const vat = net * vatRate / 100;
-      return { line, index: index + 1, qty, width, squareMeters, net, vatRate, vat, total: net + vat };
-    });
-    const confirmationTotals = confirmationLines.reduce((sum, item) => ({
-      qty: sum.qty + item.qty,
-      squareMeters: sum.squareMeters + item.squareMeters,
-      net: sum.net + item.net,
-      vat: sum.vat + item.vat,
-      total: sum.total + item.total,
-    }), { qty: 0, squareMeters: 0, net: 0, vat: 0, total: 0 });
-    const paymentTerms = document?.paymentTerms || snapshot.paymentTerms || "Belirtilmedi";
-    const deliveryTerms = document?.deliveryTerms || snapshot.deliveryTerms || "Belirtilmedi";
-    const customerName = snapshot.customerName || row.recipient;
-    const formNumber = snapshot.number || document?.documentNumber || document?.number || docNo;
+  const orderDocumentType = orderDocumentTypeForMode(options.formMode);
+  if (orderDocumentType) {
     const company = printSettings.companyDetails;
-    const paper = renderToStaticMarkup(<OrderDocumentPaper
-      kind="domestic"
-      company={{ name: printSettings.companyName, subtitle: printSettings.brandSubtitle, address: company.address, phone: company.phone, email: company.email, website: company.website, taxOffice: company.taxOffice, taxNumber: company.taxNumber, logo: printSettings.companyLogo, stamp: printSettings.companyStamp }}
-      status={row.status === "Təsdiqlənib" ? "approved" : "draft"}
-      approvedBy={document?.salesRepresentative}
-      number={formNumber}
-      orderNumber={row.order}
-      date={date}
-      representative={document?.salesRepresentative || "-"}
-      currency={`${snapshot.currency || "TRY"} · ${Number(snapshot.exchangeRate || 1).toLocaleString("tr-TR")}`}
-      customer={{ name: customerName, contact: snapshot.customerContact, address: snapshot.customerAddress, phone: snapshot.customerPhone, email: snapshot.customerEmail }}
-      lines={confirmationLines.map((item) => ({ name: String(item.line.name || ""), code: String(item.line.sku || ""), rolls: Number(item.line.preparedRollCount || 0), quantity: item.qty, width: item.width, unitPrice: `₺${money(Number(item.line.price || 0))}`, amount: `₺${money(item.net)}` }))}
-      totals={{ subtotal: `₺${money(confirmationTotals.net)}`, tax: `₺${money(confirmationTotals.vat)}`, extra: "₺0,00", total: `₺${money(confirmationTotals.total)}` }}
-      paymentTerms={paymentTerms}
-      deliveryTerms={deliveryTerms}
-      note={document?.note || snapshot.note}
-    />);
-    return `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><title>${escapeHtml(formNumber)}</title><style>${orderDocumentStyles}html,body{margin:0;background:#eef2f7}.approval-paper{width:203mm;min-height:290mm;margin:3.5mm auto;box-sizing:border-box;aspect-ratio:auto}</style></head><body>${paper}<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));</script></body></html>`;
-  }
-
-  if (options.formMode === "proforma" || options.formMode === "commercial" || options.formMode === "packingList") {
-    const snapshot = document?.approvalFormSnapshot ?? {};
-    const company = printSettings.companyDetails;
-    const kind = options.formMode === "commercial" ? "commercial_invoice" : options.formMode === "packingList" ? "packing_list" : "proforma";
-    const exportLines = options.formMode === "packingList"
-      ? packingRows.map((item) => ({ name: item.productName, code: item.code, rolls: item.rollCount, quantity: item.qty, width: sqmFactor, unitPrice: "", amount: "", pallet: Number(String(item.pallet).replace(/\D/g, "")) || 1, netWeight: item.netKg, grossWeight: item.grossKg }))
-      : productRows.map((item) => ({ name: item.product.name, code: item.product.sku || item.product.barcode, rolls: Math.max(1, Math.round(item.qty / 100)), quantity: item.qty, width: sqmFactor, unitPrice: `${currency}${money(item.product.price)}`, amount: `${currency}${money(item.amount)}`, origin: "CHINA" }));
-    const paper = renderToStaticMarkup(<OrderDocumentPaper
-      kind={kind}
-      company={{ name: printSettings.companyName, subtitle: printSettings.brandSubtitle, address: company.address, phone: company.phone, email: company.email, website: company.website, taxOffice: company.taxOffice, taxNumber: company.taxNumber, logo: printSettings.companyLogo, stamp: printSettings.companyStamp }}
-      status={row.status === "Təsdiqlənib" ? "approved" : "draft"}
-      approvedBy={document?.salesRepresentative}
-      number={snapshot.number || document?.documentNumber || docNo}
-      orderNumber={row.order}
-      date={date}
-      proformaDate={formatCustomsDate(row.documentDate)}
-      representative={document?.salesRepresentative || "Ekrem Tiryaki"}
-      invoiceNumber={document?.documentNumber || "-"}
-      currency={snapshot.currency || "EUR"}
-      customer={{ name: snapshot.customerName || row.recipient, contact: snapshot.customerContact, address: snapshot.customerAddress, phone: snapshot.customerPhone, email: snapshot.customerEmail }}
-      lines={exportLines}
-      totals={{ subtotal: `${currency}${money(totals.amount)}`, tax: `${currency}0,00`, extra: `${currency}0,00`, total: `${currency}${money(totals.amount)}` }}
-      paymentTerms={document?.paymentTerms || snapshot.paymentTerms || "Bank transfer"}
-      deliveryTerms={document?.deliveryTerms || snapshot.deliveryTerms || "FCA Istanbul"}
-      note={document?.note || snapshot.note}
-      bank={{ name: "ALBARAKA TÜRK", swift: "BTFHTRISXXX", iban: "TR56 0020 3000 0998 7324 0000 02" }}
-      exportDetails={{ packageType: "STANDARD EXPORT PACKAGE", description: "PVC FOIL", incoterm: "FCA Istanbul", shipmentPort: "ISTANBUL / TURKEY", destination: row.recipient, origin: "CHINA", loadingPlace: "Istanbul", declaration: "We hereby certify that this invoice is true and correct." }}
-    />);
-    return `<!doctype html><html lang="en"><head><meta charset="utf-8"/><title>${escapeHtml(title.title)} ${escapeHtml(docNo)}</title><style>${orderDocumentStyles}html,body{margin:0;background:#eef2f7}.approval-paper{width:203mm;min-height:290mm;margin:3.5mm auto;box-sizing:border-box;aspect-ratio:auto}</style></head><body>${paper}<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));</script></body></html>`;
+    const orderForm = buildOrderDocumentForm(
+      row,
+      products,
+      document,
+      orderDocumentType,
+      date,
+    );
+    const paper = renderToStaticMarkup(
+      <OrderDocumentPaper
+        form={orderForm}
+        order={{ number: row.order, customerName: row.recipient }}
+        printSettings={{
+          companyName: printSettings.companyName,
+          brandSubtitle: printSettings.brandSubtitle,
+          addressLine: company.address,
+          phone: company.phone,
+          email: company.email,
+          website: company.website,
+          taxOffice: company.taxOffice,
+          taxNumber: company.taxNumber,
+          companyLogo: printSettings.companyLogo,
+          companyStamp: printSettings.companyStamp,
+        }}
+        pdfExport
+      />,
+    );
+    return "<!doctype html><html lang=\""
+      + (orderDocumentType === "domestic" ? "tr" : "en")
+      + "\"><head><meta charset=\"utf-8\"/><title>"
+      + escapeHtml(orderForm.number)
+      + "</title><style>"
+      + orderDocumentStyles
+      + "html,body{margin:0;background:#eef2f7}body{box-sizing:border-box;padding:3.5mm 0}.approval-paper.pdf-export{margin:0 auto!important}</style></head><body>"
+      + paper
+      + "<script>window.addEventListener(\"load\",()=>setTimeout(()=>window.print(),250));</script></body></html>";
   }
 
   return `<!doctype html>
@@ -1286,6 +1362,7 @@ const openDocumentPrint = (
   const sourceHtml = buildDocumentPrintMarkup(row, products, document, options, printSettings);
   const isLandscape = options.formMode === "customs"
     || (options.formMode !== "packingList" && options.paperMode === "landscape");
+  const isOrderPaper = Boolean(orderDocumentTypeForMode(options.formMode));
   const previewCss = `
     <style>
       @media screen {
@@ -1293,7 +1370,7 @@ const openDocumentPrint = (
         body { min-width: max-content; padding: 76px 24px 32px; background: #e8ebf1; }
         .arix-preview-toolbar { position: fixed; z-index: 1000; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; padding: 10px 24px; border-bottom: 1px solid #d6dbe5; background: rgba(255,255,255,.96); box-shadow: 0 4px 18px rgba(15,23,42,.08); font: 600 14px/1.2 Arial, sans-serif; }
         .arix-preview-toolbar button { min-height: 40px; border: 0; border-radius: 8px; padding: 0 18px; background: #4f46e5; color: #fff; font: inherit; cursor: pointer; }
-        .arix-preview-sheet { width: ${isLandscape ? "297mm" : "210mm"}; min-height: ${isLandscape ? "210mm" : "297mm"}; margin: 0 auto; padding: ${options.formMode === "customs" ? "9mm" : options.formMode === "packingList" || ["orderConfirmation", "proforma", "commercial"].includes(options.formMode) ? "10mm" : "11mm"}; background: #fff; box-shadow: 0 12px 35px rgba(15,23,42,.18); }
+        .arix-preview-sheet { width: ${isOrderPaper ? "203mm" : isLandscape ? "297mm" : "210mm"}; min-height: ${isOrderPaper ? "290mm" : isLandscape ? "210mm" : "297mm"}; margin: 0 auto; padding: ${isOrderPaper ? "0" : options.formMode === "customs" ? "9mm" : "11mm"}; background: ${isOrderPaper ? "transparent" : "#fff"}; box-shadow: ${isOrderPaper ? "none" : "0 12px 35px rgba(15,23,42,.18)"}; }
       }
       @media print {
         .arix-preview-toolbar { display: none !important; }

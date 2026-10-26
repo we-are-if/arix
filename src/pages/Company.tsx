@@ -1940,25 +1940,72 @@ function ExportDocumentPreview({ settings, formKey, form }: { settings: PrintSet
   const kind = domestic ? "domestic" : formKey === "commercial" ? "commercial_invoice" : packing ? "packing_list" : "proforma";
   const documentNo = packing ? "PL-2026-014" : domestic ? "SOF-9137308" : formKey === "proforma" ? "PI-2026-002" : "CI-2026-014";
   const paper = <OrderDocumentPaper
-    kind={kind}
-    company={{ name: settings.companyName, subtitle: settings.brandSubtitle, address: settings.companyDetails.address, phone: settings.companyDetails.phone, email: settings.companyDetails.email, website: settings.companyDetails.website, taxOffice: settings.companyDetails.taxOffice, taxNumber: settings.companyDetails.taxNumber, logo: settings.companyLogo, stamp: settings.companyStamp }}
-    status="draft"
-    number={documentNo}
-    orderNumber="ORD-9137308"
-    date="25.10.2026"
-    representative={domestic ? "Mustafa Yazman" : "Ekrem Tiryaki"}
-    invoiceNumber={formKey === "commercial" ? "EXP2026000148" : "-"}
-    currency={domestic ? "TL · 1" : "EUR"}
-    customer={{ name: domestic ? "AKYÜZ GRUP" : "SAMPLE IMPORT GmbH", contact: domestic ? "Mustafa Yazman" : "Purchasing Department", address: domestic ? "İstanbul · Türkiye" : "Berlin · Germany", phone: "+49 30 000 00 00", email: "purchasing@example.com" }}
-    lines={sampleProducts.map((item, index) => ({ name: item.name, code: item.sku, rolls: index + 2, quantity: item.qty, width: 1.42, unitPrice: domestic ? `₺${item.price.toFixed(2)}` : `€${item.price.toFixed(2)}`, amount: domestic ? `₺${item.total.toFixed(2)}` : `€${item.total.toFixed(2)}`, pallet: index < 2 ? 1 : 2, netWeight: item.qty * 1.55, grossWeight: item.qty * 1.65, dimensions: "120 × 100 × 130 cm", origin: "CHINA" }))}
-    totals={{ subtotal: domestic ? "₺117.378,00" : "€2,378.40", tax: domestic ? "₺23.475,60" : "€0.00", extra: domestic ? "₺0,00" : "€0.00", total: domestic ? "₺140.853,60" : "€2,378.40" }}
-    paymentTerms={domestic ? "Sipariş onayında peşin ödeme" : "Bank transfer"}
-    deliveryTerms={domestic ? "Depo teslim" : "FCA Istanbul / Turkey"}
-    note={form.footerNote}
-    bank={{ name: "ALBARAKA TÜRK", swift: "BTFHTRISXXX", iban: "TR56 0020 3000 0998 7324 0000 02" }}
-    exportDetails={{ packageType: "STANDARD EXPORT PACKAGE", description: "PVC FOIL", incoterm: "FCA Istanbul", shipmentPort: "ISTANBUL / TURKEY", destination: "Berlin / Germany", origin: "CHINA", loadingPlace: "Istanbul", transportMode: "ROAD", declaration: "We hereby certify that this invoice is true and correct." }}
+    form={{
+      number: documentNo,
+      documentType: kind,
+      proformaNumber: documentNo,
+      invoiceNumber: formKey === "commercial" ? "EXP2026000148" : "",
+      shipmentDate: "25.10.2026",
+      date: "25.10.2026",
+      salesRepresentative: domestic ? "Mustafa Yazman" : "Ekrem Tiryaki",
+      currency: domestic ? "TRY" : "EUR",
+      exchangeRate: 1,
+      vatIncluded: false,
+      lines: sampleProducts.map((item, index) => ({
+        productId: index + 1,
+        productCode: item.sku,
+        productName: item.name,
+        quantity: item.qty,
+        rollCount: index + 2,
+        width: 1.42,
+        unitPrice: item.price,
+        discountRate: 0,
+        vatRate: domestic ? 20 : 0,
+        netWeight: item.qty * 1.55,
+        grossWeight: item.qty * 1.65,
+        countryOfOrigin: "CHINA",
+      })),
+      overallDiscountRate: 0,
+      extraCharge: 0,
+      extraChargeLabel: "Nakliye / ek ücret",
+      paymentTerms: domestic ? "Sipariş onayında peşin ödeme" : "Bank transfer",
+      deliveryTerms: domestic ? "Depo teslim" : "FCA Istanbul / Turkey",
+      note: form.footerNote,
+      status: "draft",
+      customerName: domestic ? "AKYÜZ GRUP" : "SAMPLE IMPORT GmbH",
+      customerContact: domestic ? "Mustafa Yazman" : "Purchasing Department",
+      customerAddress: domestic ? "İstanbul · Türkiye" : "Berlin · Germany",
+      customerPhone: "+49 30 000 00 00",
+      customerEmail: "purchasing@example.com",
+      packageType: "STANDARD EXPORT PACKAGING",
+      productDescription: "PVC FOIL",
+      incoterm: "FCA Istanbul",
+      shipmentPort: "ISTANBUL / TURKEY",
+      destination: "Berlin / Germany",
+      countryOfOrigin: "CHINA",
+      bankName: "ALBARAKA TÜRK",
+      swiftCode: "BTFHTRISXXX",
+      iban: "TR56 0020 3000 0998 7324 0000 02",
+      transportMode: "ROAD",
+      loadingPlace: "Istanbul",
+      exporterDeclaration: "We hereby certify that this invoice is true and correct.",
+    }}
+    order={{ number: "ORD-9137308", customerName: domestic ? "AKYÜZ GRUP" : "SAMPLE IMPORT GmbH" }}
+    printSettings={{
+      companyName: settings.companyName,
+      brandSubtitle: settings.brandSubtitle,
+      addressLine: settings.companyDetails.address,
+      phone: settings.companyDetails.phone,
+      email: settings.companyDetails.email,
+      website: settings.companyDetails.website,
+      taxOffice: settings.companyDetails.taxOffice,
+      taxNumber: settings.companyDetails.taxNumber,
+      companyLogo: settings.companyLogo,
+      companyStamp: settings.companyStamp,
+    }}
+    pdfExport
   />;
-  const source = `<!doctype html><html><head><meta charset="utf-8"><style>${orderDocumentStyles}html,body{margin:0;background:#fff}.approval-paper{width:210mm;min-height:297mm;box-sizing:border-box;aspect-ratio:auto;border-radius:0;box-shadow:none}</style></head><body>${renderToStaticMarkup(paper)}</body></html>`;
+  const source = `<!doctype html><html><head><meta charset="utf-8"><style>${orderDocumentStyles}html,body{margin:0;background:#fff}body{padding:3.5mm 0;box-sizing:border-box}.approval-paper.pdf-export{margin:0 auto!important}</style></head><body>${renderToStaticMarkup(paper)}</body></html>`;
   return <iframe title={`${form.title} A4 önizleme`} srcDoc={source} className="h-[297mm] w-[210mm] border-0 bg-white" />;
 }
 
