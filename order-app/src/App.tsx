@@ -5331,7 +5331,7 @@ function SettingsModal({
                       ["approval_requested", "Onay bekleyen form"],
                       ["approval_completed", "Form onaylandı"],
                       ["approval_form_archived", "Form PDF arşivlendi"],
-                      ["despatch_ready", "İrsaliye hazır"],
+                      ["despatch_ready", "İrsaliye hazırlandı, teslim edilebilir"],
                       ["order_delivered", "Sipariş teslim edildi"],
                       ["day_closed", "Gün kapanış özeti"],
                       ["announcement", "Yönetici duyuruları"],

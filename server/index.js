@@ -3483,6 +3483,11 @@ async function handleOrderBoard(req, res, url, parts) {
     const ready = body.ready === true;
     const number = String(body.number ?? "").trim().slice(0, 80);
     if (ready && !number) return send(res, 400, { error: "İrsaliye nömrəsi məcburidir." });
+    const wasReady = order.despatchReady === true;
+    const previousNumber = String(order.despatchNumber || "").trim();
+    if (wasReady === ready && (!ready || previousNumber === number)) {
+      return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+    }
     const now = new Date().toISOString();
     order.despatchReady = ready;
     order.despatchNumber = ready ? number : "";
@@ -3491,7 +3496,17 @@ async function handleOrderBoard(req, res, url, parts) {
     order.updatedAt = now;
     order.audit ??= [];
     order.audit.push({ id: randomUUID(), action: ready ? "despatchReady" : "despatchRevoked", newValue: number, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: now });
-    if (ready) notifyUsers(db, order, db.authUsers.filter((user) => hasPermission(user, "orders.deliver")), "despatch_ready", "İrsaliye hazır", `${req.authUser?.name || "Satış"} tarafından hazırlandı · ${order.number} · ${order.customerName}`, req.authUser);
+    if (ready && !wasReady) {
+      notifyUsers(
+        db,
+        order,
+        db.authUsers.filter((user) => hasPermission(user, "orders.deliver")),
+        "despatch_ready",
+        "İrsaliye hazırlandı · Teslim edilebilir",
+        `${number} numaralı irsaliye ${req.authUser?.name || "Satış"} tarafından hazırlandı · ${order.number} · ${order.customerName}`,
+        req.authUser,
+      );
+    }
     await writeDb(db);
     return send(res, 200, { data: orderWithPresence(order, req.authUser) });
   }
