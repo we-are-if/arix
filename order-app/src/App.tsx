@@ -197,6 +197,23 @@ type OrderItem = Match & {
   preparedByUserId?: string;
   preparedAt?: string;
 };
+
+const CUT_ALLOWANCE_REQUIRED_BELOW_METERS = 70;
+
+const requiresCutAllowance = (item: OrderItem, preparedQuantity = Number(item.preparedQuantity ?? item.quantity) || 0) =>
+  preparedQuantity > 0 && preparedQuantity < CUT_ALLOWANCE_REQUIRED_BELOW_METERS;
+
+const hasRequiredCutAllowance = (item: OrderItem) =>
+  !requiresCutAllowance(item) || (item.cutAllowanceApplied === true && cutAllowanceTotal(item) > 0);
+
+const requiredCutAllowancePatch = (item: OrderItem, preparedQuantity: number) => {
+  if (!(preparedQuantity > 0 && preparedQuantity < CUT_ALLOWANCE_REQUIRED_BELOW_METERS)) return {};
+  return {
+    cutAllowanceApplied: true,
+    cutPieceCount: Math.max(1, Number(item.cutPieceCount) || 1),
+    cutAllowancePerPiece: Math.max(0.2, cutAllowancePerPieceValue(item)),
+  };
+};
 type OrderAudit = {
   id: string;
   action: string;
@@ -2708,6 +2725,7 @@ function DailyArchive({
         cancelled: "İptal edildi",
       }[String(value)] || String(value ?? "-"));
       const reportAuditAction = (entry: OrderAudit) => {
+        if (entry.action === "preparedCorrection") return `Hazır ürün bilgisini düzeltti: ${String(entry.newValue || "")}`;
         if (entry.action !== "status") return "Sipariş bilgilerini düzenledi";
         const from = String(entry.oldValue ?? "");
         const to = String(entry.newValue ?? "");
@@ -2721,9 +2739,20 @@ function DailyArchive({
       type ReportPage = { kind: "orders"; orders: Order[] } | { kind: "carried"; orders: Order[] };
       const reportPages: ReportPage[] = [];
       const realOrders = orders.filter((order) => !order.isTest);
+      const reportSourceById = new Map<string, Order>();
+      for (const [, groupedOrders] of groups) {
+        for (const groupedOrder of groupedOrders) {
+          if (!reportSourceById.has(groupedOrder.id)) reportSourceById.set(groupedOrder.id, groupedOrder);
+        }
+      }
+      for (const order of realOrders) reportSourceById.set(order.id, order);
       const childParentIds = new Set(realOrders.map((order) => order.parentOrderId).filter(Boolean));
+      const mergedSourceIds = new Set(realOrders.flatMap((order) => order.mergedOrderIds ?? []));
+      const mergedTargetIds = new Set(realOrders.map((order) => order.id));
       const uniqueOrders = [...new Map(realOrders
         .filter((order) => !(order.status === "fulfilled" && childParentIds.has(order.id)))
+        .filter((order) => !mergedSourceIds.has(order.id))
+        .filter((order) => !(order.mergedIntoOrderId && mergedTargetIds.has(order.mergedIntoOrderId)))
         .map((order) => [`${order.id}:${order.reportRolloverTo || "current"}`, order] as const)).values()]
         .map((order) => ({
           ...order,
@@ -2774,6 +2803,25 @@ function DailyArchive({
         allowance: deliveredTotals.allowance + carriedTotals.allowance,
         totalMeters: deliveredTotals.totalMeters + carriedTotals.totalMeters,
       };
+      const reportSources = (order: Order) => {
+        const sources = (order.mergedOrderIds ?? [])
+          .map((sourceId) => reportSourceById.get(sourceId))
+          .filter((source): source is Order => Boolean(source));
+        return sources.length ? sources : [order];
+      };
+      const uniqueAuditEvents = (sourceOrders: Order[], actions: string[]) => [...new Map(sourceOrders
+        .flatMap((source) => source.audit ?? [])
+        .filter((entry) => actions.includes(entry.action))
+        .sort((left, right) => String(left.at).localeCompare(String(right.at)))
+        .map((entry) => [`${entry.action}|${entry.by}|${entry.at}`, entry] as const)).values()];
+      const uniqueHistoryEvents = (sourceOrders: Order[], status: Status) => [...new Map(sourceOrders
+        .flatMap((source) => source.history ?? [])
+        .filter((entry) => entry.status === status)
+        .sort((left, right) => String(left.at).localeCompare(String(right.at)))
+        .map((entry) => [`${entry.by}|${entry.at}`, entry] as const)).values()];
+      const peopleWithTimes = (events: Array<{ by: string; at: string }>, fallbackName = "-", fallbackAt?: string) => events.length
+        ? events.map((entry) => `${escapeHtml(entry.by)} · ${formatTime(entry.at)}`).join("<br>")
+        : `${escapeHtml(fallbackName)} · ${formatTime(fallbackAt)}`;
       let pageOrders: Order[] = [];
       let pageUnits = 0;
       for (const order of activeOrders) {
@@ -2800,13 +2848,44 @@ function DailyArchive({
       stage.innerHTML = `<style>
         .products td:has(.changes)>b:first-child{display:none}
         .order-title h2{font-size:14pt!important}.order-title h2 small{font-size:8pt!important}.status{font-size:7.5pt!important}.meta span{font-size:7.2pt!important;padding:1.5mm 1.7mm!important}.meta b{font-size:8pt!important}.products{font-size:7.5pt!important}.products th{padding:1.5mm 1.2mm!important}.products td{padding:1.8mm 1.2mm!important}.products b{font-size:8pt!important}.products small{font-size:7pt!important}.products .allowance{margin-top:1mm!important;color:#6b3fd4!important;font-weight:800}.detail{font-size:7pt!important;padding:2mm!important}.detail b{font-size:7.6pt!important}.edits{margin-top:2mm!important;padding:2mm!important;border-left:1mm solid #8b7cf6!important;background:#f7f6ff!important;font-size:7.2pt!important;line-height:1.65!important}.edits b{display:block!important;margin-bottom:1mm!important;font-size:8pt!important}.carry-row{grid-template-columns:2fr .8fr 1fr 1fr!important;font-size:7.2pt!important}.carry-row b{font-size:8pt!important}.carry-row small{font-size:6.5pt!important;line-height:1.35!important}.proofs{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:3mm!important;margin-top:3mm!important;padding:3mm!important;background:#f5f7fa!important}.proofs img{box-sizing:border-box!important;width:100%!important;height:60mm!important;border-radius:1.5mm!important;object-fit:contain!important;background:#fff!important}.proofs:has(img:only-child){grid-template-columns:1fr!important}.proofs img:only-child{width:110mm!important;height:70mm!important}
-        .daily-pdf-stage{position:absolute;z-index:2147483647;top:0;left:0;width:210mm;background:#fff;color:#17233b;font-family:Aptos,"Segoe UI",Arial,sans-serif}.daily-pdf-page{position:relative;box-sizing:border-box;width:210mm;height:297mm;padding:7mm 8mm 10mm;background:#fff;overflow:hidden;page-break-after:always}.pdf-brand{display:flex;align-items:center;justify-content:space-between;padding-bottom:2.3mm;border-bottom:.6mm solid #5545ef}.pdf-logo{display:flex;align-items:center;gap:2mm}.pdf-logo svg{width:9mm;height:9mm}.pdf-logo b{font-size:11pt}.pdf-logo small,.pdf-date span{display:block;color:#748097;font-size:5.7pt}.pdf-date{text-align:right}.pdf-date strong{font-size:7.5pt}.order-block{margin-top:3mm;border-top:.7mm solid #dfe5ee;padding-top:2mm}.order-block:first-of-type{border-top:0}.order-title{display:flex;align-items:center;justify-content:space-between;gap:3mm}.order-title h2{margin:0;font-size:11pt}.order-title h2 small{margin-left:2mm;color:#66738a;font-size:6pt;font-weight:600}.status{border-radius:1.5mm;background:#fff3d8;padding:1mm 1.8mm;color:#946000;font-size:5.7pt;font-weight:800}.status.ok{background:#e7f9f1;color:#087c52}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:1mm;margin:1.5mm 0}.meta span{border-left:.7mm solid #d9d4ff;background:#f7f8fb;padding:1mm 1.3mm;font-size:5.4pt;line-height:1.3}.meta b{display:block;font-size:6.2pt}.products{width:100%;border-collapse:collapse;table-layout:fixed;font-size:5.6pt}.products th{background:#eef2f7;color:#59667b;padding:1mm;text-align:left}.products td{padding:1.2mm 1mm;border-bottom:1px solid #e5eaf0;vertical-align:top}.products .num{text-align:right}.products b{font-size:6.1pt}.products small{display:block;margin-top:.35mm;color:#718096;line-height:1.25}.changes{color:#5545c9!important}.positive{color:#087c52}.negative{color:#b4542d}.detail-row{display:grid;grid-template-columns:1fr 1fr;gap:1.3mm;margin-top:1.3mm}.detail{background:#f5f7fa;padding:1.2mm 1.5mm;font-size:5.4pt;line-height:1.35;white-space:pre-wrap}.detail b{font-size:5.8pt}.proofs{display:flex;gap:1mm;margin-top:1mm}.proofs img{width:24mm;height:16mm;border:1px solid #dfe5ed;border-radius:1mm;object-fit:cover}.edits{margin-top:1mm;color:#5e6980;font-size:5.2pt}.carry-title{margin:5mm 0 2mm;font-size:14pt}.carry-row{display:grid;grid-template-columns:1.2fr .8fr 1fr 1fr;gap:2mm;border-bottom:1px solid #e4e9f0;padding:2.3mm 1mm;font-size:6.5pt}.carry-row b{display:block;font-size:7.2pt}.carry-row small{display:block;color:#748097;margin-top:.5mm}.pdf-footer{position:absolute;right:8mm;bottom:3.5mm;left:8mm;display:flex;justify-content:space-between;border-top:1px solid #e2e7ef;padding-top:1.5mm;color:#7b8799;font-size:5.5pt}.pdf-footer b{color:#28344a}
+        .daily-pdf-stage{position:absolute;z-index:2147483647;top:0;left:0;width:210mm;background:#fff;color:#17233b;font-family:Aptos,"Segoe UI",Arial,sans-serif}.daily-pdf-page{position:relative;box-sizing:border-box;width:210mm;height:297mm;padding:7mm 8mm 10mm;background:#fff;overflow:hidden;page-break-after:always}.pdf-brand{display:flex;align-items:center;justify-content:space-between;padding-bottom:2.3mm;border-bottom:.6mm solid #5545ef}.pdf-logo{display:flex;align-items:center;gap:2mm}.pdf-logo svg{width:9mm;height:9mm}.pdf-logo b{font-size:11pt}.pdf-logo small,.pdf-date span{display:block;color:#748097;font-size:5.7pt}.pdf-date{text-align:right}.pdf-date strong{font-size:7.5pt}.order-block{margin-top:3mm;border-top:.7mm solid #dfe5ee;padding-top:2mm}.order-block:first-of-type{border-top:0}.order-title{display:flex;align-items:center;justify-content:space-between;gap:3mm}.order-title h2{margin:0;font-size:11pt}.order-title h2 small{margin-left:2mm;color:#66738a;font-size:6pt;font-weight:600}.merged-orders{display:flex;align-items:center;flex-wrap:wrap;gap:1.2mm;margin-top:1.5mm;padding:1.5mm 2mm;border-left:.8mm solid #5545ef;background:#f4f2ff;color:#4d43ad;font-size:6.2pt}.merged-orders span{padding:.5mm 1mm;border:1px solid #d9d4ff;background:#fff;font-weight:700}.status{border-radius:1.5mm;background:#fff3d8;padding:1mm 1.8mm;color:#946000;font-size:5.7pt;font-weight:800}.status.ok{background:#e7f9f1;color:#087c52}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:1mm;margin:1.5mm 0}.meta span{border-left:.7mm solid #d9d4ff;background:#f7f8fb;padding:1mm 1.3mm;font-size:5.4pt;line-height:1.35}.meta b{display:block;font-size:6.2pt}.products{width:100%;border-collapse:collapse;table-layout:fixed;font-size:5.6pt}.products th{background:#eef2f7;color:#59667b;padding:1mm;text-align:left}.products td{padding:1.2mm 1mm;border-bottom:1px solid #e5eaf0;vertical-align:top}.products .num{text-align:right}.products b{font-size:6.1pt}.products small{display:block;margin-top:.35mm;color:#718096;line-height:1.25}.changes{color:#5545c9!important}.positive{color:#087c52}.negative{color:#b4542d}.detail-row{display:grid;grid-template-columns:1fr 1fr;gap:1.3mm;margin-top:1.3mm}.detail{background:#f5f7fa;padding:1.2mm 1.5mm;font-size:5.4pt;line-height:1.35;white-space:pre-wrap}.detail b{font-size:5.8pt}.proofs{display:flex;gap:1mm;margin-top:1mm}.proofs img{width:24mm;height:16mm;border:1px solid #dfe5ed;border-radius:1mm;object-fit:cover}.edits{margin-top:1mm;color:#5e6980;font-size:5.2pt}.carry-title{margin:5mm 0 2mm;font-size:14pt}.carry-row{display:grid;grid-template-columns:1.2fr .8fr 1fr 1fr;gap:2mm;border-bottom:1px solid #e4e9f0;padding:2.3mm 1mm;font-size:6.5pt}.carry-row b{display:block;font-size:7.2pt}.carry-row small{display:block;color:#748097;margin-top:.5mm}.pdf-footer{position:absolute;right:8mm;bottom:3.5mm;left:8mm;display:flex;justify-content:space-between;border-top:1px solid #e2e7ef;padding-top:1.5mm;color:#7b8799;font-size:5.5pt}.pdf-footer b{color:#28344a}
       </style>${reportPages.map((page, pageIndex) => `<section class="daily-pdf-page"><header class="pdf-brand"><div class="pdf-logo">${logo}<span><b>AriX Panel</b><small>Gün sonu operasyon raporu</small></span></div><div class="pdf-date"><strong>${escapeHtml(new Date(`${day}T12:00:00`).toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric", weekday: "long" }))}</strong><span>${escapeHtml(new Date().toLocaleString("tr-TR"))}</span></div></header>${page.kind === "carried" ? `<h1 class="carry-title">Devredenler</h1>` : ""}${page.orders.map((order) => {
-        const preparing = historyEvent(order, "preparing"); const ready = historyEvent(order, "ready"); const formSaved = auditEvent(order, ["approvalFormSaved"]); const formApproved = auditEvent(order, ["approvalFormApproved"]); const formArchived = auditEvent(order, ["approvalFormArchived", "approvalFormDraftArchived"]); const orderEdits = (order.audit ?? []).filter((entry) => ["customerNameEdited", "orderNoteEdited", "orderEdited", "status"].includes(entry.action));
-        const photos = [order.deliveryPhoto, ...(order.attachments ?? []).filter((file) => file.kind === "deliveryProof" && !file.deletedAt && file.mimeType.startsWith("image/")).map((file) => file.url)].filter(Boolean).slice(0, 2) as string[];
+        const sourceOrders = reportSources(order);
+        const activityOrders = sourceOrders.some((source) => source.id === order.id) ? sourceOrders : [order, ...sourceOrders];
+        const displayApproval = order.approvalForm ?? sourceOrders.find((source) => source.approvalForm)?.approvalForm;
+        const preparing = historyEvent(order, "preparing");
+        const ready = historyEvent(order, "ready");
+        const formApprovedEvents = uniqueAuditEvents(sourceOrders, ["approvalFormApproved"]);
+        const formArchivedEvents = uniqueAuditEvents(sourceOrders, ["approvalFormArchived", "approvalFormDraftArchived"]);
+        const formApproved = formApprovedEvents[formApprovedEvents.length - 1] ?? auditEvent(order, ["approvalFormApproved"]);
+        const formArchived = formArchivedEvents[formArchivedEvents.length - 1] ?? auditEvent(order, ["approvalFormArchived", "approvalFormDraftArchived"]);
+        const creatorEvents = [...new Map(sourceOrders.map((source) => [`${source.createdBy}|${source.createdAt}`, { by: source.createdBy, at: source.createdAt }] as const)).values()];
+        const preparingEvents = uniqueHistoryEvents(sourceOrders, "preparing");
+        const formEditorEvents = uniqueAuditEvents(sourceOrders, ["approvalFormSaved"]);
+        const legacyFormEditors = [...new Map(sourceOrders.filter((source) => source.approvalForm?.updatedBy).map((source) => [`${source.approvalForm?.updatedBy}|${source.approvalForm?.updatedAt}`, { by: source.approvalForm?.updatedBy || "-", at: source.approvalForm?.updatedAt || "" }] as const)).values()];
+        const orderEdits = activityOrders.flatMap((source) => source.audit ?? []).filter((entry) => ["customerNameEdited", "orderNoteEdited", "orderEdited", "preparedCorrection", "status"].includes(entry.action)).sort((left, right) => String(left.at).localeCompare(String(right.at)));
+        const photos = [...new Set([order.deliveryPhoto, ...(order.attachments ?? []).filter((file) => file.kind === "deliveryProof" && !file.deletedAt && file.mimeType.startsWith("image/")).map((file) => file.url)].filter(Boolean))].slice(0, 2) as string[];
         const documents = (order.attachments ?? []).filter((file) => !file.deletedAt).map((file) => `${file.name} · ${file.uploadedBy} · ${formatTime(file.uploadedAt)}`).join("\n");
         const despatchLabel = order.withoutDespatch ? "İrsaliyesiz teslim" : (order.despatchNumber || "İrsaliye yok");
-        return `<article class="order-block"><div class="order-title"><h2>${escapeHtml(order.customerName)} <small>${escapeHtml(order.number)} · ${escapeHtml(order.approvalForm?.number || "Form yok")} · ${escapeHtml(despatchLabel)}</small></h2><span class="status ${order.status === "delivered" ? "ok" : ""}">${escapeHtml(reportStatusLabel(order.status))}${page.kind === "carried" && !isIncludedInPreparedTotals(order) ? " · Hazırlanmadı, toplama dahil değil" : ""}</span></div><div class="meta"><span><b>Sipariş veren: ${escapeHtml(order.createdBy)}</b>${formatTime(order.createdAt)}</span><span><b>Müşteri temsilcisi: ${escapeHtml(order.approvalForm?.salesRepresentative || "-")}</b>${escapeHtml(order.approvalForm?.customerContact || order.customerName)}</span><span><b>Hazırlamaya başlayan: ${escapeHtml(preparing?.by || order.preparedBy || "-")}</b>${formatTime(preparing?.at)}</span><span><b>Sipariş formu: ${escapeHtml(formSaved?.by || order.approvalForm?.updatedBy || "-")}</b>${formatTime(formSaved?.at || order.approvalForm?.updatedAt)}</span><span><b>İrsaliye yapan: ${escapeHtml(order.despatchReadyBy || "-")}</b>${formatTime(order.despatchReadyAt)}</span><span><b>Fatura yapan: Meliha Keskin</b>${formatTime(order.despatchReadyAt)}</span><span><b>Teslim eden: ${escapeHtml(order.deliveredBy || "-")}</b>${formatTime(order.deliveredAt)}</span></div><table class="products"><colgroup><col style="width:9%"><col style="width:24%"><col style="width:11%"><col style="width:11%"><col style="width:9%"><col style="width:36%"></colgroup><thead><tr><th>Kod</th><th>Ürün</th><th class="num">Sipariş</th><th class="num">Hazırlanan</th><th class="num">Fark</th><th>Hazırlayanlar ve değişiklikler</th></tr></thead><tbody>${safeItems(order).map((item) => { const original = (order.originalItems ?? []).find((entry) => Number(entry.productId) === Number(item.productId)); const requested = Number(original?.quantity ?? item.quantity) || 0; const prepared = Number(item.preparedQuantity ?? (["ready", "delivered"].includes(order.status) ? item.quantity : 0)) || 0; const difference = prepared - requested; const changes = (order.audit ?? []).filter((entry) => Number(entry.productId) === Number(item.productId) && ["preparedQuantity", "preparedRollCount", "cutAllowance", "orderItemEdited"].includes(entry.action)); return `<tr><td><b>${escapeHtml(item.productCode || "-")}</b></td><td><b>${escapeHtml(item.productName)}</b><small>${escapeHtml(item.lineNote || "")}</small></td><td class="num"><b>${formatNumber(requested)} mt</b><small>${formatNumber(Number(original?.orderedRollCount) || 0)} rulo</small></td><td class="num"><b>${formatNumber(prepared)} mt</b><small>${item.cutAllowanceApplied || Number(item.cutPieceCount) > 0 ? `${formatNumber(Number(item.cutPieceCount) || 1)} parça` : `${formatNumber(Number(item.preparedRollCount) || 0)} rulo`}</small><small class="allowance">Pay: ${formatNumber(Number(item.cutAllowanceMeters) || 0)} mt</small></td><td class="num"><b class="${difference >= 0 ? "positive" : "negative"}">${difference > 0 ? "+" : ""}${formatNumber(difference)} mt</b></td><td><b>${escapeHtml(item.preparedBy || ready?.by || order.preparedBy || "-")} · ${formatTime(item.preparedAt || ready?.at)}</b>${changes.map((entry) => `<small class="changes">${escapeHtml(entry.by)} · ${formatTime(entry.at)} · ${entry.action === "preparedQuantity" ? "Metre" : entry.action === "preparedRollCount" ? "Rulo" : entry.action === "cutAllowance" ? "Kesim payı" : "Sipariş satırı"}: ${escapeHtml(entry.oldValue ?? "-")} → ${escapeHtml(entry.newValue ?? "-")}${entry.reason ? ` · Neden: ${escapeHtml(entry.reason)}` : ""}</small>`).join("")}</td></tr>`; }).join("") || `<tr><td colspan="6">Ürün bulunmuyor.</td></tr>`}</tbody></table>${orderEdits.length ? `<div class="edits"><b>Düzenleme geçmişi:</b> ${orderEdits.map((entry) => `${escapeHtml(entry.by)} · ${formatTime(entry.at)} · ${escapeHtml(reportAuditAction(entry))}${entry.reason ? ` · Neden: ${escapeHtml(entry.reason)}` : ""}`).join("<br>")}</div>` : ""}<div class="detail-row"><div class="detail"><b>NOTLAR VE KOŞULLAR</b>\n${escapeHtml(order.note || "Sipariş notu yok.")}\nÖdeme: ${escapeHtml(order.approvalForm?.paymentTerms || "Belirtilmedi")} · Teslimat: ${escapeHtml(order.approvalForm?.deliveryTerms || "Belirtilmedi")}\nEk not: ${escapeHtml(order.approvalForm?.note || "Yok")}</div><div class="detail"><b>FORM / İRSALİYE / TESLİM</b>\nOnay: ${escapeHtml(formApproved?.by || order.approvalForm?.approvedBy || "-")} · ${formatTime(formApproved?.at || order.approvalForm?.approvedAt)}\nArşiv: ${escapeHtml(formArchived?.by || order.approvalForm?.archive?.archivedBy || "-")} · ${formatTime(formArchived?.at || order.approvalForm?.archive?.archivedAt)}\nTeslim notu: ${escapeHtml(order.deliveryNote || "Henüz teslim edilmedi")}\n${escapeHtml(documents || "Ek belge yok")}</div></div>${photos.length ? `<div class="proofs">${photos.map((url) => `<img src="${escapeHtml(url)}" alt="Teslim kanıtı">`).join("")}</div>` : ""}</article>`;
+        const formNumbers = [...new Set(sourceOrders.map((source) => source.approvalForm?.number).filter(Boolean))] as string[];
+        const representatives = [...new Set(sourceOrders.map((source) => source.approvalForm?.salesRepresentative).filter(Boolean))] as string[];
+        const contacts = [...new Set(sourceOrders.map((source) => source.approvalForm?.customerContact).filter(Boolean))] as string[];
+        const mergedOrdersHtml = order.mergedOrderNumbers?.length
+          ? `<div class="merged-orders"><b>Birleşen siparişler:</b> ${order.mergedOrderNumbers.map((number) => `<span>${escapeHtml(number)}</span>`).join("")}</div>`
+          : "";
+        const formEditorSummary = peopleWithTimes(formEditorEvents.length ? formEditorEvents : legacyFormEditors);
+        const deliveryNoteLabel = order.deliveryNote || (order.status === "delivered" ? "Teslim notu girilmedi" : "Henüz teslim edilmedi");
+        const sourceItemContext = (itemIndex: number) => {
+          if (!order.mergedOrderIds?.length) return { orders: [order], itemIndex };
+          let localIndex = itemIndex;
+          for (const source of sourceOrders) {
+            const sourceLength = safeItems(source).length;
+            if (localIndex < sourceLength) return { orders: [source, order], itemIndex: localIndex };
+            localIndex -= sourceLength;
+          }
+          return { orders: [order], itemIndex };
+        };
+        return `<article class="order-block"><div class="order-title"><h2>${escapeHtml(order.customerName)} <small>${escapeHtml(order.number)} · ${escapeHtml(formNumbers.join(" · ") || "Form yok")} · ${escapeHtml(despatchLabel)}</small></h2><span class="status ${order.status === "delivered" ? "ok" : ""}">${escapeHtml(reportStatusLabel(order.status))}${page.kind === "carried" && !isIncludedInPreparedTotals(order) ? " · Hazırlanmadı, toplama dahil değil" : ""}</span></div>${mergedOrdersHtml}<div class="meta"><span><b>Sipariş verenler</b>${peopleWithTimes(creatorEvents)}</span><span><b>Müşteri temsilcisi: ${escapeHtml(representatives.join(", ") || "-")}</b>${escapeHtml(contacts.join(", ") || order.customerName)}</span><span><b>Hazırlamaya başlayanlar</b>${peopleWithTimes(preparingEvents, preparing?.by || order.preparedBy || "-", preparing?.at)}</span><span><b>Sipariş formunu düzenleyenler</b>${formEditorSummary}</span><span><b>İrsaliye yapan: ${escapeHtml(order.despatchReadyBy || "-")}</b>${formatTime(order.despatchReadyAt)}</span><span><b>Fatura yapan: Meliha Keskin</b>${formatTime(order.despatchReadyAt)}</span><span><b>Teslim eden: ${escapeHtml(order.deliveredBy || "-")}</b>${formatTime(order.deliveredAt)}</span></div><table class="products"><colgroup><col style="width:9%"><col style="width:24%"><col style="width:11%"><col style="width:11%"><col style="width:9%"><col style="width:36%"></colgroup><thead><tr><th>Kod</th><th>Ürün</th><th class="num">Sipariş</th><th class="num">Hazırlanan</th><th class="num">Fark</th><th>Hazırlayanlar ve değişiklikler</th></tr></thead><tbody>${safeItems(order).map((item, itemIndex) => { const original = (order.originalItems ?? [])[itemIndex] ?? (order.originalItems ?? []).find((entry) => Number(entry.productId) === Number(item.productId)); const requested = Number(original?.quantity ?? item.quantity) || 0; const requestedRolls = Number(original?.orderedRollCount ?? item.orderedRollCount) || 0; const prepared = Number(item.preparedQuantity ?? (["ready", "delivered"].includes(order.status) ? item.quantity : 0)) || 0; const preparedRolls = Number(item.preparedRollCount) || 0; const rollBased = !(requested > 0) && requestedRolls > 0; const difference = rollBased ? preparedRolls - requestedRolls : prepared - requested; const differenceUnit = rollBased ? "rulo" : "mt"; const itemContext = sourceItemContext(itemIndex); const changes = itemContext.orders.flatMap((source) => source.audit ?? []).filter((entry) => (Number(entry.itemIndex) === itemContext.itemIndex || (entry.itemIndex === undefined && Number(entry.productId) === Number(item.productId))) && ["preparedQuantity", "preparedRollCount", "cutAllowance", "orderItemEdited"].includes(entry.action)); return `<tr><td><b>${escapeHtml(item.productCode || "-")}</b></td><td><b>${escapeHtml(item.productName)}</b><small>${escapeHtml(item.lineNote || "")}</small></td><td class="num"><b>${rollBased ? `${formatNumber(requestedRolls)} rulo` : `${formatNumber(requested)} mt`}</b>${!rollBased && requestedRolls > 0 ? `<small>${formatNumber(requestedRolls)} rulo</small>` : ""}</td><td class="num"><b>${formatNumber(prepared)} mt</b><small>${item.cutAllowanceApplied || Number(item.cutPieceCount) > 0 ? `${formatNumber(Number(item.cutPieceCount) || 1)} parça` : `${formatNumber(preparedRolls)} rulo`}</small><small class="allowance">Pay: ${formatNumber(Number(item.cutAllowanceMeters) || 0)} mt</small></td><td class="num"><b class="${difference >= 0 ? "positive" : "negative"}">${difference > 0 ? "+" : ""}${formatNumber(difference)} ${differenceUnit}</b></td><td><b>${escapeHtml(item.preparedBy || ready?.by || order.preparedBy || "-")} · ${formatTime(item.preparedAt || ready?.at)}</b>${changes.map((entry) => `<small class="changes">${escapeHtml(entry.by)} · ${formatTime(entry.at)} · ${entry.action === "preparedQuantity" ? "Metre" : entry.action === "preparedRollCount" ? "Rulo" : entry.action === "cutAllowance" ? "Kesim payı" : "Sipariş satırı"}: ${escapeHtml(entry.oldValue ?? "-")} → ${escapeHtml(entry.newValue ?? "-")}${entry.reason ? ` · Neden: ${escapeHtml(entry.reason)}` : ""}</small>`).join("")}</td></tr>`; }).join("") || `<tr><td colspan="6">Ürün bulunmuyor.</td></tr>`}</tbody></table>${orderEdits.length ? `<div class="edits"><b>Düzenleme geçmişi:</b> ${orderEdits.map((entry) => `${escapeHtml(entry.by)} · ${formatTime(entry.at)} · ${escapeHtml(reportAuditAction(entry))}${entry.reason ? ` · Neden: ${escapeHtml(entry.reason)}` : ""}`).join("<br>")}</div>` : ""}<div class="detail-row"><div class="detail"><b>NOTLAR VE KOŞULLAR</b>\n${escapeHtml(order.note || "Sipariş notu yok.")}\nÖdeme: ${escapeHtml(displayApproval?.paymentTerms || "Belirtilmedi")} · Teslimat: ${escapeHtml(displayApproval?.deliveryTerms || "Belirtilmedi")}\nEk not: ${escapeHtml(displayApproval?.note || "Yok")}</div><div class="detail"><b>FORM / İRSALİYE / TESLİM</b>\nOnay: ${escapeHtml(formApproved?.by || displayApproval?.approvedBy || "-")} · ${formatTime(formApproved?.at || displayApproval?.approvedAt)}\nArşiv: ${escapeHtml(formArchived?.by || displayApproval?.archive?.archivedBy || "-")} · ${formatTime(formArchived?.at || displayApproval?.archive?.archivedAt)}\nTeslim notu: ${escapeHtml(deliveryNoteLabel)}\n${escapeHtml(documents || "Ek belge yok")}</div></div>${photos.length ? `<div class="proofs">${photos.map((url) => `<img src="${escapeHtml(url)}" alt="Teslim kanıtı">`).join("")}</div>` : ""}</article>`;
       }).join("")}${pageIndex === reportPages.length - 1 ? `<h2 style="margin:5mm 0 2mm;font-size:13pt">Toplam Rapor</h2>${totalsBlock("Teslim edilenler toplamı", deliveredTotals)}${carriedOrders.length ? totalsBlock("Devredenler toplamı", carriedTotals) : ""}${totalsBlock(carriedOrders.length ? "Genel toplam · teslim edilen + devreden" : "Teslim edilenler · genel toplam", overallTotals)}` : ""}<footer class="pdf-footer"><span>Powered by <b>AriX</b> · www.arix.az</span><span>Sayfa ${pageIndex + 1}/${reportPages.length}</span></footer></section>`).join("")}`;
       document.body.appendChild(stage);
       await document.fonts.ready;
@@ -4145,6 +4224,8 @@ function SettingsModal({
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [broadcastSending, setBroadcastSending] = useState(false);
+  const [notificationsPaused, setNotificationsPaused] = useState(false);
+  const [notificationControlBusy, setNotificationControlBusy] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState<NotificationHistoryGroup[]>([]);
   const [notificationHistoryLoading, setNotificationHistoryLoading] = useState(false);
   const [accessLogs, setAccessLogs] = useState<AccessLog[]>([]);
@@ -4220,13 +4301,15 @@ function SettingsModal({
 
   const loadEmployees = useCallback(async () => {
     try {
-      const [employeeData, permissionResponse] = await Promise.all([
+      const [employeeData, permissionResponse, notificationControl] = await Promise.all([
         api<Employee[]>("/api/employees"),
         request<{ data: PermissionDefinition[]; roleDefaults?: Record<string, string[]> }>("/api/employees/permission-catalog"),
+        api<{ paused?: boolean }>("/api/orders/notification-control"),
       ]);
       setEmployees(employeeData);
       setPermissionCatalog(permissionResponse.data);
       setRoleDefaults(permissionResponse.roleDefaults ?? {});
+      setNotificationsPaused(Boolean(notificationControl.paused));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "İstifadəçilər yüklənmədi.",
@@ -4394,10 +4477,14 @@ function SettingsModal({
     }
     setBroadcastSending(true);
     try {
-      const result = await api<{ recipients: number; pushed: number }>("/api/orders/notifications/broadcast", {
+      const result = await api<{ recipients: number; pushed: number; paused?: boolean }>("/api/orders/notifications/broadcast", {
         method: "POST",
         body: JSON.stringify({ test, title: broadcastTitle, message: broadcastMessage }),
       });
+      if (result.paused) {
+        setSuccess("Bildirimler duraklatıldığı için gönderilmedi.");
+        return;
+      }
       if (!test) {
         setBroadcastTitle("");
         setBroadcastMessage("");
@@ -4408,6 +4495,24 @@ function SettingsModal({
       setError(err instanceof Error ? err.message : "Toplu bildirim gönderilemedi.");
     } finally {
       setBroadcastSending(false);
+    }
+  };
+
+  const setNotificationPause = async (paused: boolean) => {
+    setError("");
+    setSuccess("");
+    setNotificationControlBusy(true);
+    try {
+      const result = await api<{ paused: boolean }>("/api/orders/notification-control", {
+        method: "PATCH",
+        body: JSON.stringify({ paused }),
+      });
+      setNotificationsPaused(Boolean(result.paused));
+      setSuccess(paused ? "Tüm bildirimler geçici olarak duraklatıldı." : "Tüm bildirimler yeniden açıldı.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Bildirim ayarı güncellenemedi.");
+    } finally {
+      setNotificationControlBusy(false);
     }
   };
 
@@ -5413,6 +5518,20 @@ function SettingsModal({
 
       {tab === "users" && settingsTabs.some((item) => item.id === "users") && (
         <div className="order-users-list">
+          <section className="notification-control-panel">
+            <div>
+              <b>Bildirim gönderimi</b>
+              <span>{notificationsPaused ? "Yeni uygulama içi, cihaz ve gün sonu bildirimleri geçici olarak duraklatıldı." : "Yeni sistem bildirimleri aktif olarak gönderiliyor."}</span>
+            </div>
+            <button
+              type="button"
+              className={notificationsPaused ? "primary-button" : "secondary-button"}
+              disabled={notificationControlBusy}
+              onClick={() => void setNotificationPause(!notificationsPaused)}
+            >
+              {notificationControlBusy ? "Kaydediliyor…" : notificationsPaused ? "Bildirimleri yeniden aç" : "Tüm bildirimleri duraklat"}
+            </button>
+          </section>
           <section className="broadcast-notification-panel">
             <div>
               <b>Toplu bildirim</b>
@@ -5976,9 +6095,18 @@ function OrderDetail({
 }) {
   const ui = copy[language];
   const workDraftKey = `arix-order-work:${session.id}:${order.id}`;
-  const prepareItems = (source: Order) => source.items.map((item) => source.status === "preparing" && !(Number(item.preparedQuantity) > 0)
-    ? { ...item, preparedQuantity: Number(item.quantity) || 0, preparedRollCount: Math.max(0, Number(item.preparedRollCount) || 0) }
-    : item);
+  const prepareItems = (source: Order) => source.items.map((item) => {
+    if (source.status !== "preparing") return item;
+    const preparedQuantity = Number(item.preparedQuantity) > 0
+      ? Number(item.preparedQuantity)
+      : Number(item.quantity) || 0;
+    return {
+      ...item,
+      preparedQuantity,
+      preparedRollCount: Math.max(0, Number(item.preparedRollCount) || 0),
+      ...requiredCutAllowancePatch(item, preparedQuantity),
+    };
+  });
   const savedWork = useMemo(() => {
     try {
       return JSON.parse(localStorage.getItem(workDraftKey) || "{}") as { items?: OrderItem[]; deliveryNote?: string; despatchNumber?: string; withoutDespatch?: boolean };
@@ -5997,6 +6125,7 @@ function OrderDetail({
   const [rollbackReason, setRollbackReason] = useState("");
   const [editing, setEditing] = useState(false);
   const [correctingPrepared, setCorrectingPrepared] = useState(false);
+  const [preparedCorrectionReason, setPreparedCorrectionReason] = useState("");
   const [activeEditors, setActiveEditors] = useState(order.activeEditors ?? []);
   const draftTimers = useRef<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
@@ -6225,14 +6354,34 @@ function OrderDetail({
   };
 
   const savePreparedCorrection = async () => {
+    const missingRoll = items.find((item) => Number(item.preparedQuantity) > 0 && !(Number.isInteger(Number(item.preparedRollCount)) && Number(item.preparedRollCount) > 0));
+    if (missingRoll) {
+      setError(`${missingRoll.productName}: hazırlanan rulo sayısı en az 1 olmalıdır.`);
+      return;
+    }
+    let correctionReason = preparedCorrectionReason.trim();
+    if (!correctionReason) {
+      correctionReason = window.prompt("Düzenleme nedenini yazın", "")?.trim() || "";
+    }
+    if (!correctionReason) {
+      setError("Düzenleme nedeni zorunludur.");
+      return;
+    }
+    setPreparedCorrectionReason(correctionReason);
+    const missingAllowance = items.find((item) => Number(item.preparedQuantity) > 0 && !hasRequiredCutAllowance(item));
+    if (missingAllowance) {
+      setError(`${missingAllowance.productName}: 70 mt'den küçük hazırlamalarda kesim payı zorunludur.`);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const next = await api<Order>(`/api/orders/${order.id}/prepared-correction`, {
         method: "PATCH",
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, reason: correctionReason }),
       });
       setCorrectingPrepared(false);
+      setPreparedCorrectionReason("");
       setNotice("Hazır ürün bilgisi düzeltildi ve bildirim gönderildi.");
       onChanged(next);
     } catch (cause) {
@@ -6243,6 +6392,18 @@ function OrderDetail({
   };
 
   const changeStatus = async (status: Status, reason = "") => {
+    if (status === "ready") {
+      const missingRoll = items.find((item) => Number(item.preparedQuantity) > 0 && !(Number.isInteger(Number(item.preparedRollCount)) && Number(item.preparedRollCount) > 0));
+      if (missingRoll) {
+        setError(`${missingRoll.productName}: hazırlanan rulo sayısı en az 1 olmalıdır.`);
+        return;
+      }
+      const missingAllowance = items.find((item) => Number(item.preparedQuantity) > 0 && !hasRequiredCutAllowance(item));
+      if (missingAllowance) {
+        setError(`${missingAllowance.productName}: 70 mt'den küçük hazırlamalarda kesim payı zorunludur.`);
+        return;
+      }
+    }
     setBusy(true);
     setError("");
     try {
@@ -6273,7 +6434,7 @@ function OrderDetail({
         method: "PATCH",
         body: JSON.stringify({
           status,
-          items,
+          ...(status !== "delivered" ? { items } : {}),
           ...(reason.trim() ? { rollbackReason: reason.trim() } : {}),
           ...(status === "delivered" ? { deliveryNote } : {}),
         }),
@@ -6739,7 +6900,7 @@ function OrderDetail({
                       <span>Satırı kaldır</span>
                     </button>
                   </div>
-                ) : (order.status === "preparing" && canPrepare) || (order.status === "ready" && correctingPrepared) ? (
+                ) : (order.status === "preparing" && canPrepare) || (["ready", "delivered"].includes(order.status) && correctingPrepared) ? (
                   <div className="prep-inputs prepared-quantity-fields">
                     <label className="actual">
                       <small>Hazırlanan mt</small>
@@ -6748,16 +6909,20 @@ function OrderDetail({
                         step={0.01}
                         value={Number(item.preparedQuantity ?? item.quantity ?? 0)}
                         onValueChange={(preparedQuantity) => {
-                          queueDraftItem(index, "meter", { preparedQuantity });
+                          const allowancePatch = requiredCutAllowancePatch(item, preparedQuantity);
+                          queueDraftItem(index, "meter", { preparedQuantity, ...allowancePatch });
                           setItems((current) =>
                             current.map((row, rowIndex) =>
                               rowIndex === index
-                                ? { ...row, preparedQuantity }
+                                ? { ...row, preparedQuantity, ...allowancePatch }
                                 : row,
                             ),
                           );
                         }}
-                        onValueCommit={(preparedQuantity) => void saveDraftItem(index, { preparedQuantity })}
+                        onValueCommit={(preparedQuantity) => void saveDraftItem(index, {
+                          preparedQuantity,
+                          ...requiredCutAllowancePatch(item, preparedQuantity),
+                        })}
                       />
                       <span>mt</span>
                     </label>
@@ -6787,6 +6952,7 @@ function OrderDetail({
                         <input
                           type="checkbox"
                           checked={item.cutAllowanceApplied === true}
+                          disabled={requiresCutAllowance(item) && item.cutAllowanceApplied === true}
                           onChange={(event) => {
                             const changes = {
                               cutAllowanceApplied: event.target.checked,
@@ -6798,7 +6964,7 @@ function OrderDetail({
                           }}
                         />
                         <Scissors aria-hidden="true" />
-                        <span>Kesim payı</span>
+                        <span>{requiresCutAllowance(item) ? "Kesim payı (zorunlu)" : "Kesim payı"}</span>
                       </label>
                       {item.cutAllowanceApplied && (
                         <>
@@ -7372,6 +7538,7 @@ function OrderDetail({
                       "despatchReady",
                       "despatchRevoked",
                       "draftSaved",
+                      "preparedCorrection",
                     ].includes(entry.action),
                   )
                   .map((entry) => (
@@ -7392,6 +7559,7 @@ function OrderDetail({
                       <small>
                         {entry.by} ·{" "}
                         {new Date(entry.at).toLocaleString(language)}
+                        {entry.reason ? ` · Neden: ${entry.reason}` : ""}
                       </small>
                     </p>
                   ))}
@@ -7443,6 +7611,7 @@ function OrderDetail({
                     )}
                     <small>
                       {entry.by} · {new Date(entry.at).toLocaleString(language)}
+                      {entry.reason ? ` · Neden: ${entry.reason}` : ""}
                     </small>
                   </p>
                 ))}
@@ -7451,15 +7620,29 @@ function OrderDetail({
           )}
         {notice && <p className="form-success">{notice}</p>}
         {error && <p className="form-error">{error}</p>}
+        {correctingPrepared && (
+          <label className="prepared-correction-reason">
+            <span>Düzenleme nedeni <b>*</b></span>
+            <textarea
+              value={preparedCorrectionReason}
+              onChange={(event) => setPreparedCorrectionReason(event.target.value)}
+              placeholder="Metre, rulo veya kesim payının neden düzeltildiğini yazın"
+              rows={2}
+              maxLength={300}
+              required
+            />
+          </label>
+        )}
         <div className="modal-actions">
           {canEditOrder && !editing && !correctingPrepared && (
             <button
               className="secondary"
               disabled={busy}
               onClick={() => {
-                if (order.status === "ready" && workflowRole === "owner") {
+                if (["ready", "delivered"].includes(order.status) && workflowRole === "owner") {
                   setItems(order.items.map((item) => ({ ...item })));
                   setCorrectingPrepared(true);
+                  setPreparedCorrectionReason("");
                   setNotice("");
                   setError("");
                   return;
@@ -7513,10 +7696,10 @@ function OrderDetail({
           {order.status === "ready" && canRollback && !order.parentOrderId && (
             <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("preparing"); }}>{ui.back}</button>
           )}
-          {order.status === "ready" && workflowRole === "owner" && correctingPrepared && (
+          {["ready", "delivered"].includes(order.status) && workflowRole === "owner" && correctingPrepared && (
             <>
-              <button className="secondary" disabled={busy} onClick={() => { setItems(order.items.map((item) => ({ ...item }))); setCorrectingPrepared(false); }}>Vazgeç</button>
-              <button className="primary" disabled={busy || items.some((item) => !(Number(item.preparedQuantity) > 0))} onClick={savePreparedCorrection}>Düzeltmeyi kaydet</button>
+              <button className="secondary" disabled={busy} onClick={() => { setItems(order.items.map((item) => ({ ...item }))); setPreparedCorrectionReason(""); setCorrectingPrepared(false); }}>Vazgeç</button>
+              <button className="primary" disabled={busy} onClick={savePreparedCorrection}>Düzeltmeyi kaydet</button>
             </>
           )}
           {order.status === "ready" && canDeliver && order.despatchReady && (

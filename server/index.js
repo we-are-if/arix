@@ -82,6 +82,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const FULL_ROLL_LENGTHS = new Set([100, 120, 130]);
+const CUT_ALLOWANCE_REQUIRED_BELOW_METERS = 70;
 
 function isFullRollQuantity(value) {
   const quantity = Number(value);
@@ -103,6 +104,29 @@ function normalizeOrderCutAllowance(item, { infer = false } = {}) {
     cutAllowanceMeters: allowanceMeters,
     stockConsumptionQuantity: Number((quantity + allowanceMeters).toFixed(3)),
   };
+}
+
+function requiredCutAllowanceError(items) {
+  const missing = (items || []).find((item) => {
+    const quantity = Number(item?.preparedQuantity ?? item?.quantity) || 0;
+    if (!(quantity > 0 && quantity < CUT_ALLOWANCE_REQUIRED_BELOW_METERS)) return false;
+    const allowance = normalizeOrderCutAllowance(item);
+    return allowance.cutAllowanceApplied !== true || allowance.cutAllowanceMeters <= 0;
+  });
+  return missing
+    ? `${missing.productName || "Ürün"}: 70 mt'den küçük hazırlamalarda kesim payı zorunludur.`
+    : "";
+}
+
+function requiredPreparedRollError(items) {
+  const missing = (items || []).find((item) => {
+    const quantity = Number(item?.preparedQuantity ?? item?.quantity) || 0;
+    const rollCount = Number(item?.preparedRollCount);
+    return quantity > 0 && (!Number.isInteger(rollCount) || rollCount <= 0);
+  });
+  return missing
+    ? `${missing.productName || "Ürün"}: hazırlanan rulo sayısı en az 1 olmalıdır.`
+    : "";
 }
 const DATA_DIR = join(__dirname, "data");
 const ORDER_UPLOAD_DIR = join(DATA_DIR, "order-uploads");
@@ -1067,8 +1091,12 @@ function notificationAllowed(user, type, channel = "inApp") {
   return preferences[channel] !== false && preferences.events?.[type] !== false;
 }
 
+function notificationsPaused(db) {
+  return db?.notificationControl?.paused === true;
+}
+
 async function addOrderNotification(db, { order, recipient, type, title, message, actor }) {
-  if (order?.isTest || !recipient || recipient.active === false || String(recipient.id) === String(actor?.id || "")) return;
+  if (notificationsPaused(db) || order?.isTest || !recipient || recipient.active === false || String(recipient.id) === String(actor?.id || "")) return;
   db.orderNotifications ??= [];
   if (notificationAllowed(recipient, type, "inApp")) {
     const existing = db.orderNotifications.find((item) => !item.readAt && item.orderId === order.id && item.type === type && item.recipientUserId === recipient.id);
@@ -1098,7 +1126,7 @@ async function notifyUsers(db, order, users, type, title, message, actor) {
 }
 
 function addDayCloseNotification(db, { recipient, date, title, message, actor }) {
-  if (!recipient || recipient.active === false) return;
+  if (notificationsPaused(db) || !recipient || recipient.active === false) return;
   const type = "day_closed";
   const createdAt = new Date().toISOString();
   db.orderNotifications ??= [];
@@ -1237,6 +1265,7 @@ function backfillTodayDeliveredNotifications(db, date = orderDayKey()) {
 }
 
 async function broadcastNotification(db, { title, message, type, actor }) {
+  if (notificationsPaused(db)) return { recipients: 0, pushed: 0, paused: true };
   db.orderNotifications ??= [];
   db.pushSubscriptions ??= [];
   const recipients = db.authUsers.filter((user) => user.active !== false && user.companyId === actor.companyId);
@@ -2159,6 +2188,27 @@ async function handleOrderBoard(req, res, url, parts) {
     }
     await writeDb(db);
     return send(res, 200, { data: { delivered } });
+  }
+
+  if (parts[1] === "notification-control" && ["GET", "PATCH"].includes(req.method)) {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "employees.manage")) {
+      return send(res, 403, { error: "Bildirim gönderimini yönetmek için kullanıcı yönetimi yetkisi gerekir." });
+    }
+    if (req.method === "PATCH") {
+      const body = await parseBody(req);
+      const paused = body.paused === true;
+      db.notificationControl = {
+        paused,
+        updatedAt: new Date().toISOString(),
+        updatedBy: req.authUser?.name || "AriX",
+      };
+      await writeDb(db);
+    }
+    return send(res, 200, { data: {
+      paused: db.notificationControl?.paused === true,
+      updatedAt: db.notificationControl?.updatedAt || null,
+      updatedBy: db.notificationControl?.updatedBy || "",
+    } });
   }
 
   if (req.method === "POST" && parts[1] === "notifications" && parts[2] === "broadcast") {
@@ -3488,15 +3538,17 @@ async function handleOrderBoard(req, res, url, parts) {
     if (workflowRole !== "owner") return send(res, 403, { error: "Hazır ürün bilgisini yalnız şirket sahibi düzeltebilir." });
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
-    if (order.status !== "ready") return send(res, 409, { error: "Doğrudan düzeltme yalnız hazır siparişlerde yapılabilir." });
+    if (!["ready", "delivered"].includes(order.status)) return send(res, 409, { error: "Doğrudan düzeltme yalnız hazır veya teslim edilmiş siparişlerde yapılabilir." });
     const body = await parseBody(req);
+    const correctionReason = String(body.reason || "").trim().slice(0, 300);
+    if (!correctionReason) return send(res, 400, { error: "Düzenleme nedeni zorunludur." });
     const submittedItems = Array.isArray(body.items) ? body.items : [];
     if (submittedItems.length !== (order.items || []).length) return send(res, 400, { error: "Ürün satırları eksik veya fazla." });
     for (const [index, item] of (order.items || []).entries()) {
       const submitted = submittedItems[index] || {};
       if (String(submitted.productId) !== String(item.productId)) return send(res, 400, { error: "Ürün sırası değiştirilemez." });
       if (!Number.isFinite(Number(submitted.preparedQuantity)) || Number(submitted.preparedQuantity) <= 0) return send(res, 400, { error: "Hazırlanan metre sıfırdan büyük olmalıdır." });
-      if (!Number.isInteger(Number(submitted.preparedRollCount)) || Number(submitted.preparedRollCount) < 0) return send(res, 400, { error: "Rulo sayısı geçerli bir tam sayı olmalıdır." });
+      if (!Number.isInteger(Number(submitted.preparedRollCount)) || Number(submitted.preparedRollCount) <= 0) return send(res, 400, { error: "Hazırlanan rulo sayısı en az 1 olmalıdır." });
     }
     const now = new Date().toISOString();
     const actor = req.authUser?.name ?? "Şirket sahibi";
@@ -3518,13 +3570,55 @@ async function handleOrderBoard(req, res, url, parts) {
       if (previousAllowance !== nextAllowance || item.cutAllowanceApplied !== normalized.cutAllowanceApplied) changes.push(`${item.productName}: kesim payı ${previousAllowance} mt → ${nextAllowance} mt`);
       return normalized;
     });
+    const allowanceError = requiredCutAllowanceError(nextItems);
+    if (allowanceError) return send(res, 400, { error: allowanceError });
     if (!changes.length) return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+    if (order.status === "delivered" && order.isLoanReturn) {
+      const principalChanged = nextItems.some((item, index) =>
+        Number(item.preparedQuantity) !== Number(order.items[index]?.preparedQuantity)
+        || Number(item.preparedRollCount || 0) !== Number(order.items[index]?.preparedRollCount || 0));
+      if (principalChanged) return send(res, 409, { error: "Teslim edilmiş borç iadesinde metre veya rulo doğrudan değiştirilemez; yalnız kesim payı düzeltilebilir." });
+    }
+    if (order.status === "delivered" && !order.isTest) {
+      db.orderStockMovements ??= [];
+      const usedMovementIds = new Set();
+      nextItems.forEach((item, index) => {
+        const previousItem = order.items[index] || {};
+        const previousAllowance = normalizeOrderCutAllowance(previousItem);
+        const nextAllowance = normalizeOrderCutAllowance(item);
+        const movement = db.orderStockMovements.find((entry) => String(entry.id) === String(previousItem.stockMovementId || ""))
+          || db.orderStockMovements.find((entry) => !usedMovementIds.has(entry.id) && String(entry.orderId) === String(order.id) && Number(entry.productId) === Number(item.productId));
+        if (movement) usedMovementIds.add(movement.id);
+        const previousStockQuantity = Number(movement?.stockQuantity ?? previousAllowance.stockConsumptionQuantity) || 0;
+        const previousRollCount = Number(movement?.rollCount ?? previousItem.preparedRollCount) || 0;
+        const stockDelta = Number((nextAllowance.stockConsumptionQuantity - previousStockQuantity).toFixed(3));
+        const rollDelta = (Number(item.preparedRollCount) || 0) - previousRollCount;
+        const product = db.orderCatalog.find((entry) => Number(entry.id) === Number(item.productId));
+        if (product) {
+          product.physicalQuantity = Number(((Number(product.physicalQuantity) || 0) - stockDelta).toFixed(3));
+          product.rollCount = Math.max(0, (Number(product.rollCount) || 0) - rollDelta);
+          product.stockUpdatedAt = now;
+          product.stockUpdatedBy = actor;
+        }
+        if (movement) Object.assign(movement, {
+          customerQuantity: Number(item.preparedQuantity) || 0,
+          cutAllowanceQuantity: nextAllowance.cutAllowanceMeters,
+          cutPieceCount: nextAllowance.cutPieceCount,
+          cutAllowancePerPiece: nextAllowance.cutAllowancePerPiece,
+          stockQuantity: nextAllowance.stockConsumptionQuantity,
+          rollCount: Math.max(0, Number(item.preparedRollCount) || 0),
+          correctedAt: now,
+          correctedBy: actor,
+          correctionReason,
+        });
+      });
+    }
     order.items = nextItems;
     order.updatedAt = now;
     order.audit ??= [];
     order.audit.push({
       id: randomUUID(), action: "preparedCorrection", oldValue: "", newValue: changes.join(" · "),
-      reason: String(body.reason || "Hazır ürün bilgisi düzeltildi").trim().slice(0, 300),
+      reason: correctionReason,
       by: actor, userId: req.authUser?.id, at: now,
     });
     await notifyUsers(
@@ -3533,7 +3627,7 @@ async function handleOrderBoard(req, res, url, parts) {
       db.authUsers.filter((user) => user.active !== false),
       "order_ready_corrected",
       "Hazır ürün bilgisi düzeltildi",
-      `${actor} tarafından düzeltildi · ${changes.join(" · ")} · ${order.number} · ${order.customerName}`,
+      `${actor} tarafından düzeltildi · ${changes.join(" · ")} · Neden: ${correctionReason} · ${order.number} · ${order.customerName}`,
       req.authUser,
     );
     await writeDb(db);
@@ -3634,6 +3728,10 @@ async function handleOrderBoard(req, res, url, parts) {
     }
     const selected = (order.items || []).filter((item) => Number(item.preparedQuantity) > 0);
     if (!selected.length) return send(res, 400, { error: "Hazıra göndərmək üçün ən az bir faktiki metraj yazın." });
+    const rollError = requiredPreparedRollError(selected);
+    if (rollError) return send(res, 400, { error: rollError });
+    const allowanceError = requiredCutAllowanceError(selected);
+    if (allowanceError) return send(res, 400, { error: allowanceError });
     const now = new Date().toISOString();
     const actor = req.authUser?.name ?? "Anbar";
     const existingBatches = db.orderBoard.filter((item) => String(item.parentOrderId || "") === String(order.id)).length;
@@ -3876,10 +3974,18 @@ async function handleOrderBoard(req, res, url, parts) {
     if (nextStatus === "ready") {
       const items = Array.isArray(body.items) ? body.items : order.items;
       if (items.some((item) => !(Number(item.preparedQuantity) > 0))) return send(res, 400, { error: "Hazır etməzdən əvvəl bütün faktiki metrajları yazın." });
-      order.items = items.map((item, index) => {
+      const rollError = requiredPreparedRollError(items);
+      if (rollError) return send(res, 400, { error: rollError });
+      const normalizedItems = items.map((item, index) => {
         const merged = { ...order.items[index], ...item, preparedRollCount: Math.max(0, Number(item.preparedRollCount) || 0) };
         return { ...merged, ...normalizeOrderCutAllowance(merged) };
       });
+      const allowanceError = requiredCutAllowanceError(normalizedItems);
+      if (allowanceError) return send(res, 400, { error: allowanceError });
+      order.items = normalizedItems;
+    } else if (nextStatus === "delivered") {
+      const rollError = requiredPreparedRollError(order.items);
+      if (rollError) return send(res, 400, { error: rollError });
     } else if (Array.isArray(body.items)) {
       order.items = body.items;
     }
@@ -6902,7 +7008,8 @@ async function handleApiRequest(req, res) {
       const action = String(parts[3] || "");
       let required = ["orders.view"];
       if (req.method === "GET") {
-        if (resource === "notifications" && action === "history") required = ["employees.manage"];
+        if (resource === "notification-control") required = ["employees.manage"];
+        else if (resource === "notifications" && action === "history") required = ["employees.manage"];
         else if (resource === "catalog") required = ["products.view", "products.manage"];
         else if (resource === "customers") required = ["counterparties.view", "counterparties.manage"];
         else if (resource === "aliases") required = ["company.view", "company.manage"];
@@ -6914,7 +7021,8 @@ async function handleApiRequest(req, res) {
         else if (resource === "stock-documents") required = ["products.view", "products.manage"];
         else if (resource === "attachments") required = ["documents.view", "orders.deliver"];
         else if (resource === "exchange-rate") required = ["orders.create", "order_forms.edit"];
-      } else if (resource === "notifications") required = ["orders.view"];
+      } else if (resource === "notification-control") required = ["employees.manage"];
+      else if (resource === "notifications") required = ["orders.view"];
       else if (resource === "stock-documents") required = ["stock.adjust", "stock.writeoff", "stock.transfer", "stock.purchase", "stock.loan_purchase"];
       else if (resource === "catalog" && parts[4] === "stock-transaction") required = ["stock.adjust", "stock.writeoff", "stock.transfer", "stock.purchase", "stock.loan_purchase"];
       else if (resource === "catalog") required = ["products.manage"];
