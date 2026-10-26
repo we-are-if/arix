@@ -4478,6 +4478,64 @@ textarea {
 .theme-dark .order-detail-modal .order-audit b { color: #e2e8f0; }
 .theme-dark .order-detail-modal .active-editors { border-color: #373067; background: #211f42; color: #c4c1ff; }
 .theme-dark .order-detail-modal.status-new .prep-row strong { color: #f1f5f9; }
+.theme-dark .order-detail-modal label > span { color: #b8c4d6; }
+.theme-dark .order-detail-modal .delivery-form,
+.theme-dark .order-detail-modal .delivery-proof,
+.theme-dark .order-detail-modal .customer-note,
+.theme-dark .order-detail-modal .product-trace-panel {
+  border-color: #344258;
+  background: #182333;
+  color: #e5eaf3;
+}
+.theme-dark .order-detail-modal .delivery-photo-input {
+  border-color: #4a5a72;
+  background: #253247;
+  color: #d8dcff;
+}
+.theme-dark .order-detail-modal .delivery-photo-input.camera {
+  border-color: #7067f2;
+  background: #6157ed;
+  color: #fff;
+}
+.theme-dark .order-detail-modal .delivery-photo-input > span { color: inherit !important; }
+.theme-dark .order-detail-modal .delivery-photo-input:hover {
+  border-color: #818cf8;
+  background: #2d3d54;
+}
+.theme-dark .order-detail-modal .delivery-photo-input.camera:hover { background: #7067f2; }
+.theme-dark .order-detail-modal .attachment-upload-status {
+  border-color: #494578;
+  background: #252442;
+  color: #c9c5ff;
+}
+.theme-dark .order-detail-modal .delivery-proof-files a {
+  border-color: #3b4960;
+  background: #1b2637;
+  color: #b8b3ff;
+}
+.theme-dark .order-detail-modal .delivery-proof-delete {
+  border-color: #7f3948;
+  background: #34202a;
+  color: #fda4af;
+}
+.theme-dark .order-detail-modal .order-history {
+  border-color: #44536a;
+  background: #182333;
+  color: #e5eaf3;
+}
+.theme-dark .order-detail-modal .order-history summary {
+  color: #f1f5f9;
+}
+.theme-dark .order-detail-modal .secondary {
+  border-color: #46546a;
+  background: #253247;
+  color: #e5eaf3;
+}
+.theme-dark .order-detail-modal .danger-button {
+  border-color: #7f3948;
+  background: #34202a;
+  color: #fda4af;
+}
 @media (max-width: 700px) {
   .order-detail-modal { max-height: 96vh; border-radius: 16px 16px 0 0; }
   .order-detail-modal > header { min-height: 64px; padding: 13px 16px; }
