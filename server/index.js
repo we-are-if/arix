@@ -552,6 +552,13 @@ function normalizeDb(db) {
     }
     db.permissionMigrations.salesOwnOrderApproval = new Date().toISOString();
   }
+  if (!db.permissionMigrations.readyOrderMergeSeparated) {
+    for (const user of db.authUsers) {
+      if (!Array.isArray(user.permissions) || !user.permissions.includes("orders.edit")) continue;
+      user.permissions = [...new Set([...user.permissions, "orders.merge_ready"])];
+    }
+    db.permissionMigrations.readyOrderMergeSeparated = new Date().toISOString();
+  }
   db.authSessions = (Array.isArray(db.authSessions) ? db.authSessions : [])
     .filter((session) => new Date(session.expiresAt).getTime() > Date.now());
   db.companyJoinCode = String(db.companyJoinCode || COMPANY_JOIN_CODE || createInviteCode()).trim().toUpperCase();
@@ -951,6 +958,7 @@ const PERMISSION_CATALOG = [
   { key: "orders.approve", group: "orders", action: "approve" },
   { key: "orders.edit", group: "orders", action: "edit" },
   { key: "orders.prepare", group: "orders", action: "prepare" },
+  { key: "orders.merge_ready", group: "orders", action: "merge_ready" },
   { key: "orders.rollback", group: "orders", action: "rollback" },
   { key: "orders.despatch", group: "orders", action: "despatch" },
   { key: "orders.deliver", group: "orders", action: "deliver" },
@@ -985,9 +993,9 @@ const ROLE_PERMISSIONS = {
   "admin": ALL_PERMISSIONS,
   "administrator": ALL_PERMISSIONS,
   "rəhbər": ALL_PERMISSIONS,
-  "satış rəhbəri": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.create", "orders.edit", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.view_all", "order_forms.edit", "order_forms.approve", "money.view", "counterparties.view", "counterparties.manage", "reports.view"],
-  "satış": ["dashboard.view", "products.view", "orders.view", "orders.create", "orders.approve", "orders.edit", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.edit", "counterparties.view", "counterparties.manage", "reports.view"],
-  "anbar əməliyyatları": ["dashboard.view", "products.view", "products.manage", "orders.view", "orders.view_all", "orders.edit", "orders.prepare", "documents.view", "documents.create", "documents.edit", "reports.view"],
+  "satış rəhbəri": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.create", "orders.edit", "orders.merge_ready", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.view_all", "order_forms.edit", "order_forms.approve", "money.view", "counterparties.view", "counterparties.manage", "reports.view"],
+  "satış": ["dashboard.view", "products.view", "orders.view", "orders.create", "orders.approve", "orders.edit", "orders.merge_ready", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.edit", "counterparties.view", "counterparties.manage", "reports.view"],
+  "anbar əməliyyatları": ["dashboard.view", "products.view", "products.manage", "orders.view", "orders.view_all", "orders.edit", "orders.prepare", "orders.merge_ready", "documents.view", "documents.create", "documents.edit", "reports.view"],
   "təhvilat": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.deliver", "documents.view"],
   "maliyyə": ["dashboard.view", "products.view", "documents.view", "money.view", "money.manage", "counterparties.view", "company.view", "accounting.view", "accounting.manage", "reports.view"],
   "əməkdaş": ["dashboard.view", "products.view", "orders.view", "documents.view", "counterparties.view"],
@@ -3682,7 +3690,7 @@ async function handleOrderBoard(req, res, url, parts) {
   }
 
   if (req.method === "POST" && parts[1] === "merge-ready") {
-    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.edit")) return send(res, 403, { error: "Hazır siparişleri birleştirme yetkiniz yok." });
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.merge_ready")) return send(res, 403, { error: "Hazır siparişleri birleştirme yetkiniz yok." });
     const body = await parseBody(req);
     const orderIds = [...new Set((Array.isArray(body.orderIds) ? body.orderIds : []).map((value) => String(value || "")).filter(Boolean))];
     if (orderIds.length < 2) return send(res, 400, { error: "Birleştirmek için en az iki hazır sipariş seçin." });
@@ -6897,7 +6905,7 @@ async function handleApiRequest(req, res) {
       else if (resource === "trash") required = ["trash.manage"];
       else if (!resource && req.method === "POST") required = ["orders.create"];
       else if (resource === "match") required = ["orders.create"];
-      else if (resource === "merge-ready") required = ["orders.edit"];
+      else if (resource === "merge-ready") required = ["orders.merge_ready"];
       else if (action === "attachments") required = req.method === "POST" ? ["documents.create", "orders.deliver"] : ["documents.delete", "orders.deliver"];
       else if (action === "approval-form") required = ["order_forms.edit", "order_forms.approve", "orders.approve"];
       else if (action === "delivery-photo") required = ["orders.deliver"];

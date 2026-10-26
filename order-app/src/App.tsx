@@ -1785,7 +1785,7 @@ export default function App() {
   const currentWorkflowRole = session ? workflowRole(session.role) : "viewer";
   const canSell =
     currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.create"));
-  const canMergeReady = currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.edit"));
+  const canMergeReady = currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.merge_ready"));
   const mergeReadyGroups = useMemo(() => {
     const groups = new Map<string, Order[]>();
     for (const order of orders.filter((item) => item.status === "ready" && !item.despatchReady)) {
@@ -4408,6 +4408,7 @@ function SettingsModal({
     "orders.approve": "Kendi siparişini onayla",
     "orders.edit": "Sipariş düzenle",
     "orders.prepare": "Ürün hazırla, metre ve rulo gir",
+    "orders.merge_ready": "Hazır siparişleri birleştir",
     "orders.rollback": "Siparişi önceki aşamaya geri gönder",
     "orders.despatch": "İrsaliye durumunu yönet",
     "orders.deliver": "Siparişi teslim et",
