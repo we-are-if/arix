@@ -90,7 +90,7 @@ type StockTransaction = {
 type StockDocument = {
   id: string; documentNumber: string; type: StockTransaction["type"]; date: string; counterparty?: string;
   fromLocation?: string; toLocation?: string; note: string; createdAt: string; createdBy: string;
-  lines: Array<{ productId: number; productCode: string; productName: string; quantity: number; rollCount: number; signedQuantity: number }>;
+  lines: Array<{ productId: number; productCode: string; productName: string; quantity: number; rollCount: number; signedQuantity: number; loanOutstanding?: number; loanOutstandingRollCount?: number }>;
   attachments: Array<{ name: string; mimeType: string; archivedFile: string; size: number }>;
 };
 type AccessLog = {
@@ -3745,6 +3745,7 @@ function StockPage({
   const [movements, setMovements] = useState<OrderStockMovement[]>([]);
   const [documents, setDocuments] = useState<StockDocument[]>([]);
   const [createDocumentOpen, setCreateDocumentOpen] = useState(false);
+  const [activeDocument, setActiveDocument] = useState<StockDocument | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   useEffect(() => {
     void Promise.allSettled([
@@ -3820,16 +3821,46 @@ function StockPage({
         </aside>
         <aside className="stock-page-movements stock-documents-panel">
           <header><b>Stok evrakları</b><button type="button" onClick={() => setCreateDocumentOpen(true)}>＋ Evrak oluştur</button></header>
-          <div>{documents.map((document) => <article key={document.id}>
+          <div>{documents.map((document) => <article key={document.id} className="stock-document-row" role="button" tabIndex={0} onClick={() => setActiveDocument(document)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setActiveDocument(document); }}>
             <span><b>{document.documentNumber}</b><small>{document.type === "purchase" ? "Normal alış" : document.type === "loan_purchase" ? "Borç alış" : document.type === "writeoff" ? "Stoktan silme" : document.type === "transfer" ? "Yer değiştirme" : "Stok düzeltme"}</small></span>
-            <strong>{document.lines.length} ürün</strong><p>{document.counterparty || document.note}</p><time>{new Date(document.createdAt).toLocaleString(language)}</time>
+            <strong>{document.type === "loan_purchase" ? `${document.lines.reduce((sum, line) => sum + Number(line.loanOutstandingRollCount ?? line.rollCount ?? 0), 0).toLocaleString(language)} rulo · ${document.lines.reduce((sum, line) => sum + Number(line.loanOutstanding ?? line.quantity ?? 0), 0).toLocaleString(language)} mt kalan` : `${document.lines.length} ürün`}</strong><p>{document.counterparty || document.note}</p><time>{new Date(document.createdAt).toLocaleString(language)}</time>
           </article>)}{!documents.length && <p className="stock-overview-empty">Henüz stok evrakı oluşturulmadı.</p>}</div>
         </aside>
       </div>
       {activeProduct && <StockProductModal product={activeProduct} session={session} language={language} onClose={() => setActiveProduct(null)} onChanged={() => { onChanged(); setActiveProduct(null); }} />}
+      {activeDocument && <StockDocumentDetailModal document={activeDocument} language={language} onClose={() => setActiveDocument(null)} />}
       {createDocumentOpen && <StockDocumentModal products={products} session={session} onClose={() => setCreateDocumentOpen(false)} onCreated={() => { setCreateDocumentOpen(false); onChanged(); void api<StockDocument[]>("/api/orders/stock-documents").then(setDocuments); }} />}
     </section>
   );
+}
+
+function StockDocumentDetailModal({ document, language, onClose }: { document: StockDocument; language: Language; onClose: () => void }) {
+  const isLoan = document.type === "loan_purchase";
+  const totalQuantity = document.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+  const totalRolls = document.lines.reduce((sum, line) => sum + Number(line.rollCount || 0), 0);
+  const remainingQuantity = document.lines.reduce((sum, line) => sum + Number(line.loanOutstanding ?? line.quantity ?? 0), 0);
+  const remainingRolls = document.lines.reduce((sum, line) => sum + Number(line.loanOutstandingRollCount ?? line.rollCount ?? 0), 0);
+  return <Modal title={isLoan ? "Borç bakiyesi" : "Stok evrakı"} subtitle={`${document.documentNumber} · ${document.counterparty || "-"}`} onClose={onClose} wide>
+    {isLoan && <div className="stock-loan-summary">
+      <article><span>İlk borç</span><b>{totalRolls.toLocaleString(language)} rulo</b><strong>{totalQuantity.toLocaleString(language)} mt</strong></article>
+      <article><span>Kalan borç</span><b>{remainingRolls.toLocaleString(language)} rulo</b><strong>{remainingQuantity.toLocaleString(language)} mt</strong></article>
+      <article><span>İade edilen</span><b>{(totalRolls - remainingRolls).toLocaleString(language)} rulo</b><strong>{(totalQuantity - remainingQuantity).toLocaleString(language)} mt</strong></article>
+    </div>}
+    <div className="stock-loan-table">
+      <header><span>Ürün</span><span>İlk borç</span><span>İade</span><span>Kalan</span></header>
+      {document.lines.map((line) => {
+        const quantityLeft = Number(line.loanOutstanding ?? line.quantity ?? 0);
+        const rollsLeft = Number(line.loanOutstandingRollCount ?? line.rollCount ?? 0);
+        return <article key={`${line.productId}-${line.productCode}`}>
+          <span><b>{line.productCode || "-"}</b><small>{line.productName}</small></span>
+          <span><b>{Number(line.rollCount || 0).toLocaleString(language)} rulo</b><small>{Number(line.quantity || 0).toLocaleString(language)} mt</small></span>
+          <span><b>{(Number(line.rollCount || 0) - rollsLeft).toLocaleString(language)} rulo</b><small>{(Number(line.quantity || 0) - quantityLeft).toLocaleString(language)} mt</small></span>
+          <span><b>{rollsLeft.toLocaleString(language)} rulo</b><small>{quantityLeft.toLocaleString(language)} mt</small></span>
+        </article>;
+      })}
+    </div>
+    {document.note && <p className="stock-document-note">{document.note}</p>}
+  </Modal>;
 }
 
 function StockProductModal({ product, session, language, onClose, onChanged }: {

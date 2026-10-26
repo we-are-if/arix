@@ -1005,6 +1005,30 @@ textarea {
 .stock-page-movements article p,
 .stock-page-movements article time { margin:0; color:#8893a4; font-size:8px; }
 .stock-page-movements article time { text-align:right; }
+.stock-document-row { cursor:pointer; }
+.stock-document-row:hover { background:#f7f8fc; }
+.stock-loan-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:14px; }
+.stock-loan-summary article { display:flex; flex-direction:column; gap:4px; border:1px solid #dfe5ed; border-radius:8px; background:#f7f9fc; padding:12px; }
+.stock-loan-summary span,.stock-loan-table small { color:#748097; font-size:11px; }
+.stock-loan-summary b { color:#172033; font-size:17px; }
+.stock-loan-summary strong { color:#5145e5; font-size:13px; }
+.stock-loan-table { overflow:hidden; border:1px solid #dfe5ed; border-radius:8px; }
+.stock-loan-table > header,.stock-loan-table > article { display:grid; grid-template-columns:minmax(180px,1.5fr) repeat(3,minmax(100px,.7fr)); gap:10px; align-items:center; padding:10px 12px; }
+.stock-loan-table > header { background:#eef2f7; color:#657187; font-size:10px; font-weight:800; }
+.stock-loan-table > article { border-top:1px solid #e8ecf2; }
+.stock-loan-table > article > span { display:flex; min-width:0; flex-direction:column; gap:2px; }
+.stock-loan-table b { color:#273047; font-size:11px; }
+.stock-document-note { border-radius:7px; background:#f5f7fa; padding:10px 12px; color:#657187; font-size:11px; }
+.theme-dark .stock-document-row:hover { background:#202838; }
+.theme-dark .stock-loan-summary article,.theme-dark .stock-loan-table { border-color:#30394a; background:#161d2a; }
+.theme-dark .stock-loan-summary b,.theme-dark .stock-loan-table b { color:#eef2ff; }
+.theme-dark .stock-loan-table > header { background:#202838; }
+.theme-dark .stock-loan-table > article { border-color:#30394a; }
+@media (max-width:700px) {
+  .stock-loan-summary { grid-template-columns:1fr; }
+  .stock-loan-table { overflow-x:auto; }
+  .stock-loan-table > header,.stock-loan-table > article { min-width:620px; }
+}
 .stock-product-row { width:100%; border:0; border-radius:0; background:transparent; text-align:left; cursor:pointer; }
 .stock-product-row:hover { background:#f7f8fc; }
 .stock-product-balances { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin-bottom:14px; }
