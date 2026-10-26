@@ -3207,8 +3207,15 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!order) return notFound(res);
     if (!order.approvalForm) return send(res, 409, { error: "Arxivlənəcək sifariş forması tapılmadı." });
     const archiveIsApproved = order.approvalForm.status === "approved";
+    const archiveActorId = String(req.authUser?.id || "");
+    const archiveActorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
+    const archiveOwnsOrder = String(order.createdByUserId || "") === archiveActorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === archiveActorName);
+    const archiveAssignedId = String(order.approvalForm.salesRepresentativeUserId || "");
+    const archiveAssignedName = normalizeSalesRepresentativeName(order.approvalForm.salesRepresentative || "");
+    const archiveIsAssignedRepresentative = archiveAssignedId ? archiveAssignedId === archiveActorId : Boolean(archiveAssignedName && archiveAssignedName === archiveActorName);
+    const mayArchiveOwnApproval = archiveIsApproved && hasPermission(req.authUser, "orders.approve") && (archiveOwnsOrder || archiveIsAssignedRepresentative);
     const mayPreparePackingArchive = !archiveIsApproved && order.exportPackingRequired && order.approvalForm.documentType === "packing_list" && (workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare"));
-    const mayArchive = workflowRole === "owner" || mayPreparePackingArchive || hasPermission(req.authUser, archiveIsApproved ? "order_forms.approve" : "order_forms.edit");
+    const mayArchive = workflowRole === "owner" || mayArchiveOwnApproval || mayPreparePackingArchive || hasPermission(req.authUser, archiveIsApproved ? "order_forms.approve" : "order_forms.edit");
     if (!mayArchive) return send(res, 403, { error: "Sifariş təsdiq formasını arxivləmək üçün icazəniz yoxdur." });
 
     const archivedCustomerName = String(order.approvalForm.customerName || order.customerName).trim();
@@ -3298,7 +3305,15 @@ async function handleOrderBoard(req, res, url, parts) {
     const windowsRoot = isExport ? "\\\\ERSARIF\\SharedFolder\\ErsaShare\\IHRACAT" : "\\\\ERSARIF\\SharedFolder\\ErsaShare\\YURT İÇİ";
     const windowsPath = `${windowsRoot}\\${relativePath.replaceAll("/", "\\")}`;
     order.approvalForm.archive = { path: destination, windowsPath, relativePath, filename, archivedAt, archivedBy: req.authUser?.name ?? "Satış", status: order.approvalForm.status };
-    if (!order.isTest) await notifyUsers(db, order, orderActivityRecipients(db, order), "approval_form_archived", "Sipariş formu arşivlendi", `${req.authUser?.name || "Satış"} tarafından · ${order.approvalForm.number}`, req.authUser);
+    if (!order.isTest) await notifyUsers(
+      db,
+      order,
+      orderActivityRecipients(db, order),
+      archiveIsApproved ? "approval_completed" : "approval_form_archived",
+      archiveIsApproved ? "Sipariş formu onaylandı" : "Sipariş formu arşivlendi",
+      `${req.authUser?.name || "Satış"} tarafından ${archiveIsApproved ? "onaylandı" : "arşivlendi"} · ${order.approvalForm.number}`,
+      req.authUser,
+    );
     order.audit ??= [];
     order.audit.push({ id: randomUUID(), action: archiveIsApproved ? "approvalFormArchived" : "approvalFormDraftArchived", newValue: destination, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: archivedAt });
     order.updatedAt = archivedAt;
