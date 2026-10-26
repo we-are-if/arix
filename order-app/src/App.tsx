@@ -1449,6 +1449,7 @@ export default function App() {
   const [approvalPreviewOnly, setApprovalPreviewOnly] = useState(false);
   const [exportPreviewOrder, setExportPreviewOrder] = useState<Order | null>(null);
   const [approvalEditorIntent, setApprovalEditorIntent] = useState<"view" | "edit" | "approve">("view");
+  const [approvalEntrySource, setApprovalEntrySource] = useState<"forms" | "order">("order");
   const [pdfOrder, setPdfOrder] = useState<Order | null>(null);
   const [error, setError] = useState("");
   const [syncWarning, setSyncWarning] = useState("");
@@ -1918,6 +1919,7 @@ export default function App() {
     }
     if (targetType === "form") {
       setPageTab("forms");
+      setApprovalEntrySource("forms");
       setApprovalEditorIntent("view");
       setActiveApprovalOrder(target);
     } else {
@@ -2318,10 +2320,12 @@ export default function App() {
           </section>
         ) : pageTab === "forms" ? (
           <ApprovalFormsPage orders={approvalOrders} onOpen={(order) => {
+            setApprovalEntrySource("forms");
             setApprovalPreviewOnly(false);
             setApprovalEditorIntent("view");
             setActiveApprovalOrder(order);
           }} onShowPdf={(order) => {
+            setApprovalEntrySource("forms");
             const documentType = order.approvalForm?.documentType;
             if (order.isExport || (documentType && documentType !== "domestic")) setExportPreviewOrder(order);
             else setPdfOrder(order);
@@ -2457,7 +2461,10 @@ export default function App() {
             void load();
             void loadNotifications();
           }}
-          onShowApprovalPdf={setPdfOrder}
+          onShowApprovalPdf={(order) => {
+            setApprovalEntrySource("order");
+            setPdfOrder(order);
+          }}
           onDeleted={() => {
             localStorage.removeItem(`arix-order-open:${session.id}`);
             setActiveOrder(null);
@@ -2474,6 +2481,7 @@ export default function App() {
           session={session}
           language={language}
           initialAction={approvalEditorIntent}
+          allowApproval={approvalEntrySource === "forms"}
           previewOnly={approvalPreviewOnly}
           onClose={() => {
             setActiveApprovalOrder(null);
@@ -2527,6 +2535,7 @@ export default function App() {
         <ApprovalPdfViewer
           order={pdfOrder}
           session={session}
+          allowApproval={approvalEntrySource === "forms"}
           onClose={() => setPdfOrder(null)}
           onEdit={() => {
             setPdfOrder(null);
@@ -3661,9 +3670,10 @@ function ApprovalFormsPage({
   );
 }
 
-function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
+function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onApprove }: {
   order: Order;
   session: Session;
+  allowApproval: boolean;
   onClose: () => void;
   onEdit: () => void;
   onApprove: () => void;
@@ -3684,7 +3694,7 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
   const sessionName = session.name.trim().toLocaleLowerCase("tr");
   const isOwner = workflowRole(session.role) === "owner";
   const canEdit = isOwner || Boolean(session.permissions?.includes("order_forms.edit"));
-  const canApprove = isOwner || (
+  const canApprove = allowApproval && (isOwner || (
     (Boolean(session.permissions?.includes("order_forms.approve")) ||
       (Boolean(session.permissions?.includes("orders.approve")) &&
         (order.createdByUserId === session.id || order.createdBy === session.name))) &&
@@ -3693,7 +3703,7 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
       (!order.createdByUserId && order.createdBy === session.name) ||
       order.approvalForm?.salesRepresentativeUserId === session.id ||
       (!order.approvalForm?.salesRepresentativeUserId && representativeName === sessionName))
-  );
+  ));
 
   useEffect(() => {
     let objectUrl = "";
@@ -7562,6 +7572,7 @@ function OrderDetail({
           session={session}
           language={language}
           packingMode={approvalMode === "packing"}
+          allowApproval={false}
           onClose={() => setApprovalOpen(false)}
           onSaved={(next) => {
             onChanged(next);
@@ -7580,6 +7591,7 @@ function ApprovalFormEditor({
   session,
   language,
   initialAction = "view",
+  allowApproval = false,
   previewOnly = false,
   packingMode = false,
   onClose,
@@ -7591,6 +7603,7 @@ function ApprovalFormEditor({
   session: Session;
   language: Language;
   initialAction?: "view" | "edit" | "approve";
+  allowApproval?: boolean;
   previewOnly?: boolean;
   packingMode?: boolean;
   onClose: () => void;
@@ -7925,7 +7938,7 @@ function ApprovalFormEditor({
   }));
   const normalizedSessionName = session.name.trim().toLocaleLowerCase("tr");
   const normalizedRepresentative = (form.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
-  const canApprove =
+  const canApprove = allowApproval && (
     workflowRole(session.role) === "owner" ||
     ((Boolean(session.permissions?.includes("order_forms.approve")) ||
       (Boolean(session.permissions?.includes("orders.approve")) &&
@@ -7934,7 +7947,7 @@ function ApprovalFormEditor({
         order.createdByUserId === session.id ||
         (!order.createdByUserId && order.createdBy === session.name) ||
         form.salesRepresentativeUserId === session.id ||
-        (!form.salesRepresentativeUserId && normalizedRepresentative === normalizedSessionName)));
+        (!form.salesRepresentativeUserId && normalizedRepresentative === normalizedSessionName))));
   const save = async (status: ApprovalForm["status"]) => {
     setBusy(true);
     setError("");
