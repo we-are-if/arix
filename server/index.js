@@ -3754,6 +3754,9 @@ async function handleOrderBoard(req, res, url, parts) {
       note: order.note,
       businessDate: activeOrderDayKey(db),
       status: "ready",
+      isTest: Boolean(order.isTest),
+      isLoanReturn: Boolean(order.isLoanReturn),
+      isExport: Boolean(order.isExport),
       items: selected.map((item) => ({
         ...item,
         quantity: Number(item.preparedQuantity),
@@ -3787,6 +3790,9 @@ async function handleOrderBoard(req, res, url, parts) {
       delete next.preparedRollCount;
       return [next];
     });
+    if (order.items.every((item) => !(Number(item.preparedQuantity) > 0) && !(Number(item.preparedRollCount) > 0))) {
+      delete order.preparedBy;
+    }
     if (!order.items.length) {
       order.status = "fulfilled";
       order.history ??= [];
