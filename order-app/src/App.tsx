@@ -2589,7 +2589,7 @@ function BoardColumn({
                 </div>
               )}
               {order.mergedOrderNumbers?.length ? (
-                <div className="parent-order-link">Birleşenler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
+                <div className="parent-order-link merged-order-link">Birleşenler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
               ) : null}
               {order.status === "ready" && (
                 <div className="parent-order-link">
@@ -6518,7 +6518,7 @@ function OrderDetail({
           </div>
         )}
         {order.mergedOrderNumbers?.length ? (
-          <div className="parent-order-link detail">Birleşen hazır siparişler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
+          <div className="parent-order-link merged-order-link detail">Birleşen hazır siparişler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
         ) : null}
         {activeEditors.length > 0 && (
           <div className="active-editors">
