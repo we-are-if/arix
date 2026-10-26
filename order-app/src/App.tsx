@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Moon, NotepadText, Pencil, Printer, ScanText, Scissors, Settings2, Share2, Sun, Trash2, Truck, UserRound } from "lucide-react";
+import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Moon, NotepadText, Pencil, Printer, ScanText, Scissors, Settings2, Share2, Sun, Trash2, Truck, UserRound } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -2715,9 +2715,41 @@ function DailyArchive({
   const [reportBusyDay, setReportBusyDay] = useState("");
   const [reportError, setReportError] = useState("");
   const [reportPreview, setReportPreview] = useState<{ url: string; filename: string } | null>(null);
+  const [copiedSummaryDay, setCopiedSummaryDay] = useState("");
   useEffect(() => () => {
     if (reportPreview?.url) URL.revokeObjectURL(reportPreview.url);
   }, [reportPreview]);
+  const copyDeliveredSummary = async (day: string, deliveredOrders: Order[]) => {
+    const customerGroups = new Map<string, { name: string; items: OrderItem[] }>();
+    for (const order of deliveredOrders) {
+      const key = order.customerName.trim().toLocaleUpperCase("tr-TR");
+      const group = customerGroups.get(key) ?? { name: order.customerName.trim(), items: [] };
+      group.items.push(...safeItems(order));
+      customerGroups.set(key, group);
+    }
+    const text = [...customerGroups.values()].map((group) => [
+      group.name,
+      ...group.items.map((item) => `${item.productCode || "-"} · ${item.productName} · ${Number((item.preparedQuantity ?? item.quantity) || 0).toLocaleString("tr-TR", { maximumFractionDigits: 3 })} mt`),
+    ].join("\n")).join("\n\n");
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const field = document.createElement("textarea");
+        field.value = text;
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand("copy");
+        field.remove();
+      }
+      setCopiedSummaryDay(day);
+      window.setTimeout(() => setCopiedSummaryDay((current) => current === day ? "" : current), 2200);
+    } catch {
+      setReportError("Teslimat metni kopyalanamadı. Tarayıcının pano iznini kontrol edin.");
+    }
+  };
   const downloadDayReport = async (day: string, orders: Order[]) => {
     setReportBusyDay(day);
     setReportError("");
@@ -2862,6 +2894,7 @@ function DailyArchive({
       const stage = document.createElement("div");
       stage.className = "daily-pdf-stage";
       stage.innerHTML = `<style>
+        .daily-pdf-stage .daily-pdf-page{border-top:2.2mm solid #5545ef!important;background:#fff!important}.daily-pdf-stage .pdf-brand{position:relative!important;min-height:12mm!important;border-bottom:.45mm solid #dfe5ee!important;padding-bottom:3mm!important}.daily-pdf-stage .pdf-brand:after{content:"";position:absolute;bottom:-.45mm;left:0;width:34mm;height:.9mm;background:#2fcf9b}.daily-pdf-stage .pdf-logo svg{width:11mm!important;height:11mm!important}.daily-pdf-stage .pdf-logo b{color:#17233b!important;font-size:12pt!important}.daily-pdf-stage .pdf-date strong{color:#17233b!important;font-size:8.5pt!important}.daily-pdf-stage .order-block{border:1px solid #dde5ee!important;border-left:1.2mm solid #5545ef!important;border-radius:2mm!important;background:#fff!important;padding:2.5mm!important}.daily-pdf-stage .order-block+.order-block{margin-top:3.5mm!important}.daily-pdf-stage .order-title{padding-bottom:1.5mm!important;border-bottom:1px solid #eef1f5!important}.daily-pdf-stage .order-title h2{color:#17233b!important}.daily-pdf-stage .meta span{border-left:.8mm solid #d8d4ff!important;border-radius:1mm!important;background:#f8f9fc!important}.daily-pdf-stage .meta span:nth-child(3n+1){border-left-color:#2fcf9b!important}.daily-pdf-stage .products{border:1px solid #e2e7ef!important}.daily-pdf-stage .products th{background:#202b43!important;color:#fff!important}.daily-pdf-stage .products tbody tr:nth-child(even){background:#f8fafc!important}.daily-pdf-stage .products td{border-bottom:1px solid #e5eaf0!important}.daily-pdf-stage .detail{border:1px solid #e2e7ef!important;border-radius:1.5mm!important;background:#f8fafc!important}.daily-pdf-stage .proofs{border:1px solid #e2e7ef!important;border-radius:2mm!important}.daily-pdf-stage .edits{border-radius:1.5mm!important}.daily-pdf-stage .pdf-footer b{color:#5545ef!important}
         .order-title h2{font-size:14pt!important}.order-title h2 small{font-size:8pt!important}.status{font-size:7.5pt!important}.meta span{font-size:7.2pt!important;padding:1.5mm 1.7mm!important}.meta b{font-size:8pt!important}.products{font-size:7.5pt!important}.products th{padding:1.5mm 1.2mm!important}.products td{padding:1.8mm 1.2mm!important}.products b{font-size:8pt!important}.products small{font-size:7pt!important}.products .allowance{margin-top:1mm!important;color:#6b3fd4!important;font-weight:800}.detail{font-size:7pt!important;padding:2mm!important}.detail b{font-size:7.6pt!important}.edits{margin-top:2mm!important;padding:2mm!important;border-left:1mm solid #8b7cf6!important;background:#f7f6ff!important;font-size:7.2pt!important;line-height:1.65!important}.edits b{display:block!important;margin-bottom:1mm!important;font-size:8pt!important}.carry-row{grid-template-columns:2fr .8fr 1fr 1fr!important;font-size:7.2pt!important}.carry-row b{font-size:8pt!important}.carry-row small{font-size:6.5pt!important;line-height:1.35!important}.proofs{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;align-items:start!important;gap:3mm!important;margin-top:3mm!important;padding:3mm!important;background:#f5f7fa!important}.proofs img{box-sizing:border-box!important;display:block!important;width:auto!important;max-width:100%!important;height:auto!important;max-height:100mm!important;margin:0 auto!important;border-radius:1.5mm!important;object-fit:contain!important;background:#fff!important}.proofs:has(img:only-child){grid-template-columns:1fr!important}.proofs img:only-child{max-width:100%!important;max-height:110mm!important}
         .daily-pdf-stage{position:absolute;z-index:2147483647;top:0;left:0;width:210mm;background:#fff;color:#17233b;font-family:Aptos,"Segoe UI",Arial,sans-serif}.daily-pdf-page{position:relative;box-sizing:border-box;width:210mm;height:297mm;padding:7mm 8mm 10mm;background:#fff;overflow:hidden;page-break-after:always}.pdf-brand{display:flex;align-items:center;justify-content:space-between;padding-bottom:2.3mm;border-bottom:.6mm solid #5545ef}.pdf-logo{display:flex;align-items:center;gap:2mm}.pdf-logo svg{width:9mm;height:9mm}.pdf-logo b{font-size:11pt}.pdf-logo small,.pdf-date span{display:block;color:#748097;font-size:5.7pt}.pdf-date{text-align:right}.pdf-date strong{font-size:7.5pt}.order-block{margin-top:3mm;border-top:.7mm solid #dfe5ee;padding-top:2mm}.order-block:first-of-type{border-top:0}.order-title{display:flex;align-items:center;justify-content:space-between;gap:3mm}.order-title h2{margin:0;font-size:11pt}.order-title h2 small{margin-left:2mm;color:#66738a;font-size:6pt;font-weight:600}.merged-orders{display:flex;align-items:center;flex-wrap:wrap;gap:1.2mm;margin-top:1.5mm;padding:1.5mm 2mm;border-left:.8mm solid #5545ef;background:#f4f2ff;color:#4d43ad;font-size:6.2pt}.merged-orders span{padding:.5mm 1mm;border:1px solid #d9d4ff;background:#fff;font-weight:700}.status{border-radius:1.5mm;background:#fff3d8;padding:1mm 1.8mm;color:#946000;font-size:5.7pt;font-weight:800}.status.ok{background:#e7f9f1;color:#087c52}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:1mm;margin:1.5mm 0}.meta span{border-left:.7mm solid #d9d4ff;background:#f7f8fb;padding:1mm 1.3mm;font-size:5.4pt;line-height:1.35}.meta b{display:block;font-size:6.2pt}.products{width:100%;border-collapse:collapse;table-layout:fixed;font-size:5.6pt}.products th{background:#eef2f7;color:#59667b;padding:1mm;text-align:left}.products td{padding:1.2mm 1mm;border-bottom:1px solid #e5eaf0;vertical-align:top}.products .num{text-align:right}.products b{font-size:6.1pt}.products small{display:block;margin-top:.35mm;color:#718096;line-height:1.25}.changes{color:#5545c9!important}.positive{color:#087c52}.negative{color:#b4542d}.detail-row{display:grid;grid-template-columns:1fr 1fr;gap:1.3mm;margin-top:1.3mm}.detail{background:#f5f7fa;padding:1.2mm 1.5mm;font-size:5.4pt;line-height:1.35;white-space:pre-wrap}.detail b{font-size:5.8pt}.proofs{display:flex;gap:1mm;margin-top:1mm}.proofs img{width:24mm;height:16mm;border:1px solid #dfe5ed;border-radius:1mm;object-fit:cover}.edits{margin-top:1mm;color:#5e6980;font-size:5.2pt}.carry-title{margin:5mm 0 2mm;font-size:14pt}.carry-row{display:grid;grid-template-columns:1.2fr .8fr 1fr 1fr;gap:2mm;border-bottom:1px solid #e4e9f0;padding:2.3mm 1mm;font-size:6.5pt}.carry-row b{display:block;font-size:7.2pt}.carry-row small{display:block;color:#748097;margin-top:.5mm}.pdf-footer{position:absolute;right:8mm;bottom:3.5mm;left:8mm;display:flex;justify-content:space-between;border-top:1px solid #e2e7ef;padding-top:1.5mm;color:#7b8799;font-size:5.5pt}.pdf-footer b{color:#28344a}
       </style>${reportPages.map((page, pageIndex) => `<section class="daily-pdf-page"><header class="pdf-brand"><div class="pdf-logo">${logo}<span><b>AriX Panel</b><small>Gün sonu operasyon raporu</small></span></div><div class="pdf-date"><strong>${escapeHtml(new Date(`${day}T12:00:00`).toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric", weekday: "long" }))}</strong><span>${escapeHtml(new Date().toLocaleString("tr-TR"))}</span></div></header>${page.kind === "carried" ? `<h1 class="carry-title">Devredenler</h1>` : ""}${page.orders.map((order) => {
@@ -3099,7 +3132,8 @@ function DailyArchive({
               </div>
             </div>
             <button type="button" className="day-report-download" disabled={reportBusyDay === day} onClick={() => void downloadDayReport(day, orders)}>
-              {reportBusyDay === day ? "PDF hazırlanıyor…" : "PDF raporunu görüntüle"}
+              <FileText aria-hidden="true" />
+              <span>{reportBusyDay === day ? "PDF hazırlanıyor…" : "PDF raporunu görüntüle"}</span>
             </button>
           </header>
           {pendingOrders.length > 0 && <section className="day-order-section pending">
@@ -3111,7 +3145,7 @@ function DailyArchive({
             <div className="day-orders">{carriedOrders.map(renderOrder)}</div>
           </section>}
           {deliveredOrders.length > 0 && <section className="day-order-section delivered">
-            <header><span className="day-section-dot" /><div><h3>Teslim edilenler</h3><small>Teslim işlemi tamamlanmış siparişler</small></div><b>{deliveredOrders.length}</b></header>
+            <header><span className="day-section-dot" /><div><h3>Teslim edilenler</h3><small>Teslim işlemi tamamlanmış siparişler</small></div><button type="button" className="copy-delivered-summary" onClick={() => void copyDeliveredSummary(day, deliveredOrders)}><ClipboardCopy aria-hidden="true" /><span>{copiedSummaryDay === day ? "Kopyalandı" : "Grup metnini kopyala"}</span></button><b>{deliveredOrders.length}</b></header>
             <div className="day-orders">{deliveredOrders.map(renderOrder)}</div>
           </section>}
         </section>;
