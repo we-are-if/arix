@@ -6207,6 +6207,21 @@ function OrderDetail({
     }
   };
 
+  const deleteDeliveryPhoto = async () => {
+    if (!confirm("Teslim fotoğrafı silinsin mi?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      const next = await api<Order>(`/api/orders/${order.id}/delivery-photo`, { method: "DELETE" });
+      setDeliveryPhoto("");
+      onChanged(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Teslim fotoğrafı silinemedi.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const printAttachment = (attachment: OrderAttachment) => {
     const frame = document.createElement("iframe");
     frame.style.position = "fixed";
@@ -6901,18 +6916,20 @@ function OrderDetail({
             {(order.attachments || []).some((attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt) && (
               <div className="delivery-proof-files">
                 {(order.attachments || []).filter((attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt).map((attachment) => (
-                  attachment.mimeType.startsWith("image/") ?
-                    <img key={attachment.id} src={attachment.url} alt={attachment.name} /> :
-                    <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" />{attachment.name}</a>
+                  <div className="delivery-proof-file" key={attachment.id}>
+                    {attachment.mimeType.startsWith("image/") ?
+                      <img src={attachment.url} alt={attachment.name} /> :
+                      <a href={attachment.url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" />{attachment.name}</a>}
+                    {canDeliver && <button type="button" className="delivery-proof-delete" disabled={busy} title="Teslim kanıtını sil" onClick={() => void deleteAttachment(attachment)}><Trash2 aria-hidden="true" /></button>}
+                  </div>
                 ))}
               </div>
             )}
             {deliveryPhoto && (
-              <img
-                className="delivery-photo-preview"
-                src={deliveryPhoto}
-                alt={ui.deliveryPhoto}
-              />
+              <div className="delivery-proof-file legacy">
+                <img className="delivery-photo-preview" src={deliveryPhoto} alt={ui.deliveryPhoto} />
+                {canDeliver && <button type="button" className="delivery-proof-delete" disabled={busy} title="Teslim fotoğrafını sil" onClick={() => void deleteDeliveryPhoto()}><Trash2 aria-hidden="true" /></button>}
+              </div>
             )}
           </section>
         )}
@@ -6922,17 +6939,19 @@ function OrderDetail({
               <h3>{ui.deliveryProof}</h3>
               <p>{order.deliveryNote}</p>
               {order.deliveryPhoto && (
-                <img
-                  className="delivery-photo-preview"
-                  src={order.deliveryPhoto}
-                  alt={ui.deliveryPhoto}
-                />
+                <div className="delivery-proof-file legacy">
+                  <img className="delivery-photo-preview" src={order.deliveryPhoto} alt={ui.deliveryPhoto} />
+                  {canDeliver && <button type="button" className="delivery-proof-delete" disabled={busy} title="Teslim fotoğrafını sil" onClick={() => void deleteDeliveryPhoto()}><Trash2 aria-hidden="true" /></button>}
+                </div>
               )}
               {deliveryProofFiles.length > 0 && (
                 <div className="delivery-proof-files">
-                  {deliveryProofFiles.map((attachment) => attachment.mimeType.startsWith("image/") ?
-                    <img key={attachment.id} src={attachment.url} alt={attachment.name} /> :
-                    <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" />{attachment.name}</a>)}
+                  {deliveryProofFiles.map((attachment) => <div className="delivery-proof-file" key={attachment.id}>
+                    {attachment.mimeType.startsWith("image/") ?
+                      <img src={attachment.url} alt={attachment.name} /> :
+                      <a href={attachment.url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" />{attachment.name}</a>}
+                    {canDeliver && <button type="button" className="delivery-proof-delete" disabled={busy} title="Teslim kanıtını sil" onClick={() => void deleteAttachment(attachment)}><Trash2 aria-hidden="true" /></button>}
+                  </div>)}
                 </div>
               )}
             </section>

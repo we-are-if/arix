@@ -2388,9 +2388,13 @@ textarea {
 .attachment-upload-status span { width:16px; height:16px; flex:0 0 auto; border:2px solid #c9c5ff; border-top-color:#5145e5; border-radius:50%; animation:attachment-upload-spin .8s linear infinite; }
 @keyframes attachment-upload-spin { to { transform:rotate(360deg); } }
 .delivery-proof-files { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:8px; }
+.delivery-proof-file { position:relative; min-width:0; }
+.delivery-proof-file.legacy { width:min(100%, 360px); }
 .delivery-proof-files img { width:100%; aspect-ratio:4 / 3; border:1px solid #dce2eb; border-radius:8px; object-fit:cover; }
 .delivery-proof-files a { display:flex; min-height:72px; align-items:center; justify-content:center; gap:6px; border:1px solid #dce2eb; border-radius:8px; background:#f8fafc; padding:8px; color:#4f46e5; font-size:11px; font-weight:700; text-align:center; text-decoration:none; }
 .delivery-proof-files a svg { width:18px; height:18px; flex:0 0 auto; }
+.delivery-proof-delete { position:absolute; top:6px; right:6px; display:grid; place-items:center; width:34px; height:34px; padding:0; border:1px solid #fecaca; border-radius:8px; background:rgba(255,255,255,.94); color:#dc2626; box-shadow:0 2px 8px rgba(15,23,42,.15); }
+.delivery-proof-delete svg { width:17px; height:17px; }
 .delivery-photo-preview {
   width: min(100%, 360px);
   max-height: 260px;

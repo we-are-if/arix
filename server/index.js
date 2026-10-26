@@ -3358,13 +3358,33 @@ async function handleOrderBoard(req, res, url, parts) {
     return send(res, 201, { data: orderWithPresence(order, req.authUser) });
   }
 
+  if (req.method === "DELETE" && id && parts[2] === "delivery-photo") {
+    if (!canDeliver) return send(res, 403, { error: "Teslim fotoğrafını silme yetkiniz yok." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (!order.deliveryPhoto) return notFound(res);
+    if (order.deliveryPhotoStorageName) await unlink(join(ORDER_UPLOAD_DIR, order.deliveryPhotoStorageName)).catch(() => {});
+    const now = new Date().toISOString();
+    delete order.deliveryPhoto;
+    delete order.deliveryPhotoStorageName;
+    delete order.deliveryPhotoMimeType;
+    delete order.deliveryPhotoUploadedAt;
+    delete order.deliveryPhotoUploadedBy;
+    order.updatedAt = now;
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: "deliveryPhotoDeleted", by: req.authUser?.name ?? "Teslim eden", userId: req.authUser?.id, at: now });
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
   if (req.method === "DELETE" && id && parts[2] === "attachments" && parts[3]) {
-    if (workflowRole !== "owner" && !hasPermission(req.authUser, "documents.delete")) return send(res, 403, { error: "Sənədi silmək icazəniz yoxdur." });
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
     const attachmentId = String(parts[3]);
     const attachment = (order.attachments || []).find((item) => String(item.id) === attachmentId);
     if (!attachment) return notFound(res);
+    const mayDelete = workflowRole === "owner" || hasPermission(req.authUser, "documents.delete") || (attachment.kind === "deliveryProof" && canDeliver);
+    if (!mayDelete) return send(res, 403, { error: "Bu dosyayı silme yetkiniz yok." });
     const now = new Date().toISOString();
     attachment.deletedAt = now;
     attachment.deletedBy = req.authUser?.name ?? "Sahib";
@@ -6601,7 +6621,7 @@ async function handleApiRequest(req, res) {
       else if (resource === "trash") required = ["trash.manage"];
       else if (!resource && req.method === "POST") required = ["orders.create"];
       else if (resource === "match") required = ["orders.create"];
-      else if (action === "attachments") required = req.method === "POST" ? ["documents.create", "orders.deliver"] : ["documents.delete"];
+      else if (action === "attachments") required = req.method === "POST" ? ["documents.create", "orders.deliver"] : ["documents.delete", "orders.deliver"];
       else if (action === "approval-form") required = ["order_forms.edit", "order_forms.approve"];
       else if (action === "delivery-photo") required = ["orders.deliver"];
       else if (action === "draft" || action === "partial-ready") required = ["orders.prepare"];
