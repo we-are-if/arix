@@ -5,12 +5,10 @@ import AriXLogo from "../../src/components/AriXLogo";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 let pdfRendererPromise: ReturnType<typeof importPdfRenderer> | null = null;
-let sharedPdfWorker: Worker | null = null;
 
 function importPdfRenderer() {
   return import("pdfjs-dist").then((pdfjs) => {
-    if (!sharedPdfWorker) sharedPdfWorker = new Worker(pdfWorkerUrl, { type: "module" });
-    pdfjs.GlobalWorkerOptions.workerPort = sharedPdfWorker;
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
     return pdfjs;
   });
 }
