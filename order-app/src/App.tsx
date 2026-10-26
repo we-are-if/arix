@@ -3527,10 +3527,12 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
   const [pdfRendered, setPdfRendered] = useState(false);
   const [zoom, setZoom] = useState(1);
   const pagesRef = useRef<HTMLDivElement | null>(null);
+  const nativePdfRef = useRef<HTMLIFrameElement | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const filename = order.approvalForm?.archive?.filename || `${order.approvalForm?.number || order.number}.pdf`;
   const nativeShare = Reflect.get(navigator, "share") as ((data: ShareData) => Promise<void>) | undefined;
   const nativeCanShare = Reflect.get(navigator, "canShare") as ((data: ShareData) => boolean) | undefined;
+  const useNativeWindowsViewer = /Windows NT/i.test(navigator.userAgent);
   const representativeName = (order.approvalForm?.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
   const sessionName = session.name.trim().toLocaleLowerCase("tr");
   const isOwner = workflowRole(session.role) === "owner";
@@ -3567,7 +3569,7 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
   }, [order.id]);
 
   useEffect(() => {
-    if (!pdfBlob || !pagesRef.current) return;
+    if (useNativeWindowsViewer || !pdfBlob || !pagesRef.current) return;
     let cancelled = false;
     const pages = pagesRef.current;
     pages.replaceChildren();
@@ -3604,7 +3606,7 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
       cancelled = true;
       pages.replaceChildren();
     };
-  }, [pdfBlob]);
+  }, [pdfBlob, useNativeWindowsViewer]);
 
   const touchDistance = (touches: { readonly [index: number]: { clientX: number; clientY: number } }) => {
     const x = touches[0].clientX - touches[1].clientX;
@@ -3634,6 +3636,11 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
 
   const printPdf = async () => {
     if (!pdfBlob || !pdfRendered) return;
+    if (useNativeWindowsViewer && nativePdfRef.current?.contentWindow) {
+      nativePdfRef.current.contentWindow.focus();
+      nativePdfRef.current.contentWindow.print();
+      return;
+    }
     const isAppleMobile = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     if (isAppleMobile && nativeShare) {
@@ -3688,7 +3695,8 @@ function ApprovalPdfViewer({ order, session, onClose, onEdit, onApprove }: {
       >
         {error && <p className="form-error">{error}</p>}
         {!error && !pdfRendered && <div className="orders-loading-state"><span />Belge açılıyor…</div>}
-        <div className={`approval-pdf-canvas-stage ${pdfRendered ? "is-ready" : ""}`} style={{ width: `${zoom * 100}%` }} ref={pagesRef} aria-label={filename} />
+        {!error && useNativeWindowsViewer && pdfUrl && <iframe ref={nativePdfRef} className="approval-native-pdf" src={pdfUrl} title={filename} onLoad={() => setPdfRendered(true)} />}
+        {!useNativeWindowsViewer && <div className={`approval-pdf-canvas-stage ${pdfRendered ? "is-ready" : ""}`} style={{ width: `${zoom * 100}%` }} ref={pagesRef} aria-label={filename} />}
       </main>
     </section>
   );
