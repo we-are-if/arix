@@ -483,6 +483,9 @@ function normalizeDb(db) {
   }
   for (const order of db.orderBoard) {
     compactUnchangedAutomaticRollovers(order);
+    if (Array.isArray(order.items)) {
+      order.items = order.items.map((item) => ({ ...item, ...normalizeOrderCutAllowance(item) }));
+    }
     if (!order.businessDate) {
       const createdAt = new Date(order.createdAt || Date.now());
       order.businessDate = Number.isNaN(createdAt.getTime()) ? orderDayKey() : orderDayKey(createdAt);
@@ -3681,7 +3684,10 @@ async function handleOrderBoard(req, res, url, parts) {
     if (nextStatus === "ready") {
       const items = Array.isArray(body.items) ? body.items : order.items;
       if (items.some((item) => !(Number(item.preparedQuantity) > 0))) return send(res, 400, { error: "Hazır etməzdən əvvəl bütün faktiki metrajları yazın." });
-      order.items = items.map((item, index) => ({ ...order.items[index], ...item, preparedRollCount: Math.max(0, Number(item.preparedRollCount) || 0) }));
+      order.items = items.map((item, index) => {
+        const merged = { ...order.items[index], ...item, preparedRollCount: Math.max(0, Number(item.preparedRollCount) || 0) };
+        return { ...merged, ...normalizeOrderCutAllowance(merged) };
+      });
     } else if (Array.isArray(body.items)) {
       order.items = body.items;
     }
