@@ -507,6 +507,13 @@ function normalizeDb(db) {
   db.authUsers = Array.isArray(db.authUsers) && db.authUsers.length
     ? db.authUsers.map((user) => ({ ...user, active: user.inviteCodeHash ? user.active === true : user.active !== false, companyId: user.companyId || "ersa-folyo", googleSubject: user.googleSubject || null }))
     : structuredClone(defaultAuthUsers);
+  for (const order of db.orderBoard) {
+    const creatorName = normalizeSalesRepresentativeName(order.createdBy || "");
+    const matchingUsers = db.authUsers.filter((user) => normalizeSalesRepresentativeName(user.name || "") === creatorName);
+    if (creatorName && matchingUsers.length === 1 && !db.authUsers.some((user) => String(user.id) === String(order.createdByUserId || ""))) {
+      order.createdByUserId = matchingUsers[0].id;
+    }
+  }
   db.permissionMigrations ??= {};
   if (!db.permissionMigrations.salesApprovalSeparated) {
     const affectedUserIds = new Set();
@@ -2726,7 +2733,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const data = db.orderBoard
       .filter((order) => !order.isTest || (
         String(order.createdByUserId || "") === actorId ||
-        (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName)
+        normalizeSalesRepresentativeName(order.createdBy || "") === actorName
       ))
       .filter((order) => order.approvalForm && ["ready", "delivered"].includes(order.status))
       .map((order) => {
@@ -2795,7 +2802,7 @@ async function handleOrderBoard(req, res, url, parts) {
       .filter((order) => !status || order.status === status)
       .filter((order) => !order.isTest || (
         String(order.createdByUserId || "") === actorId ||
-        (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName)
+        normalizeSalesRepresentativeName(order.createdBy || "") === actorName
       ))
       .filter((order) => {
         if (canViewAllOrders) return true;
