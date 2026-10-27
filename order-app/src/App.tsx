@@ -9427,21 +9427,29 @@ function ApprovalFormEditor({
               </tbody>
             </table>
             <div className="approval-bottom-grid">
-              {isCommercialInvoice || isProforma ? <div className="approval-commercial-panel approval-commercial-shipment-panel">
-                <div className="approval-condition-heading"><ApprovalIcon kind="delivery" /><span><b>Shipment & customs</b><small>Transport, package and customs details</small></span></div>
+              {isCommercialInvoice || isProforma ? <div className={`approval-commercial-panel approval-commercial-shipment-panel${isProforma ? " approval-proforma-shipment-panel" : ""}`}>
+                <div className="approval-condition-heading"><ApprovalIcon kind="delivery" /><span><b>{isProforma ? "Proforma & shipment details" : "Shipment & customs"}</b><small>{isProforma ? "Package, delivery and origin information" : "Transport, package and customs details"}</small></span></div>
                 <div className="approval-commercial-panel-grid">
-                  <span><small>Packaging</small>{form.packageType || "-"}</span>
-                  {isProforma && <span><small>Description</small>{form.productDescription || "-"}</span>}
-                  <span><small>Buyer PO / Contract</small>{form.buyerOrderNumber || "-"}</span>
-                  <span><small>Delivery term</small>{form.incoterm || "-"}</span>
-                  <span><small>Transport mode</small>{form.transportMode || "-"}</span>
-                  <span><small>{isProforma ? "Shipment port / destination" : "Loading / destination"}</small>{isProforma ? `${form.shipmentPort || "-"} → ${form.destination || "-"}` : `${form.loadingPlace || "-"} → ${form.destination || "-"}`}</span>
-                  {isProforma && <span><small>Country of origin</small>{form.countryOfOrigin || "-"}</span>}
-                  <span><small>Vehicle / Container</small>{form.vehicleContainerNumber || "-"}</span>
-                  <span><small>CMR / B/L / AWB</small>{form.transportDocumentNumber || "-"}</span>
-                  <span><small>Marks & numbers</small>{form.marksAndNumbers || "-"}</span>
-                  {form.lines.some((line) => (line.manual || Number(line.rollCount) <= 0) && Number(line.packageCount) > 0) && <span><small>Packages</small>{form.lines.reduce((sum, line) => sum + ((line.manual || Number(line.rollCount) <= 0) ? (Number(line.packageCount) || 0) : 0), 0)}</span>}
-                  <span><small>Net / Gross</small>{form.lines.reduce((sum, line) => sum + (Number(line.netWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} / {form.lines.reduce((sum, line) => sum + (Number(line.grossWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</span>
+                  {isProforma ? <>
+                    <span><small>Packaging</small>{form.packageType || "-"}</span>
+                    <span><small>Product description</small>{form.productDescription || "-"}</span>
+                    <span><small>Buyer PO / Contract</small>{form.buyerOrderNumber || "-"}</span>
+                    <span><small>Delivery term</small>{form.incoterm || "-"}</span>
+                    <span><small>Shipment port</small>{form.shipmentPort || "-"}</span>
+                    <span><small>Destination</small>{form.destination || "-"}</span>
+                    <span><small>Country of origin</small>{form.countryOfOrigin || "-"}</span>
+                  </> : <>
+                    <span><small>Packaging</small>{form.packageType || "-"}</span>
+                    <span><small>Buyer PO / Contract</small>{form.buyerOrderNumber || "-"}</span>
+                    <span><small>Delivery term</small>{form.incoterm || "-"}</span>
+                    <span><small>Transport mode</small>{form.transportMode || "-"}</span>
+                    <span><small>Loading / destination</small>{form.loadingPlace || "-"} → {form.destination || "-"}</span>
+                    <span><small>Vehicle / Container</small>{form.vehicleContainerNumber || "-"}</span>
+                    <span><small>CMR / B/L / AWB</small>{form.transportDocumentNumber || "-"}</span>
+                    <span><small>Marks & numbers</small>{form.marksAndNumbers || "-"}</span>
+                    {form.lines.some((line) => (line.manual || Number(line.rollCount) <= 0) && Number(line.packageCount) > 0) && <span><small>Packages</small>{form.lines.reduce((sum, line) => sum + ((line.manual || Number(line.rollCount) <= 0) ? (Number(line.packageCount) || 0) : 0), 0)}</span>}
+                    <span><small>Net / Gross</small>{form.lines.reduce((sum, line) => sum + (Number(line.netWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} / {form.lines.reduce((sum, line) => sum + (Number(line.grossWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</span>
+                  </>}
                 </div>
               </div> : isPackingList ? <div className="approval-commercial-panel approval-packing-summary-panel">
                 <div className="approval-condition-heading"><ApprovalIcon kind="terms" /><span><b>Packing summary</b><small>Pallet, roll and weight totals</small></span></div>
