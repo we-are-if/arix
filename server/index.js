@@ -2883,7 +2883,10 @@ async function handleOrderBoard(req, res, url, parts) {
         String(order.createdByUserId || "") === actorId ||
         normalizeSalesRepresentativeName(order.createdBy || "") === actorName
       ))
-      .filter((order) => !order.isLoanReturn && order.approvalForm && ["ready", "delivered"].includes(order.status))
+      .filter((order) => !order.isLoanReturn && order.approvalForm && (
+        ["ready", "delivered"].includes(order.status) ||
+        (order.status === "preparing" && order.exportPackingRequired)
+      ))
       .map((order) => {
         const customerName = String(order.approvalForm?.customerName || order.customerName || "").trim().toLocaleLowerCase("tr");
         const customer = (db.orderCustomers || []).find((item) => String(item.name || "").trim().toLocaleLowerCase("tr") === customerName);
