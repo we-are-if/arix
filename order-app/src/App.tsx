@@ -1512,6 +1512,7 @@ export default function App() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [boardSearch, setBoardSearch] = useState("");
   const [inactiveOrdersOpen, setInactiveOrdersOpen] = useState(false);
+  const [inactiveOrderBusyId, setInactiveOrderBusyId] = useState("");
   const [pageTab, setPageTab] = useState<"board" | "forms" | "days" | "stock">(() => {
     const saved = localStorage.getItem("arix-order-page-tab");
     return ["board", "forms", "days", "stock"].includes(saved || "") ? saved as "board" | "forms" | "days" | "stock" : "board";
@@ -1903,6 +1904,22 @@ export default function App() {
     "counterparties.view", "counterparties.manage", "employees.manage",
   ].some((permission) => session?.permissions?.includes(permission));
   const unreadNotificationCount = notifications.filter((item) => !item.readAt).length;
+
+  const manageDeletedOrder = async (order: Order, action: "restore" | "delete") => {
+    if (action === "delete" && !window.confirm(`${order.number} kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`)) return;
+    setInactiveOrderBusyId(order.id);
+    setError("");
+    try {
+      await api(`/api/orders/trash/${order.id}${action === "restore" ? "/restore" : ""}`, {
+        method: action === "restore" ? "POST" : "DELETE",
+      });
+      await Promise.all([load(), loadSupportingData()]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "İşlem tamamlanamadı.");
+    } finally {
+      setInactiveOrderBusyId("");
+    }
+  };
 
   useEffect(() => {
     if (!session || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
@@ -2464,12 +2481,18 @@ export default function App() {
                 const reason = deleted ? order.deletionReason : order.cancellationReason;
                 const actor = deleted ? order.deletedBy : order.cancelledBy;
                 const at = deleted ? order.deletedAt : order.cancelledAt || order.updatedAt;
-                return <button type="button" key={`${deleted ? "deleted" : "cancelled"}-${order.id}`} onClick={() => { if (!deleted) { setInactiveOrdersOpen(false); setActiveOrder(order); } }} disabled={deleted}>
-                  <span className={`inactive-order-kind ${deleted ? "deleted" : "cancelled"}`}>{deleted ? "Silindi" : "İptal edildi"}</span>
-                  <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün</small></span>
-                  <span className="inactive-order-reason">{reason || "Sebep kaydedilmemiş"}</span>
-                  <small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language)}` : ""}</small>
-                </button>;
+                return <article className="inactive-order-row" key={`${deleted ? "deleted" : "cancelled"}-${order.id}`}>
+                  <button type="button" className="inactive-order-info" onClick={() => { if (!deleted) { setInactiveOrdersOpen(false); setActiveOrder(order); } }} disabled={deleted}>
+                    <span className={`inactive-order-kind ${deleted ? "deleted" : "cancelled"}`}>{deleted ? "Silindi" : "İptal edildi"}</span>
+                    <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün</small></span>
+                    <span className="inactive-order-reason">{reason || "Sebep kaydedilmemiş"}</span>
+                    <small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language)}` : ""}</small>
+                  </button>
+                  {deleted && canManageTrash && <div className="inactive-order-actions">
+                    <button type="button" className="secondary" disabled={inactiveOrderBusyId === order.id} onClick={() => void manageDeletedOrder(order, "restore")}>{text.restore}</button>
+                    <button type="button" className="danger-button" disabled={inactiveOrderBusyId === order.id} onClick={() => void manageDeletedOrder(order, "delete")}><Trash2 aria-hidden="true" />{text.deleteForever}</button>
+                  </div>}
+                </article>;
               })}
             </div> : <div className="inactive-orders-empty"><Trash2 aria-hidden="true" /><b>Henüz iptal veya silinen sipariş yok</b></div>}
           </Modal>
