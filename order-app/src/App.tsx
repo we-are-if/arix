@@ -6878,12 +6878,33 @@ function OrderDetail({
   };
 
   const saveChanges = async () => {
+    if (!customerName.trim()) {
+      setError("Müşteri adı zorunludur.");
+      return;
+    }
+    const incompleteProduct = items.find((item) => !item.productId);
+    if (incompleteProduct) {
+      setError("Ürün kodu veya adından listeden geçerli bir ürün seçin.");
+      return;
+    }
+    const missingAmount = items.find((item) => !(Number(item.quantity) > 0) && !(Number(item.orderedRollCount) > 0));
+    if (missingAmount) {
+      setError(`${missingAmount.productName || "Ürün"}: metre veya rulo sayısından en az birini yazın.`);
+      return;
+    }
+    let reason = editReason.trim();
+    if (!reason) reason = window.prompt("Düzenleme nedenini yazın:", "")?.trim() || "";
+    if (!reason) {
+      setError("Düzenleme nedeni zorunludur.");
+      return;
+    }
+    setEditReason(reason);
     setBusy(true);
     setError("");
     try {
       const next = await api<Order>(`/api/orders/${order.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ customerName, note, items, editReason, removedItems }),
+        body: JSON.stringify({ customerName, note, items, editReason: reason, removedItems }),
       });
       setEditing(false);
       setEditReason("");
@@ -7192,7 +7213,7 @@ function OrderDetail({
             return (
               <div
                 className={`prep-row ${order.status === "delivered" ? "is-expandable" : ""}`}
-                key={productKey}
+                key={`order-line-${index}`}
               >
                 <div>
                   <small>{item.productCode}</small>
@@ -8111,12 +8132,7 @@ function OrderDetail({
           {canEditOrder && editing && (
             <button
               className="primary"
-              disabled={
-                busy ||
-                !customerName.trim() ||
-                !editReason.trim() ||
-                items.some((item) => !item.productId || (!(Number(item.quantity) > 0) && !(Number(item.orderedRollCount) > 0)))
-              }
+              disabled={busy}
               onClick={saveChanges}
             >
               {ui.saveChanges}
