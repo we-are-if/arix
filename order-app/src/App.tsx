@@ -9427,14 +9427,16 @@ function ApprovalFormEditor({
               </tbody>
             </table>
             <div className="approval-bottom-grid">
-              {isCommercialInvoice ? <div className="approval-commercial-panel approval-commercial-shipment-panel">
+              {isCommercialInvoice || isProforma ? <div className="approval-commercial-panel approval-commercial-shipment-panel">
                 <div className="approval-condition-heading"><ApprovalIcon kind="delivery" /><span><b>Shipment & customs</b><small>Transport, package and customs details</small></span></div>
                 <div className="approval-commercial-panel-grid">
                   <span><small>Packaging</small>{form.packageType || "-"}</span>
+                  {isProforma && <span><small>Description</small>{form.productDescription || "-"}</span>}
                   <span><small>Buyer PO / Contract</small>{form.buyerOrderNumber || "-"}</span>
                   <span><small>Delivery term</small>{form.incoterm || "-"}</span>
                   <span><small>Transport mode</small>{form.transportMode || "-"}</span>
-                  <span><small>Loading / destination</small>{form.loadingPlace || "-"} → {form.destination || "-"}</span>
+                  <span><small>{isProforma ? "Shipment port / destination" : "Loading / destination"}</small>{isProforma ? `${form.shipmentPort || "-"} → ${form.destination || "-"}` : `${form.loadingPlace || "-"} → ${form.destination || "-"}`}</span>
+                  {isProforma && <span><small>Country of origin</small>{form.countryOfOrigin || "-"}</span>}
                   <span><small>Vehicle / Container</small>{form.vehicleContainerNumber || "-"}</span>
                   <span><small>CMR / B/L / AWB</small>{form.transportDocumentNumber || "-"}</span>
                   <span><small>Marks & numbers</small>{form.marksAndNumbers || "-"}</span>
@@ -9460,14 +9462,6 @@ function ApprovalFormEditor({
                 <ul>
                   {(isProforma ? EXPORT_GENERAL_TERMS : DOMESTIC_GENERAL_TERMS).map((term) => <li key={term}>{term}</li>)}
                 </ul>
-                {isProforma && !isCommercialInvoice && <div className="approval-export-summary">
-                  <span><b>Packaging</b>{form.packageType || "-"}</span>
-                  <span><b>Description</b>{form.productDescription || "-"}</span>
-                  <span><b>Delivery term</b>{form.incoterm || "-"}</span>
-                  <span><b>Shipment port</b>{form.shipmentPort || "-"}</span>
-                  <span><b>Destination</b>{form.destination || "-"}</span>
-                  <span><b>Country of origin</b>{form.countryOfOrigin || "-"}</span>
-                </div>}
                 <div className="approval-inline-conditions">
                   <span>
                     <ApprovalIcon kind="payment" />
@@ -9484,7 +9478,6 @@ function ApprovalFormEditor({
                     </span>
                   </span>
                 </div>
-                {isProforma && !isCommercialInvoice && <div className="approval-bank-line"><b>Bank</b><span>{form.bankName || "-"} · SWIFT: {form.swiftCode || "-"} · IBAN: {form.iban || "-"}</span></div>}
               </div>}
               {!isPackingList && <div className="approval-totals">
               <span>
@@ -9539,9 +9532,9 @@ function ApprovalFormEditor({
                 </div>
               </div>}
             </div>
-            {isCommercialInvoice && <div className="approval-commercial-tail"><section className="approval-commercial-panels">
+            {(isCommercialInvoice || isProforma) && <div className="approval-commercial-tail"><section className="approval-commercial-panels">
               <div className="approval-general-terms approval-general-terms-main approval-commercial-terms-panel">
-                <div className="approval-condition-heading"><ApprovalIcon kind="terms" /><span><b>Terms and export details</b><small>Commercial invoice conditions</small></span></div>
+                <div className="approval-condition-heading"><ApprovalIcon kind="terms" /><span><b>Terms and export details</b><small>{isProforma ? "Proforma invoice conditions" : "Commercial invoice conditions"}</small></span></div>
                 <ul>{EXPORT_GENERAL_TERMS.map((term) => <li key={term}>{term}</li>)}</ul>
                 <div className="approval-inline-conditions">
                   <span><ApprovalIcon kind="payment" /><span><b>Payment terms</b><small>{form.paymentTerms.trim() || "Not specified"}</small></span></span>
@@ -9550,7 +9543,7 @@ function ApprovalFormEditor({
               </div>
               <div className="approval-commercial-panel approval-commercial-stamp-panel">
                 <div className="approval-commercial-declaration">
-                  <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>Exporter declaration</b><small>Certified commercial invoice statement</small></span></div>
+                  <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>Exporter declaration</b><small>{isProforma ? "Certified proforma invoice statement" : "Certified commercial invoice statement"}</small></span></div>
                   <span>{form.exporterDeclaration || "-"}</span>
                 </div>
                 <div className="approval-commercial-stamp">
