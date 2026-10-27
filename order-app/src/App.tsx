@@ -8759,7 +8759,7 @@ function ApprovalFormEditor({
       className={`approval-modal ${isPackingTask ? "packing-task-only" : ""} ${previewOnly && !editing ? "preview-only" : ""}`}
     >
       {isProforma && (
-        <nav className="approval-document-switch" aria-label="Yurtdışı belge görünümü">
+        <nav className="approval-document-switch" aria-label="Export document view">
           <button type="button" className={form.documentType === "proforma" ? "active" : ""} onClick={() => switchExportDocument("proforma")}>Proforma</button>
           <button type="button" className={form.documentType === "commercial_invoice" ? "active" : ""} onClick={() => switchExportDocument("commercial_invoice")}>Commercial Invoice</button>
           <button type="button" className={form.documentType === "packing_list" ? "active" : ""} onClick={() => switchExportDocument("packing_list")}>Packing List</button>
@@ -8769,7 +8769,7 @@ function ApprovalFormEditor({
         <section className={`approval-editor ${editing ? "" : "is-readonly"}`} aria-disabled={!editing}>
           <div className="approval-fields four">
             <label>
-              Belge türü
+              {isProforma ? "Document type" : "Belge türü"}
               <select
                 value={form.documentType ?? "domestic"}
                 onChange={(event) => {
@@ -8785,14 +8785,14 @@ function ApprovalFormEditor({
                   });
                 }}
               >
-                <option value="domestic">Yurtiçi - Sipariş Onay Formu</option>
-                <option value="proforma">Yurtdışı - Proforma Invoice</option>
-                <option value="commercial_invoice">Yurtdışı - Commercial Invoice</option>
-                <option value="packing_list">Yurtdışı - Packing List</option>
+                <option value="domestic">Domestic - Order Confirmation</option>
+                <option value="proforma">Export - Proforma Invoice</option>
+                <option value="commercial_invoice">Export - Commercial Invoice</option>
+                <option value="packing_list">Export - Packing List</option>
               </select>
             </label>
             <label>
-              Form no
+              {isProforma ? "Form number" : "Form no"}
               <input
                 value={form.number}
                 onChange={(event) =>
@@ -8818,7 +8818,7 @@ function ApprovalFormEditor({
               <input type="date" required value={form.shipmentDate ?? form.date} onChange={(event) => setForm({ ...form, shipmentDate: event.target.value })} />
             </label>}
             <label>
-              {form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? "Proforma Date" : "Belge tarihi"}
+              {form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? "Proforma Date" : isProforma ? "Issue date" : "Belge tarihi"}
               <input
                 type="date"
                 value={form.date}
@@ -8829,7 +8829,7 @@ function ApprovalFormEditor({
               />
             </label>
             <label>
-              Satış temsilcisi
+              {isProforma ? "Sales representative" : "Satış temsilcisi"}
               <input
                 list="approval-sales-representatives"
                 value={form.salesRepresentative ?? ""}
@@ -8840,7 +8840,7 @@ function ApprovalFormEditor({
               <datalist id="approval-sales-representatives"><option value="Serkan Şeremet" /><option value="Mustafa Yazman" /><option value="Ekrem Tiryaki" /></datalist>
             </label>
             <label>
-              Para birimi
+              {isProforma ? "Currency" : "Para birimi"}
               <select
                 value={form.currency}
                 onChange={(event) =>
@@ -8856,23 +8856,23 @@ function ApprovalFormEditor({
               </select>
             </label>
             {isProforma && <label>
-              Fiyat kaynağı
+              Price source
               <select
                 value={form.priceSource ?? "DEPO"}
                 onChange={(event) => applyCustomerPriceMode(event.target.value as "DEPO" | "ANTREPO_TRANSIT", form.priceFactor ?? 1)}
               >
-                <option value="DEPO">Depo</option>
-                <option value="ANTREPO_TRANSIT">Antrepo / Transit</option>
+                <option value="DEPO">Warehouse</option>
+                <option value="ANTREPO_TRANSIT">Bonded warehouse / Transit</option>
               </select>
             </label>}
             {isProforma && <label>
-              Fiyat şekli
+              Pricing
               <select
                 value={String(printPriceFactor)}
                 onChange={(event) => applyCustomerPriceMode(form.priceSource ?? "DEPO", Number(event.target.value) === 0.5 ? 0.5 : 1)}
               >
-                <option value="1">Tam fiyat</option>
-                <option value="0.5">Yarım fiyat (0,5)</option>
+                <option value="1">Full price</option>
+                <option value="0.5">Half price (0.5)</option>
               </select>
             </label>}
             {!isProforma && <label>
@@ -8906,7 +8906,7 @@ function ApprovalFormEditor({
           </div>}
           {isCommercialInvoice && <section className="approval-commercial-fields">
             <div className="approval-commercial-fields-head">
-              <div><b>Customs & shipment</b><small>Commercial Invoice sevkiyat ve gümrük bilgileri</small></div>
+              <div><b>Customs & shipment</b><small>Commercial invoice shipping and customs information</small></div>
             </div>
             <div className="approval-customer-fields approval-export-fields">
               <label><span>Buyer PO / Contract No.</span><input value={form.buyerOrderNumber ?? ""} onChange={(event) => setForm({ ...form, buyerOrderNumber: event.target.value })} /></label>
@@ -8922,49 +8922,49 @@ function ApprovalFormEditor({
           </section>}
           <div className="approval-customer-fields">
             <label>
-              Müşteri / firma adı
+              {isProforma ? "Customer / company name" : "Müşteri / firma adı"}
               <input
                 value={form.customerName ?? order.customerName}
                 onChange={(event) => setForm({ ...form, customerName: event.target.value })}
               />
             </label>
             <label>
-              Müşteri temsilcisi
+              {isProforma ? "Customer contact" : "Müşteri temsilcisi"}
               <input
                 value={form.customerContact ?? ""}
                 onChange={(event) => setForm({ ...form, customerContact: event.target.value })}
               />
             </label>
             <label>
-              Telefon
+              {isProforma ? "Phone" : "Telefon"}
               <input
                 value={form.customerPhone ?? ""}
                 onChange={(event) => setForm({ ...form, customerPhone: event.target.value })}
               />
             </label>
             <label>
-              E-posta
+              {isProforma ? "Email" : "E-posta"}
               <input
                 value={form.customerEmail ?? ""}
                 onChange={(event) => setForm({ ...form, customerEmail: event.target.value })}
               />
             </label>
             <label>
-              Vergi dairesi
+              {isProforma ? "Tax office" : "Vergi dairesi"}
               <input
                 value={form.customerTaxOffice ?? ""}
                 onChange={(event) => setForm({ ...form, customerTaxOffice: event.target.value })}
               />
             </label>
             <label>
-              VKN / TCKN
+              {isProforma ? "VAT / Tax number" : "VKN / TCKN"}
               <input
                 value={form.customerTaxNumber ?? ""}
                 onChange={(event) => setForm({ ...form, customerTaxNumber: event.target.value })}
               />
             </label>
             <label className="wide-field">
-              Müşteri adresi
+              {isProforma ? "Customer address" : "Müşteri adresi"}
               <input
                 value={form.customerAddress ?? ""}
                 onChange={(event) => setForm({ ...form, customerAddress: event.target.value })}
@@ -8979,27 +8979,27 @@ function ApprovalFormEditor({
                 setForm({ ...form, vatIncluded: event.target.checked })
               }
             />
-            <span>KDV fiyatlara dahil</span>
+            <span>{isProforma ? "Prices include VAT" : "KDV fiyatlara dahil"}</span>
           </label>
           {isPackingList && <section className="approval-pallet-planner">
             <div className="approval-pallet-planner-head">
-              <div><b>{packingStep === 1 ? "1. Palet sayılarını belirleyin" : "2. Ürün ve metre dağılımını düzenleyin"}</b><small>Toplam {packingTotalRolls} rulo</small></div>
+              <div><b>{packingStep === 1 ? "1. Set pallet quantities" : "2. Adjust product and meter allocation"}</b><small>Total: {packingTotalRolls} rolls</small></div>
               <div className="approval-pallet-toolbar">
-                {packingStep === 2 && <button type="button" className="secondary" onClick={() => setPackingStep(1)}>Palet sayılarına dön</button>}
+                {packingStep === 2 && <button type="button" className="secondary" onClick={() => setPackingStep(1)}>Back to pallet quantities</button>}
                 <button type="button" className="secondary" onClick={() => {
                   const distribution = balancedPalletDistribution(packingTotalRolls);
                   setForm((current) => ({ ...current, palletDistribution: distribution, palletAllocations: packingAllocationsFromPlan(current.lines, distribution), palletDetails: distribution.map((_, index) => current.palletDetails?.[index] ?? ({ grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 })), allowSeventeenRollPallet: false }));
                   setPackingStep(2);
-                }}>Otomatik dağıt</button>
-                {packingStep === 1 && <button type="button" className="secondary" onClick={() => setForm((current) => ({ ...current, palletDistribution: [...packingDistribution, 0], palletDetails: [...packingPalletDetails, { grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 }] }))}>+ Palet ekle</button>}
+                }}>Auto-distribute</button>
+                {packingStep === 1 && <button type="button" className="secondary" onClick={() => setForm((current) => ({ ...current, palletDistribution: [...packingDistribution, 0], palletDetails: [...packingPalletDetails, { grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 }] }))}>+ Add pallet</button>}
               </div>
             </div>
             {packingStep === 1 && <>
               <div className="approval-pallet-distribution setup">
-                {packingDistribution.map((rolls, index) => <label key={index}><span>Palet {index + 1}</span><div><input type="number" min="0" step="1" value={rolls} onChange={(event) => setForm((current) => ({ ...current, palletDistribution: packingDistribution.map((value, palletIndex) => palletIndex === index ? Math.max(0, Math.trunc(Number(event.target.value) || 0)) : value), palletAllocations: undefined }))} /><button type="button" className="danger-quiet" disabled={packingDistribution.length <= 1} onClick={() => setForm((current) => ({ ...current, palletDistribution: packingDistribution.filter((_, palletIndex) => palletIndex !== index), palletDetails: packingPalletDetails.filter((_, palletIndex) => palletIndex !== index), palletAllocations: undefined }))}>Kaldır</button></div></label>)}
+                {packingDistribution.map((rolls, index) => <label key={index}><span>Pallet {index + 1}</span><div><input type="number" min="0" step="1" value={rolls} onChange={(event) => setForm((current) => ({ ...current, palletDistribution: packingDistribution.map((value, palletIndex) => palletIndex === index ? Math.max(0, Math.trunc(Number(event.target.value) || 0)) : value), palletAllocations: undefined }))} /><button type="button" className="danger-quiet" disabled={packingDistribution.length <= 1} onClick={() => setForm((current) => ({ ...current, palletDistribution: packingDistribution.filter((_, palletIndex) => palletIndex !== index), palletDetails: packingPalletDetails.filter((_, palletIndex) => palletIndex !== index), palletAllocations: undefined }))}>Remove</button></div></label>)}
               </div>
-              <div className={`approval-pallet-check ${packingDistribution.reduce((sum, value) => sum + value, 0) === packingTotalRolls ? "valid" : "invalid"}`}>Yazılan: {packingDistribution.reduce((sum, value) => sum + value, 0)} / Sipariş: {packingTotalRolls} rulo</div>
-              <button type="button" className="primary approval-pallet-next" disabled={packingDistribution.some((value) => value <= 0) || packingDistribution.reduce((sum, value) => sum + value, 0) !== packingTotalRolls} onClick={() => { setForm((current) => ({ ...current, palletAllocations: packingAllocationsFromPlan(current.lines, packingDistribution), palletDetails: packingDistribution.map((_, index) => current.palletDetails?.[index] ?? ({ grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 })) })); setPackingStep(2); }}>Dağılım listesini oluştur</button>
+              <div className={`approval-pallet-check ${packingDistribution.reduce((sum, value) => sum + value, 0) === packingTotalRolls ? "valid" : "invalid"}`}>Entered: {packingDistribution.reduce((sum, value) => sum + value, 0)} / Order: {packingTotalRolls} rolls</div>
+              <button type="button" className="primary approval-pallet-next" disabled={packingDistribution.some((value) => value <= 0) || packingDistribution.reduce((sum, value) => sum + value, 0) !== packingTotalRolls} onClick={() => { setForm((current) => ({ ...current, palletAllocations: packingAllocationsFromPlan(current.lines, packingDistribution), palletDetails: packingDistribution.map((_, index) => current.palletDetails?.[index] ?? ({ grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 })) })); setPackingStep(2); }}>Create allocation list</button>
             </>}
             {packingStep === 2 && <div className="approval-pallet-details-grid">
               {packingPlan.map((pallet, index) => {
@@ -9010,7 +9010,7 @@ function ApprovalFormEditor({
                   palletDetails: packingPalletDetails.map((item, palletIndex) => palletIndex === index ? { ...item, ...patch } : item),
                 }));
                 return <div className="approval-pallet-detail" key={`detail-${index}`}>
-                  <div className="approval-pallet-card-head"><span><b>Palet {index + 1}</b><small>{rolls} rulo yerleştirildi</small></span><button type="button" className="danger-quiet" disabled={packingPlan.length <= 1 || rolls > 0} title={rolls > 0 ? "Paleti kaldırmak için içindeki ürünleri önce başka palete taşıyın" : "Paleti kaldır"} onClick={() => setForm((current) => ({ ...current, palletDistribution: packingDistribution.filter((_, palletIndex) => palletIndex !== index), palletAllocations: packingAllocations.filter((_, palletIndex) => palletIndex !== index), palletDetails: packingPalletDetails.filter((_, palletIndex) => palletIndex !== index) }))}>Paleti kaldır</button></div>
+                  <div className="approval-pallet-card-head"><span><b>Pallet {index + 1}</b><small>{rolls} rolls assigned</small></span><button type="button" className="danger-quiet" disabled={packingPlan.length <= 1 || rolls > 0} title={rolls > 0 ? "Move the products to another pallet before removing this pallet" : "Remove pallet"} onClick={() => setForm((current) => ({ ...current, palletDistribution: packingDistribution.filter((_, palletIndex) => palletIndex !== index), palletAllocations: packingAllocations.filter((_, palletIndex) => palletIndex !== index), palletDetails: packingPalletDetails.filter((_, palletIndex) => palletIndex !== index) }))}>Remove pallet</button></div>
                   <div className="approval-pallet-products">
                     {pallet.items.map((item) => {
                       const key = `${index}-${item.lineIndex}`;
@@ -9037,39 +9037,39 @@ function ApprovalFormEditor({
                         setActivePalletMoveKey("");
                       };
                       return <article key={key}>
-                        <div><b>{item.line.productCode} · {item.line.productName}</b><div className="approval-pallet-amounts"><label><span>Bu paletteki rulo</span><input type="number" min="1" step="1" value={item.rolls} onChange={(event) => { const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry }))); const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex); if (entry) entry.rolls = Math.max(1, Math.trunc(Number(event.target.value) || 1)); const distribution = next.map((entries) => entries.reduce((sum, allocation) => sum + allocation.rolls, 0)); setForm((current) => ({ ...current, palletAllocations: next, palletDistribution: distribution })); }} /></label><label><span>Bu paletteki metre</span><input type="number" min="0" step="0.01" value={Number(item.quantity.toFixed(2))} onChange={(event) => { const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry }))); const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex); if (entry) entry.quantity = Math.max(0, Number(event.target.value) || 0); setForm((current) => ({ ...current, palletAllocations: next })); }} /></label></div></div>
-                        {packingPlan.length > 1 && <><button type="button" className="secondary approval-pallet-transfer-trigger" onClick={() => setActivePalletMoveKey(key)}>Başka palete taşı</button>{activePalletMoveKey === key && <div className="approval-pallet-transfer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setActivePalletMoveKey(""); }}><section className="approval-pallet-transfer-dialog" role="dialog" aria-modal="true" aria-label="Ürünü başka palete taşı"><header><div><b>{item.line.productCode} · {item.line.productName}</b><small>Palet {index + 1} içinden taşı</small></div><button type="button" className="icon-button" aria-label="Kapat" onClick={() => setActivePalletMoveKey("")}>×</button></header><div className="approval-pallet-move"><label><span>Kaç rulo?</span><input aria-label="Taşınacak rulo" type="number" min="1" max={item.rolls} value={moveCount} onChange={(event) => { const rolls = Math.min(item.rolls, Math.max(1, Math.trunc(Number(event.target.value) || 1))); setPalletMoveCounts((current) => ({ ...current, [key]: rolls })); setPalletMoveQuantities((current) => ({ ...current, [key]: item.rolls > 0 ? Number((Number(item.quantity) * rolls / item.rolls).toFixed(2)) : 0 })); }} /></label><label><span>Kaç metre?</span><input aria-label="Taşınacak metre" type="number" min="0" max={item.quantity} step="0.01" value={Number(moveQuantity.toFixed(2))} onChange={(event) => setPalletMoveQuantities((current) => ({ ...current, [key]: Math.max(0, Number(event.target.value) || 0) }))} /></label><label><span>Hangi palete?</span><select aria-label="Hedef palet" value={target} onChange={(event) => setPalletMoveTargets((current) => ({ ...current, [key]: Number(event.target.value) }))}>{packingPlan.map((_, targetIndex) => targetIndex !== index && <option key={targetIndex} value={targetIndex}>Palet {targetIndex + 1}</option>)}</select></label><button type="button" className="primary" onClick={() => move(moveCount, moveQuantity)}>Seçileni aktar</button><button type="button" className="secondary approval-pallet-move-all" onClick={() => move(item.rolls, item.quantity)}>Ürünün tümünü taşı</button></div></section></div>}</>}
+                        <div><b>{item.line.productCode} · {item.line.productName}</b><div className="approval-pallet-amounts"><label><span>Rolls on this pallet</span><input type="number" min="1" step="1" value={item.rolls} onChange={(event) => { const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry }))); const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex); if (entry) entry.rolls = Math.max(1, Math.trunc(Number(event.target.value) || 1)); const distribution = next.map((entries) => entries.reduce((sum, allocation) => sum + allocation.rolls, 0)); setForm((current) => ({ ...current, palletAllocations: next, palletDistribution: distribution })); }} /></label><label><span>Meters on this pallet</span><input type="number" min="0" step="0.01" value={Number(item.quantity.toFixed(2))} onChange={(event) => { const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry }))); const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex); if (entry) entry.quantity = Math.max(0, Number(event.target.value) || 0); setForm((current) => ({ ...current, palletAllocations: next })); }} /></label></div></div>
+                        {packingPlan.length > 1 && <><button type="button" className="secondary approval-pallet-transfer-trigger" onClick={() => setActivePalletMoveKey(key)}>Move to another pallet</button>{activePalletMoveKey === key && <div className="approval-pallet-transfer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setActivePalletMoveKey(""); }}><section className="approval-pallet-transfer-dialog" role="dialog" aria-modal="true" aria-label="Move product to another pallet"><header><div><b>{item.line.productCode} · {item.line.productName}</b><small>Move from pallet {index + 1}</small></div><button type="button" className="icon-button" aria-label="Close" onClick={() => setActivePalletMoveKey("")}>×</button></header><div className="approval-pallet-move"><label><span>Rolls to move</span><input aria-label="Rolls to move" type="number" min="1" max={item.rolls} value={moveCount} onChange={(event) => { const rolls = Math.min(item.rolls, Math.max(1, Math.trunc(Number(event.target.value) || 1))); setPalletMoveCounts((current) => ({ ...current, [key]: rolls })); setPalletMoveQuantities((current) => ({ ...current, [key]: item.rolls > 0 ? Number((Number(item.quantity) * rolls / item.rolls).toFixed(2)) : 0 })); }} /></label><label><span>Meters to move</span><input aria-label="Meters to move" type="number" min="0" max={item.quantity} step="0.01" value={Number(moveQuantity.toFixed(2))} onChange={(event) => setPalletMoveQuantities((current) => ({ ...current, [key]: Math.max(0, Number(event.target.value) || 0) }))} /></label><label><span>Destination pallet</span><select aria-label="Destination pallet" value={target} onChange={(event) => setPalletMoveTargets((current) => ({ ...current, [key]: Number(event.target.value) }))}>{packingPlan.map((_, targetIndex) => targetIndex !== index && <option key={targetIndex} value={targetIndex}>Pallet {targetIndex + 1}</option>)}</select></label><button type="button" className="primary" onClick={() => move(moveCount, moveQuantity)}>Move selected</button><button type="button" className="secondary approval-pallet-move-all" onClick={() => move(item.rolls, item.quantity)}>Move entire product</button></div></section></div>}</>}
                       </article>;
                     })}
-                    {!pallet.items.length && <small>Bu palet boş. Başka bir paletten ürün aktarın.</small>}
+                    {!pallet.items.length && <small>This pallet is empty. Move products from another pallet.</small>}
                   </div>
-                  <label><span>Toplam brüt ağırlık (kg)</span><input type="number" min="0" step="0.01" value={detail.grossWeight || ""} onChange={(event) => updatePalletDetail({ grossWeight: Number(event.target.value) })} /></label>
-                  <label><span>Palet darası (kg, en fazla 20)</span><input type="number" min="0" max="20" step="0.01" value={detail.tareWeight || ""} onChange={(event) => updatePalletDetail({ tareWeight: Number(event.target.value) })} /></label>
-                  <span className="approval-pallet-net">Net ürün ağırlığı: {Math.max(0, detail.grossWeight - detail.tareWeight).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</span>
+                  <label><span>Total gross weight (kg)</span><input type="number" min="0" step="0.01" value={detail.grossWeight || ""} onChange={(event) => updatePalletDetail({ grossWeight: Number(event.target.value) })} /></label>
+                  <label><span>Pallet tare (kg, max. 20)</span><input type="number" min="0" max="20" step="0.01" value={detail.tareWeight || ""} onChange={(event) => updatePalletDetail({ tareWeight: Number(event.target.value) })} /></label>
+                  <span className="approval-pallet-net">Net product weight: {Math.max(0, detail.grossWeight - detail.tareWeight).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</span>
                   <div className="approval-pallet-dimensions">
-                    <label><span>Uzunluk (cm)</span><input type="number" min="0" step="1" value={detail.lengthCm || ""} onChange={(event) => updatePalletDetail({ lengthCm: Number(event.target.value) })} /></label>
-                    <label><span>Genişlik (cm)</span><input type="number" min="0" step="1" value={detail.widthCm || ""} onChange={(event) => updatePalletDetail({ widthCm: Number(event.target.value) })} /></label>
-                    <label><span>Yükseklik (cm)</span><input type="number" min="0" step="1" value={detail.heightCm || ""} onChange={(event) => updatePalletDetail({ heightCm: Number(event.target.value) })} /></label>
+                    <label><span>Length (cm)</span><input type="number" min="0" step="1" value={detail.lengthCm || ""} onChange={(event) => updatePalletDetail({ lengthCm: Number(event.target.value) })} /></label>
+                    <label><span>Width (cm)</span><input type="number" min="0" step="1" value={detail.widthCm || ""} onChange={(event) => updatePalletDetail({ widthCm: Number(event.target.value) })} /></label>
+                    <label><span>Height (cm)</span><input type="number" min="0" step="1" value={detail.heightCm || ""} onChange={(event) => updatePalletDetail({ heightCm: Number(event.target.value) })} /></label>
                   </div>
                 </div>;
               })}
             </div>}
             {packingStep === 2 && <div className="approval-pallet-product-checks">
-              <h4>Sipariş ile palet dağılımı kontrolü</h4>
+              <h4>Check pallet allocation against order</h4>
               {packingProductChecks.map((check) => {
                 const valid = check.rollDifference === 0 && Math.abs(check.quantityDifference) <= 0.02;
-                return <div key={check.lineIndex} className={valid ? "valid" : "invalid"}><b>{check.line.productCode} · {check.line.productName}</b><span>Rulo: {check.assignedRolls} / {check.orderedRolls}{check.rollDifference > 0 ? ` · ${check.rollDifference} fazla` : check.rollDifference < 0 ? ` · ${Math.abs(check.rollDifference)} eksik` : " · Tam"}</span><span>Metre: {check.assignedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} / {check.orderedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}{check.quantityDifference > 0.02 ? ` · ${check.quantityDifference.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt fazla` : check.quantityDifference < -0.02 ? ` · ${Math.abs(check.quantityDifference).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt eksik` : " · Tam"}</span></div>;
+                return <div key={check.lineIndex} className={valid ? "valid" : "invalid"}><b>{check.line.productCode} · {check.line.productName}</b><span>Rolls: {check.assignedRolls} / {check.orderedRolls}{check.rollDifference > 0 ? ` · ${check.rollDifference} over` : check.rollDifference < 0 ? ` · ${Math.abs(check.rollDifference)} short` : " · Exact"}</span><span>Meters: {check.assignedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} / {check.orderedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}{check.quantityDifference > 0.02 ? ` · ${check.quantityDifference.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m over` : check.quantityDifference < -0.02 ? ` · ${Math.abs(check.quantityDifference).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m short` : " · Exact"}</span></div>;
               })}
             </div>}
             <div className={`approval-pallet-check ${packingDistribution.reduce((sum, value) => sum + value, 0) === packingTotalRolls ? "valid" : "invalid"}`}>
-              Paletlere yerleştirilen: {packingDistribution.reduce((sum, value) => sum + value, 0)} / Sipariş toplamı: {packingTotalRolls} rulo
+              Allocated to pallets: {packingDistribution.reduce((sum, value) => sum + value, 0)} / Order total: {packingTotalRolls} rolls
             </div>
           </section>}
           <div className="approval-line-head">
-            <span>Ürün / hazırlanan</span>
-            <span>En (m) / Birim fiyat (m²)</span>
-            <span>İskonto</span>
-            <span>KDV</span>
+            <span>{isProforma ? "Product / prepared" : "Ürün / hazırlanan"}</span>
+            <span>{isProforma ? "Width (m) / Unit price (m²)" : "En (m) / Birim fiyat (m²)"}</span>
+            <span>{isProforma ? "Discount" : "İskonto"}</span>
+            <span>{isProforma ? "VAT" : "KDV"}</span>
           </div>
           {isProforma && <div className="approval-manual-line-action">
             <button type="button" className="secondary" onClick={addManualExportLine}>+ Add manual product</button>
@@ -9099,7 +9099,7 @@ function ApprovalFormEditor({
                     </div> : <>
                       <small>{line.productCode}</small>
                       <b>{line.productName}</b>
-                      <span>{line.quantity} mt · {squareMeters.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m² · {line.rollCount} rulo</span>
+                      <span>{line.quantity} {isProforma ? "m" : "mt"} · {squareMeters.toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 2 })} m² · {line.rollCount} {isProforma ? "rolls" : "rulo"}</span>
                     </>}
                   </div>
                   {isCommercialInvoice && <div className="approval-commercial-line-fields">
@@ -9111,13 +9111,13 @@ function ApprovalFormEditor({
                   </div>}
                   {isPackingList ? <div className="approval-packing-fields"><small>Product weights are calculated from the pallet total by meter ratio.</small></div> : <div className="approval-price-pair">
                     {!(isProforma && line.manual && line.unit !== "M2") && <label>
-                      <span>En (m)</span>
+                      <span>{isProforma ? "Width (m)" : "En (m)"}</span>
                       <input
-                        aria-label="Ürün eni"
+                        aria-label={isProforma ? "Product width" : "Ürün eni"}
                         type="number"
                         min="0.01"
                         step="0.01"
-                        title="Ürün eni (metre)"
+                        title={isProforma ? "Product width (meters)" : "Ürün eni (metre)"}
                         value={width}
                         onChange={(event) =>
                           updateLine(index, {
@@ -9127,14 +9127,14 @@ function ApprovalFormEditor({
                       />
                     </label>}
                     <label className="approval-unit-price">
-                      <span>{isProforma && line.manual ? "Unit price" : "Birim fiyat (m²)"}</span>
+                      <span>{isProforma ? "Unit price" : "Birim fiyat (m²)"}</span>
                       <input
-                        aria-label="m² fiyatı"
+                        aria-label={isProforma ? "Unit price per m²" : "m² fiyatı"}
                         type="number"
                         min="0"
                         step="0.01"
                         placeholder="0,00"
-                        title="m² birim fiyatı"
+                        title={isProforma ? "Unit price per m²" : "m² birim fiyatı"}
                         value={line.unitPrice || ""}
                         onChange={(event) =>
                           updateLine(index, {
@@ -9150,7 +9150,7 @@ function ApprovalFormEditor({
                     </label>
                   </div>}
                   {!isPackingList && <label>
-                    <span>İskonto %</span>
+                    <span>{isProforma ? "Discount %" : "İskonto %"}</span>
                     <input
                       type="number"
                       min="0"
@@ -9165,7 +9165,7 @@ function ApprovalFormEditor({
                     />
                   </label>}
                   {!isPackingList && <label>
-                    <span>KDV %</span>
+                    <span>{isProforma ? "VAT %" : "KDV %"}</span>
                     <select
                       value={line.vatRate}
                       onChange={(event) =>
@@ -9186,7 +9186,7 @@ function ApprovalFormEditor({
           </div>
           <div className="approval-fields two approval-terms-fields">
             <label className="approval-compact-field">
-              Genel iskonto %
+              {isProforma ? "Overall discount %" : "Genel iskonto %"}
               <input
                 type="number"
                 min="0"
@@ -9202,7 +9202,7 @@ function ApprovalFormEditor({
               />
             </label>
             <label className="approval-compact-field">
-              Ek masraf adı
+              {isProforma ? "Additional charge label" : "Ek masraf adı"}
               <input
                 value={form.extraChargeLabel}
                 onChange={(event) =>
@@ -9211,7 +9211,7 @@ function ApprovalFormEditor({
               />
             </label>
             <label className="approval-compact-field">
-              Ek masraf
+              {isProforma ? "Additional charge" : "Ek masraf"}
               <input
                 type="number"
                 min="0"
@@ -9223,10 +9223,10 @@ function ApprovalFormEditor({
               />
             </label>
             <label className="approval-terms-field">
-              Ödeme koşulu
+              {isProforma ? "Payment terms" : "Ödeme koşulu"}
               <textarea
                 rows={2}
-                placeholder="Örn. Sipariş onayında peşin ödeme"
+                placeholder={isProforma ? "e.g. Advance payment upon order confirmation" : "Örn. Sipariş onayında peşin ödeme"}
                 value={form.paymentTerms}
                 onChange={(event) =>
                   setForm({ ...form, paymentTerms: event.target.value })
@@ -9234,10 +9234,10 @@ function ApprovalFormEditor({
               />
             </label>
             <label className="approval-terms-field">
-              Teslimat koşulu
+              {isProforma ? "Delivery terms" : "Teslimat koşulu"}
               <textarea
                 rows={2}
-                placeholder="Örn. Depo teslim, nakliye alıcıya aittir"
+                placeholder={isProforma ? "e.g. Ex-works; freight payable by the buyer" : "Örn. Depo teslim, nakliye alıcıya aittir"}
                 value={form.deliveryTerms}
                 onChange={(event) =>
                   setForm({ ...form, deliveryTerms: event.target.value })
@@ -9245,10 +9245,10 @@ function ApprovalFormEditor({
               />
             </label>
             <label className="wide-field">
-              Ek not
+              {isProforma ? "Additional note" : "Ek not"}
               <textarea
                 rows={2}
-                placeholder="Bu siparişe özel ek açıklama"
+                placeholder={isProforma ? "Additional information for this order" : "Bu siparişe özel ek açıklama"}
                 value={form.note}
                 onChange={(event) =>
                   setForm({ ...form, note: event.target.value })
@@ -9286,7 +9286,7 @@ function ApprovalFormEditor({
                       {[printSettings.phone, printSettings.email, printSettings.website].filter(Boolean).join(" · ")}
                     </span>
                     <span className="approval-company-tax-line">
-                      Vergi dairesi: {printSettings.taxOffice || "-"} · VKN/TCKN: {printSettings.taxNumber || "-"}
+                      {isProforma ? "Tax office" : "Vergi dairesi"}: {printSettings.taxOffice || "-"} · {isProforma ? "VAT / Tax No." : "VKN/TCKN"}: {printSettings.taxNumber || "-"}
                     </span>
                   </span>
                 </div>
@@ -9294,7 +9294,7 @@ function ApprovalFormEditor({
                   <div className="approval-brand-lockup">
                     <AriXLogo className="approval-logo" />
                     <span>
-                      <b>AriX Sipariş sistemi</b>
+                      <b>{isProforma ? "AriX Order system" : "AriX Sipariş sistemi"}</b>
                       <small className="approval-arix-site">www.arix.az</small>
                     </span>
                   </div>
@@ -9310,21 +9310,21 @@ function ApprovalFormEditor({
                 <div className={`approval-status-badge ${form.status}`}>
                   <i aria-hidden="true">{form.status === "approved" && <Check />}</i>
                   <span>
-                    <b>{form.status === "approved" ? "Onaylandı" : "Taslak"}</b>
+                    <b>{isProforma ? (form.status === "approved" ? "Approved" : "Draft") : (form.status === "approved" ? "Onaylandı" : "Taslak")}</b>
                     <small>
                       {form.status === "approved"
-                        ? `${form.approvedBy || form.salesRepresentative || "Satış temsilcisi"} onayladı`
-                        : "Satış temsilcisi onayı bekleniyor"}
+                        ? (isProforma ? `Approved by ${form.approvedBy || form.salesRepresentative || "sales representative"}` : `${form.approvedBy || form.salesRepresentative || "Satış temsilcisi"} onayladı`)
+                        : (isProforma ? "Awaiting sales representative approval" : "Satış temsilcisi onayı bekleniyor")}
                     </small>
                   </span>
                 </div>
               </div>
 
               <div className="approval-summary-strip">
-                <div><ApprovalIcon kind="document" /><span><small>{isProforma ? "PROFORMA NO" : "FORM NO"}</small><b>{isProforma ? form.proformaNumber : form.number}</b><em>{order.number}</em></span></div>
+                <div><ApprovalIcon kind="document" /><span><small>{isProforma ? "PROFORMA NUMBER" : "FORM NO"}</small><b>{isProforma ? form.proformaNumber : form.number}</b><em>{order.number}</em></span></div>
                 <div><ApprovalIcon kind="calendar" /><span><small>{isProforma ? "ISSUE DATE" : "BELGE TARİHİ"}</small><b>{form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? (form.shipmentDate || form.date) : form.date}</b></span></div>
                 <div><ApprovalIcon kind="representative" /><span><small>{isProforma ? "SALES REPRESENTATIVE" : "SATIŞ TEMSİLCİSİ"}</small><b>{form.salesRepresentative || "-"}</b></span></div>
-                <div><ApprovalIcon kind="source" /><span><small>{isProforma ? "INVOICE NO" : "KAYNAK"}</small><b>{isProforma ? (form.invoiceNumber || "-") : "ERSA DEPO"}</b></span></div>
+                <div><ApprovalIcon kind="source" /><span><small>{isProforma ? "INVOICE NUMBER" : "KAYNAK"}</small><b>{isProforma ? (form.invoiceNumber || "-") : "ERSA DEPO"}</b></span></div>
                 <div><ApprovalIcon kind="currency" /><span><small>{isProforma ? "CURRENCY" : "KUR"}</small><b>{isProforma ? form.currency : (form.currency === "TRY" ? "TL · 1" : `${form.currency} · ${form.exchangeRate}`)}</b>{!isProforma && form.currency !== "TRY" && ratePublicationDate && <em>({ratePublicationDate})</em>}</span></div>
               </div>
               {(form.documentType === "commercial_invoice" || form.documentType === "packing_list") && <div className="approval-shipment-date"><b>Proforma date</b><span>{form.date}</span></div>}
@@ -9352,7 +9352,7 @@ function ApprovalFormEditor({
                 <tr>
                   <th>#</th>
                   <th>{isProforma ? "Product" : "Ürün"}</th>
-                  <th>{isPackingList ? "Packages" : isProforma ? "Roll" : "Rulo"}</th>
+                  <th>{isPackingList ? "Packages" : isProforma ? "Rolls" : "Rulo"}</th>
                   <th>{isProforma ? "Quantity / Unit" : "Miktar"}</th>
                   <th>{isPackingList ? "Net Weight" : isProforma ? "Unit Price" : "m² Fiyatı"}</th>
                   <th>{isPackingList ? "Gross Weight" : isProforma ? "Amount" : "Toplam"}</th>
@@ -9398,16 +9398,16 @@ function ApprovalFormEditor({
                           : <small>{line.productCode}</small>}
                         {line.discountRate > 0 && (
                           <small className="approval-line-discount">
-                            Ürün iskontosu %{line.discountRate}
+                            {isProforma ? `Product discount ${line.discountRate}%` : `Ürün iskontosu %${line.discountRate}`}
                           </small>
                         )}
                       </td>
-                      <td>{isCommercialInvoice ? <><b>{line.rollCount} rolls</b>{(line.manual || Number(line.rollCount) <= 0) && Number(line.packageCount) > 0 && <small>{line.packageCount} packages</small>}</> : line.rollCount}</td>
+                      <td>{isProforma ? <>{line.rollCount} rolls</> : line.rollCount}{isCommercialInvoice && (line.manual || Number(line.rollCount) <= 0) && Number(line.packageCount) > 0 && <small>{line.packageCount} packages</small>}</td>
                       <td className="approval-quantity-cell">
                         {isProforma && line.manual ? <>
-                          <b>{line.quantity.toLocaleString("tr-TR", { maximumFractionDigits: 3 })} {exportUnitLabels[exportUnit]}</b>
-                          {exportUnit === "BOX" && <small>{line.unitsPerBox || 0} pcs / box · {(line.quantity * Number(line.unitsPerBox || 0)).toLocaleString("tr-TR", { maximumFractionDigits: 0 })} pcs total</small>}
-                        </> : <><b>{squareMeters.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m²</b><small>{line.quantity} mt</small></>}
+                          <b>{line.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })} {exportUnitLabels[exportUnit]}</b>
+                          {exportUnit === "BOX" && <small>{line.unitsPerBox || 0} pcs / box · {(line.quantity * Number(line.unitsPerBox || 0)).toLocaleString("en-US", { maximumFractionDigits: 0 })} pcs total</small>}
+                        </> : <><b>{squareMeters.toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 2 })} m²</b><small>{line.quantity} {isProforma ? "m" : "mt"}</small></>}
                       </td>
                       <td>
                         <>
@@ -9590,8 +9590,8 @@ function ApprovalFormEditor({
               </div>
             </section>}
             <footer className="approval-page-footer">
-              <span>Powered by <AriXLogo /> <b>AriX</b> Sipariş sistemi</span>
-              <span>Güvenli belge yönetimi &nbsp; | &nbsp; {new Date(form.date).getFullYear() || new Date().getFullYear()}</span>
+              <span>Powered by <AriXLogo /> <b>AriX</b> {isProforma ? "Order system" : "Sipariş sistemi"}</span>
+              <span>{isProforma ? "Secure document management" : "Güvenli belge yönetimi"} &nbsp; | &nbsp; {new Date(form.date).getFullYear() || new Date().getFullYear()}</span>
             </footer>
           </article>
         </section>
