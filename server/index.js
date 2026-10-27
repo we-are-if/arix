@@ -1081,6 +1081,7 @@ function publicEmployee(user, pushSubscriptions = []) {
     passwordChangeRequired: Boolean(user.passwordChangeRequired),
     permissions: effectivePermissions(user),
     notificationPreferences: user.notificationPreferences ?? { inApp: true, push: true, events: {} },
+    notificationPermissions: user.notificationPermissions ?? { events: { ...(user.notificationPreferences?.events || {}) } },
     pushDeviceCount: userSubscriptions.length,
     pushLastRegisteredAt: userSubscriptions.map((item) => item.createdAt).filter(Boolean).sort().at(-1) || null,
     pushLastError: userSubscriptions.map((item) => item.lastError).filter(Boolean).at(-1) || "",
@@ -1089,7 +1090,8 @@ function publicEmployee(user, pushSubscriptions = []) {
 
 function notificationAllowed(user, type, channel = "inApp") {
   const preferences = user?.notificationPreferences ?? {};
-  return preferences[channel] !== false && preferences.events?.[type] !== false;
+  const permissions = user?.notificationPermissions ?? {};
+  return permissions.events?.[type] !== false && preferences[channel] !== false && preferences.events?.[type] !== false;
 }
 
 function notificationsPaused(db) {
@@ -1651,6 +1653,11 @@ async function handleEmployees(req, res, parts) {
         events: Object.fromEntries(Object.entries(body.notificationPreferences.events || {}).map(([key, value]) => [String(key), value !== false])),
       };
     }
+    if (body.notificationPermissions && typeof body.notificationPermissions === "object") {
+      employee.notificationPermissions = {
+        events: Object.fromEntries(Object.entries(body.notificationPermissions.events || {}).map(([key, value]) => [String(key), value !== false])),
+      };
+    }
     if (Array.isArray(body.permissions)) {
       employee.permissions = [...new Set(body.permissions.filter((permission) => ALL_PERMISSIONS.includes(permission)))];
     } else if (!Array.isArray(employee.permissions) && body.role !== undefined) {
@@ -2197,6 +2204,29 @@ async function handleOrderBoard(req, res, url, parts) {
   }
 
   if (req.method === "GET" && parts[1] === "push-config") return send(res, 200, { data: { publicKey: VAPID_PUBLIC_KEY } });
+
+  if (parts[1] === "notification-preferences") {
+    const user = db.authUsers.find((entry) => String(entry.id) === String(req.authUser?.id));
+    if (!user) return send(res, 404, { error: "Kullanıcı bulunamadı." });
+    const permissions = user.notificationPermissions ?? { events: { ...(user.notificationPreferences?.events || {}) } };
+    if (req.method === "GET") return send(res, 200, { data: {
+      preferences: user.notificationPreferences ?? { inApp: true, push: true, events: {} },
+      permissions,
+    } });
+    if (req.method === "PATCH") {
+      const body = await parseBody(req);
+      const requestedEvents = body.events && typeof body.events === "object" ? body.events : {};
+      const currentEvents = user.notificationPreferences?.events ?? {};
+      user.notificationPreferences = {
+        inApp: body.inApp !== false,
+        push: body.push !== false,
+        events: Object.fromEntries(Object.entries({ ...currentEvents, ...requestedEvents }).map(([key, value]) => [key, permissions.events?.[key] === false ? false : value !== false])),
+      };
+      await writeDb(db);
+      return send(res, 200, { data: { preferences: user.notificationPreferences, permissions } });
+    }
+    return notFound(res);
+  }
 
   if (req.method === "POST" && parts[1] === "push-subscriptions") {
     const body = await parseBody(req);

@@ -66,6 +66,7 @@ type Employee = {
   active: boolean;
   permissions?: string[];
   notificationPreferences?: { inApp: boolean; push: boolean; events: Record<string, boolean> };
+  notificationPermissions?: { events: Record<string, boolean> };
   pushDeviceCount?: number;
   pushLastRegisteredAt?: string | null;
   pushLastError?: string;
@@ -432,7 +433,21 @@ type Status =
   | "cancelled"
   | "fulfilled";
 type BoardStatus = "new" | "preparing" | "ready" | "delivered";
-type Session = { id: string; name: string; role: string; permissions?: string[] };
+type Session = { id: string; name: string; role: string; permissions?: string[]; notificationPreferences?: { inApp: boolean; push: boolean; events: Record<string, boolean> }; notificationPermissions?: { events: Record<string, boolean> } };
+
+const notificationEventOptions = [
+  ["order_created", "Yeni sipariş"], ["order_editing_started", "Sipariş düzenlenmeye başladı"],
+  ["order_edited", "Sipariş düzenlendi"], ["order_preparing_started", "Sipariş hazırlanmaya başladı"],
+  ["order_status_returned", "Sipariş düzenleme için geri gönderildi"], ["order_ready", "Sipariş hazırlandı"],
+  ["order_cancelled", "Sipariş iptal edildi"], ["order_deleted", "Sipariş silindi"],
+  ["approval_form_prepared", "Sipariş formu hazırlandı"], ["approval_form_edited", "Sipariş formu düzenlendi"],
+  ["approval_form_preparing_started", "Form hazırlanmaya başladı"], ["approval_form_editing_started", "Form düzenlenmeye başladı"],
+  ["approval_requested", "Onay bekleyen form"], ["approval_completed", "Form onaylandı"],
+  ["approval_rejected", "Form reddedildi"], ["approval_form_archived", "Form PDF arşivlendi"],
+  ["despatch_ready", "İrsaliye hazırlandı, teslim edilebilir"], ["order_delivered", "Sipariş teslim edildi"],
+  ["day_closed", "Gün kapanış özeti"], ["order_locked", "Sipariş kilitlendi"],
+  ["order_unlocked", "Sipariş kilidi açıldı"], ["announcement", "Yönetici duyuruları"],
+] as const;
 
 type BrowserBackLayer = {
   id: string;
@@ -1517,6 +1532,9 @@ export default function App() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [notificationPreferencesOpen, setNotificationPreferencesOpen] = useState(false);
+  const [myNotificationSettings, setMyNotificationSettings] = useState<{ preferences: { inApp: boolean; push: boolean; events: Record<string, boolean> }; permissions: { events: Record<string, boolean> } } | null>(null);
+  const [notificationSettingsBusy, setNotificationSettingsBusy] = useState(false);
   const [boardSearch, setBoardSearch] = useState("");
   const [inactiveOrdersOpen, setInactiveOrdersOpen] = useState(false);
   const [inactiveOrderBusyId, setInactiveOrderBusyId] = useState("");
@@ -1971,6 +1989,33 @@ export default function App() {
     }
   };
 
+  const openNotificationPreferences = async () => {
+    setNotificationMenuOpen(false);
+    setNotificationPreferencesOpen(true);
+    setNotificationSettingsBusy(true);
+    try {
+      setMyNotificationSettings(await api("/api/orders/notification-preferences"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Bildirim ayarları yüklenemedi.");
+    } finally {
+      setNotificationSettingsBusy(false);
+    }
+  };
+
+  const saveMyNotificationPreferences = async () => {
+    if (!myNotificationSettings) return;
+    setNotificationSettingsBusy(true);
+    try {
+      const next = await api<typeof myNotificationSettings>("/api/orders/notification-preferences", { method: "PATCH", body: JSON.stringify(myNotificationSettings.preferences) });
+      setMyNotificationSettings(next);
+      setNotificationPreferencesOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Bildirim ayarları kaydedilemedi.");
+    } finally {
+      setNotificationSettingsBusy(false);
+    }
+  };
+
   const markNotificationRead = async (notification: OrderNotification) => {
     if (!notification.readAt) {
       const readAt = new Date().toISOString();
@@ -2206,7 +2251,7 @@ export default function App() {
                 <div className={`notification-popover surface-popover absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border shadow-xl ${isDark ? "is-dark glass-panel-dark border-white/10" : "glass-panel border-white/70"}`}>
                   <div className="notification-popover-header flex items-center justify-between border-b px-4 py-3">
                     <span><strong className="block text-sm">Bildirimler</strong>{unreadNotificationCount > 0 && <button type="button" className="mt-1 text-[11px] font-semibold text-slate-500" onClick={() => void markAllNotificationsRead()}>Tümünü okundu yap</button>}</span>
-                    {pushEnabled ? <span className="flex items-center gap-3"><button type="button" className="text-xs font-semibold text-emerald-600" onClick={() => void testPushNotification()}>Test et</button><button type="button" className="text-xs font-semibold text-indigo-600" onClick={() => void enablePushNotifications()}>Yenile</button></span> : <button type="button" className="text-xs font-semibold text-indigo-600" onClick={() => void enablePushNotifications()}>Bu cihazda bildirimleri aç</button>}
+                    <span className="flex items-center gap-3"><button type="button" className="notification-settings-trigger" title="Bildirim ayarları" aria-label="Bildirim ayarları" onClick={() => void openNotificationPreferences()}><Settings2 aria-hidden="true" /></button>{pushEnabled ? <><button type="button" className="text-xs font-semibold text-emerald-600" onClick={() => void testPushNotification()}>Test et</button><button type="button" className="text-xs font-semibold text-indigo-600" onClick={() => void enablePushNotifications()}>Yenile</button></> : <button type="button" className="text-xs font-semibold text-indigo-600" onClick={() => void enablePushNotifications()}>Bu cihazda bildirimleri aç</button>}</span>
                   </div>
                   <div className="notification-popover-list max-h-96 overflow-y-auto p-2">
                     {notifications.length ? notifications.map((notification) => (
@@ -2562,6 +2607,21 @@ export default function App() {
                 );})}
               </div>
           </div>
+        </Modal>
+      )}
+
+      {notificationPreferencesOpen && (
+        <Modal title="Bildirim ayarları" subtitle="Yöneticinin izin verdiği bildirimlerden almak istediklerinizi seçin." onClose={() => setNotificationPreferencesOpen(false)} className="notification-preferences-modal">
+          {notificationSettingsBusy && !myNotificationSettings ? <div className="center-state">Yükleniyor…</div> : myNotificationSettings && <div className="self-notification-preferences">
+            <div className="self-notification-channels">
+              <label><input type="checkbox" checked={myNotificationSettings.preferences.inApp !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, inApp: event.target.checked } } : current)} /><span><b>Uygulama içi</b><small>Zil menüsünde göster</small></span></label>
+              <label><input type="checkbox" checked={myNotificationSettings.preferences.push !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, push: event.target.checked } } : current)} /><span><b>Telefon / bilgisayar</b><small>Cihaz bildirimi gönder</small></span></label>
+            </div>
+            <div className="self-notification-events">
+              {notificationEventOptions.filter(([key]) => myNotificationSettings.permissions.events?.[key] !== false).map(([key, label]) => <label key={key}><input type="checkbox" checked={myNotificationSettings.preferences.events?.[key] !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, events: { ...current.preferences.events, [key]: event.target.checked } } } : current)} /><span>{label}</span></label>)}
+            </div>
+            <div className="modal-actions"><button type="button" className="secondary" onClick={() => setNotificationPreferencesOpen(false)}>Vazgeç</button><button type="button" className="primary" disabled={notificationSettingsBusy} onClick={() => void saveMyNotificationPreferences()}>Kaydet</button></div>
+          </div>}
         </Modal>
       )}
 
@@ -4748,7 +4808,7 @@ function SettingsModal({
 
   const updateEmployeeRole = async (
     employee: Employee,
-    patch: Partial<Pick<Employee, "role" | "active" | "permissions" | "notificationPreferences">>,
+    patch: Partial<Pick<Employee, "role" | "active" | "permissions" | "notificationPreferences" | "notificationPermissions">>,
   ) => {
     setError("");
     try {
@@ -4762,6 +4822,7 @@ function SettingsModal({
           active: patch.active ?? employee.active,
           permissions: patch.permissions ?? employee.permissions,
           notificationPreferences: patch.notificationPreferences ?? employee.notificationPreferences,
+          notificationPermissions: patch.notificationPermissions ?? employee.notificationPermissions,
         }),
       });
       await loadEmployees();
@@ -5969,42 +6030,11 @@ function SettingsModal({
                   </section>
                 ))}
                 <section className="order-permission-group notification-preferences">
-                  <header><b>Bildirimler</b></header>
+                  <header><b>İzin verilen bildirim türleri</b></header>
                   <div>
-                    <label>
-                      <input type="checkbox" checked={employee.notificationPreferences?.inApp !== false} onChange={(event) => void updateEmployeeRole(employee, { notificationPreferences: { inApp: event.target.checked, push: employee.notificationPreferences?.push !== false, events: employee.notificationPreferences?.events ?? {} } })} />
-                      <span>Uygulama içi bildirimler</span>
-                    </label>
-                    <label>
-                      <input type="checkbox" checked={employee.notificationPreferences?.push !== false} onChange={(event) => void updateEmployeeRole(employee, { notificationPreferences: { inApp: employee.notificationPreferences?.inApp !== false, push: event.target.checked, events: employee.notificationPreferences?.events ?? {} } })} />
-                      <span>Telefon / bilgisayar bildirimleri</span>
-                    </label>
-                    {[
-                      ["order_created", "Yeni sipariş"],
-                      ["order_editing_started", "Sipariş düzenlenmeye başladı"],
-                      ["order_edited", "Sipariş düzenlendi"],
-                      ["order_preparing_started", "Sipariş hazırlanmaya başladı"],
-                      ["order_status_returned", "Sipariş düzenleme için geri gönderildi"],
-                      ["order_ready", "Sipariş hazırlandı"],
-                      ["order_cancelled", "Sipariş iptal edildi"],
-                      ["order_deleted", "Sipariş silindi"],
-                      ["approval_form_prepared", "Sipariş formu hazırlandı"],
-                      ["approval_form_edited", "Sipariş formu düzenlendi"],
-                      ["approval_form_preparing_started", "Form hazırlanmaya başladı"],
-                      ["approval_form_editing_started", "Form düzenlenmeye başladı"],
-                      ["approval_requested", "Onay bekleyen form"],
-                      ["approval_completed", "Form onaylandı"],
-                      ["approval_rejected", "Form reddedildi"],
-                      ["approval_form_archived", "Form PDF arşivlendi"],
-                      ["despatch_ready", "İrsaliye hazırlandı, teslim edilebilir"],
-                      ["order_delivered", "Sipariş teslim edildi"],
-                      ["day_closed", "Gün kapanış özeti"],
-                      ["order_locked", "Sipariş kilitlendi"],
-                      ["order_unlocked", "Sipariş kilidi açıldı"],
-                      ["announcement", "Yönetici duyuruları"],
-                    ].map(([key, label]) => (
+                    {notificationEventOptions.map(([key, label]) => (
                       <label key={key}>
-                        <input type="checkbox" checked={employee.notificationPreferences?.events?.[key] !== false} onChange={(event) => void updateEmployeeRole(employee, { notificationPreferences: { inApp: employee.notificationPreferences?.inApp !== false, push: employee.notificationPreferences?.push !== false, events: { ...(employee.notificationPreferences?.events ?? {}), [key]: event.target.checked } } })} />
+                        <input type="checkbox" checked={employee.notificationPermissions?.events?.[key] !== false} onChange={(event) => void updateEmployeeRole(employee, { notificationPermissions: { events: { ...(employee.notificationPermissions?.events ?? {}), [key]: event.target.checked } } })} />
                         <span>{label}</span>
                       </label>
                     ))}

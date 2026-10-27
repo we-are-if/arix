@@ -1934,6 +1934,21 @@ textarea {
 .theme-dark .partial-delivery-picker > header b, .theme-dark .partial-delivery-check b { color:#edf1f8; }
 .theme-dark .partial-delivery-picker > header > span { border-color:#3c485d; background:#111827; color:#cbd5e1; }
 .theme-dark .partial-delivery-picker article { border-color:#30394a; }
+.notification-settings-trigger { display:grid; width:30px; height:30px; place-items:center; border:1px solid #dce2eb; border-radius:7px; background:#fff; color:#59667b; }
+.notification-settings-trigger svg { width:15px; height:15px; }
+.self-notification-preferences { display:grid; gap:14px; }
+.self-notification-channels { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.self-notification-channels label { display:flex; align-items:center; gap:10px; border:1px solid #dfe4ec; border-radius:8px; background:#f8fafc; padding:12px; }
+.self-notification-channels label > span { display:grid; gap:2px; }
+.self-notification-channels b { color:#263148; font-size:12px; }
+.self-notification-channels small { color:#7b879b; font-size:10px; }
+.self-notification-events { display:grid; grid-template-columns:1fr 1fr; overflow:hidden; border:1px solid #e1e5ec; border-radius:8px; }
+.self-notification-events label { display:flex; min-height:42px; align-items:center; gap:9px; border-bottom:1px solid #edf0f4; padding:8px 11px; color:#455168; font-size:11px; }
+.self-notification-events label:nth-child(odd) { border-right:1px solid #edf0f4; }
+.theme-dark .notification-settings-trigger { border-color:#3b465a; background:#1c2534; color:#d4dbea; }
+.theme-dark .self-notification-channels label, .theme-dark .self-notification-events { border-color:#364156; background:#171d2a; }
+.theme-dark .self-notification-channels b, .theme-dark .self-notification-events label { color:#e6ebf3; }
+.theme-dark .self-notification-events label { border-color:#30394a; }
 .remove-order-line {
   display:inline-flex;
   align-items:center;
@@ -5014,6 +5029,8 @@ textarea {
   .theme-dark .inactive-order-actions { border-color:#30394a; }
   .partial-delivery-picker article { grid-template-columns:1fr 1fr; }
   .partial-delivery-check { grid-column:1 / -1; }
+  .self-notification-channels, .self-notification-events { grid-template-columns:1fr; }
+  .self-notification-events label:nth-child(odd) { border-right:0; }
   .order-content { padding:10px 10px calc(92px + env(safe-area-inset-bottom)); }
   .page-head { align-items:center; gap:10px; padding:14px 2px 12px; }
   .page-head h1 { margin:2px 0; font-size:25px; }
