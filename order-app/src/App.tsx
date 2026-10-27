@@ -6766,11 +6766,9 @@ function OrderDetail({
       const entry = deliverySelection[index];
       const availableQuantity = Number(item.preparedQuantity ?? item.quantity) || 0;
       const availableRolls = Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0));
-      const orderedQuantity = Math.max(0, Number(item.quantity) || 0);
-      const orderedRolls = Math.max(0, Math.trunc(Number(item.orderedRollCount) || 0));
       return entry?.selected
-        && Math.abs(Number(entry.quantity) - Math.max(availableQuantity, orderedQuantity)) < 0.000001
-        && Number(entry.rollCount) === Math.max(availableRolls, orderedRolls);
+        && Math.abs(Number(entry.quantity) - availableQuantity) < 0.000001
+        && Number(entry.rollCount) === availableRolls;
     });
     if (isFullDelivery) {
       await changeStatus("delivered");

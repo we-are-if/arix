@@ -3971,8 +3971,6 @@ async function handleOrderBoard(req, res, url, parts) {
       const request = requested.find((entry) => Number(entry.itemIndex) === index);
       const availableQuantity = Math.max(0, Number(item.preparedQuantity ?? item.quantity) || 0);
       const availableRolls = Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0));
-      const orderedQuantity = Math.max(0, Number(item.quantity) || 0);
-      const orderedRolls = Math.max(0, Math.trunc(Number(item.orderedRollCount) || 0));
       const quantity = request ? Math.max(0, Number(request.quantity) || 0) : 0;
       const rollCount = request ? Math.max(0, Math.trunc(Number(request.rollCount) || 0)) : 0;
       if (quantity > availableQuantity + 0.000001 || rollCount > availableRolls) return send(res, 400, { error: `${item.productName}: teslim miktarı hazır miktarı aşamaz.` });
@@ -3980,8 +3978,8 @@ async function handleOrderBoard(req, res, url, parts) {
         ...structuredClone(item), quantity: quantity > 0 ? quantity : null, orderedRollCount: rollCount > 0 ? rollCount : undefined,
         preparedQuantity: quantity > 0 ? quantity : null, preparedRollCount: rollCount > 0 ? rollCount : 0,
       });
-      const quantityLeft = Number((Math.max(availableQuantity, orderedQuantity) - quantity).toFixed(3));
-      const rollsLeft = Math.max(0, Math.max(availableRolls, orderedRolls) - rollCount);
+      const quantityLeft = Number((availableQuantity - quantity).toFixed(3));
+      const rollsLeft = Math.max(0, availableRolls - rollCount);
       if (quantityLeft > 0.000001 || rollsLeft > 0) remaining.push({
         ...item, quantity: quantityLeft > 0 ? quantityLeft : null, orderedRollCount: rollsLeft > 0 ? rollsLeft : undefined,
         preparedQuantity: quantityLeft > 0 ? quantityLeft : null, preparedRollCount: rollsLeft,
