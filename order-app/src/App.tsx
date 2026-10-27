@@ -1532,6 +1532,8 @@ export default function App() {
   const [approvalEditorIntent, setApprovalEditorIntent] = useState<"view" | "edit" | "approve" | "reject">("view");
   const [approvalEntrySource, setApprovalEntrySource] = useState<"forms" | "order">("order");
   const [pdfOrder, setPdfOrder] = useState<Order | null>(null);
+  const [pdfPreviewBlob, setPdfPreviewBlob] = useState<Blob | null>(null);
+  const [pdfPreviewFilename, setPdfPreviewFilename] = useState("");
   const [error, setError] = useState("");
   const [syncWarning, setSyncWarning] = useState("");
   const [initialDataLoading, setInitialDataLoading] = useState(true);
@@ -2709,6 +2711,13 @@ export default function App() {
           initialAction={approvalEditorIntent}
           allowApproval={approvalEntrySource === "forms"}
           previewOnly={approvalPreviewOnly}
+          onPreviewPdf={approvalPreviewOnly ? (blob, nextOrder, filename) => {
+            setPdfPreviewBlob(blob);
+            setPdfPreviewFilename(filename);
+            setPdfOrder(nextOrder);
+            setActiveApprovalOrder(null);
+            setApprovalPreviewOnly(false);
+          } : undefined}
           onClose={() => {
             setActiveApprovalOrder(null);
             setApprovalPreviewOnly(false);
@@ -2762,18 +2771,26 @@ export default function App() {
           order={pdfOrder}
           session={session}
           allowApproval={approvalEntrySource === "forms"}
-          onClose={() => setPdfOrder(null)}
+          previewPdfBlob={pdfPreviewBlob ?? undefined}
+          previewFilename={pdfPreviewFilename || undefined}
+          onClose={() => { setPdfOrder(null); setPdfPreviewBlob(null); setPdfPreviewFilename(""); }}
           onEdit={() => {
+            setPdfPreviewBlob(null);
+            setPdfPreviewFilename("");
             setPdfOrder(null);
             setApprovalEditorIntent("edit");
             setActiveApprovalOrder(pdfOrder);
           }}
           onApprove={() => {
+            setPdfPreviewBlob(null);
+            setPdfPreviewFilename("");
             setPdfOrder(null);
             setApprovalEditorIntent("approve");
             setActiveApprovalOrder(pdfOrder);
           }}
           onReject={() => {
+            setPdfPreviewBlob(null);
+            setPdfPreviewFilename("");
             setPdfOrder(null);
             setApprovalEditorIntent("reject");
             setActiveApprovalOrder(pdfOrder);
@@ -4036,24 +4053,26 @@ function ApprovalFormsPage({
   );
 }
 
-function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onApprove, onReject }: {
+function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, previewFilename, onClose, onEdit, onApprove, onReject }: {
   order: Order;
   session: Session;
   allowApproval: boolean;
+  previewPdfBlob?: Blob;
+  previewFilename?: string;
   onClose: () => void;
   onEdit: () => void;
   onApprove: () => void;
   onReject: () => void;
 }) {
   const [pdfUrl, setPdfUrl] = useState("");
-  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(previewPdfBlob ?? null);
   const [error, setError] = useState("");
   const [pdfRendered, setPdfRendered] = useState(false);
   const [zoom, setZoom] = useState(1);
   const pagesRef = useRef<HTMLDivElement | null>(null);
   const nativePdfRef = useRef<HTMLIFrameElement | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
-  const filename = order.approvalForm?.archive?.filename || `${order.approvalForm?.number || order.number}.pdf`;
+  const filename = previewFilename || order.approvalForm?.archive?.filename || `${order.approvalForm?.number || order.number}.pdf`;
   const nativeShare = Reflect.get(navigator, "share") as ((data: ShareData) => Promise<void>) | undefined;
   const nativeCanShare = Reflect.get(navigator, "canShare") as ((data: ShareData) => boolean) | undefined;
   const useNativeWindowsViewer = /Windows NT/i.test(navigator.userAgent);
@@ -4073,6 +4092,12 @@ function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onA
   useEffect(() => {
     let objectUrl = "";
     let cancelled = false;
+    if (previewPdfBlob) {
+      setPdfBlob(previewPdfBlob);
+      objectUrl = URL.createObjectURL(previewPdfBlob);
+      setPdfUrl(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    }
     fetch(`/api/orders/${order.id}/approval-form/pdf`, { credentials: "include" })
       .then(async (response) => {
         if (!response.ok) {
@@ -4092,7 +4117,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onA
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [order.id]);
+  }, [order.id, previewPdfBlob]);
 
   useEffect(() => {
     if (useNativeWindowsViewer || !pdfBlob || !pagesRef.current) return;
@@ -8241,6 +8266,7 @@ function ApprovalFormEditor({
   allowApproval = false,
   previewOnly = false,
   packingMode = false,
+  onPreviewPdf,
   onClose,
   onSaved,
 }: {
@@ -8253,10 +8279,12 @@ function ApprovalFormEditor({
   allowApproval?: boolean;
   previewOnly?: boolean;
   packingMode?: boolean;
+  onPreviewPdf?: (blob: Blob, order: Order, filename: string) => void;
   onClose: () => void;
   onSaved: (order: Order) => void;
 }) {
   const paperRef = useRef<HTMLElement | null>(null);
+  const previewPdfStarted = useRef(false);
   const initial = useMemo<ApprovalForm>(
     () => {
       const normalizedCustomerName = order.customerName.trim().toLocaleLowerCase("tr");
@@ -8753,6 +8781,38 @@ function ApprovalFormEditor({
       window.setTimeout(() => frame.remove(), 30_000);
     }, 350);
   };
+  useEffect(() => {
+    if (!previewOnly || !isProforma || !onPreviewPdf || previewPdfStarted.current) return;
+    previewPdfStarted.current = true;
+    void (async () => {
+      try {
+        await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+        await document.fonts.ready;
+        if (!paperRef.current) throw new Error("Belge önizlemesi oluşturulamadı.");
+        const css = Array.from(document.styleSheets)
+          .flatMap((sheet) => {
+            try { return Array.from(sheet.cssRules, (rule) => rule.cssText); }
+            catch { return []; }
+          })
+          .join("\n");
+        const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${paperRef.current.outerHTML}</body></html>`;
+        const response = await fetch(`/api/orders/${order.id}/approval-form/preview-pdf`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ html }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || "PDF önizlemesi oluşturulamadı.");
+        }
+        const filenameBase = (form.customerName || order.customerName).replace(/[\\/:*?"<>|]/g, "-").trim();
+        onPreviewPdf(await response.blob(), { ...order, approvalForm: { ...form } }, `${filenameBase} - ${exportDocumentTitle}.pdf`);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "PDF önizlemesi oluşturulamadı.");
+      }
+    })();
+  }, [previewOnly, isProforma, onPreviewPdf, order.id]);
   return (
     <Modal
       title={isProforma ? exportDocumentTitle : labels.title}

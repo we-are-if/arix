@@ -3574,6 +3574,35 @@ async function handleOrderBoard(req, res, url, parts) {
     }
   }
 
+  if (req.method === "POST" && id && parts[2] === "approval-form" && parts[3] === "preview-pdf") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (!order.approvalForm || order.isLoanReturn) return send(res, 404, { error: "Sipariş formu bulunamadı." });
+    const canViewAll = workflowRole === "owner" || hasPermission(req.authUser, "order_forms.view_all");
+    if (!canViewAll) {
+      const actorId = String(req.authUser?.id || "");
+      const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
+      const assignedId = String(order.approvalForm.salesRepresentativeUserId || "");
+      const assignedName = normalizeSalesRepresentativeName(order.approvalForm.salesRepresentative || "");
+      const ownsOrder = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
+      const mayView = assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName) || ownsOrder;
+      if (!mayView) return send(res, 403, { error: "Bu sipariş formunu görme yetkiniz yok." });
+    }
+    const body = await parseBody(req, 8_000_000);
+    let pdf;
+    try {
+      pdf = await renderOrderApprovalPdf(body.html);
+    } catch (error) {
+      return send(res, 503, { error: `PDF oluşturulamadı: ${error.message}` });
+    }
+    res.writeHead(200, {
+      "content-type": "application/pdf",
+      "content-length": pdf.length,
+      "cache-control": "no-store",
+    });
+    return res.end(pdf);
+  }
+
   if (req.method === "GET" && id && parts[2] === "approval-form" && parts[3] === "pdf") {
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
