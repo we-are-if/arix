@@ -2232,8 +2232,15 @@ async function handleOrderBoard(req, res, url, parts) {
     const body = await parseBody(req);
     const endpoint = String(body.subscription?.endpoint || "").trim();
     if (!endpoint || !body.subscription?.keys) return send(res, 400, { error: "Bildirim aboneliği geçersizdir." });
-    db.pushSubscriptions = (db.pushSubscriptions || []).filter((item) => item.endpoint !== endpoint);
-    db.pushSubscriptions.push({ id: randomUUID(), endpoint, userId: req.authUser.id, subscription: body.subscription, createdAt: new Date().toISOString() });
+    const existing = (db.pushSubscriptions || []).find((item) => item.endpoint === endpoint);
+    if (existing) {
+      existing.userId = req.authUser.id;
+      existing.subscription = body.subscription;
+      existing.lastRegisteredAt = new Date().toISOString();
+    } else {
+      db.pushSubscriptions ??= [];
+      db.pushSubscriptions.push({ id: randomUUID(), endpoint, userId: req.authUser.id, subscription: body.subscription, createdAt: new Date().toISOString() });
+    }
     await writeDb(db);
     return send(res, 201, { data: { enabled: true } });
   }
@@ -2244,8 +2251,13 @@ async function handleOrderBoard(req, res, url, parts) {
     for (const item of subscriptions) {
       try {
         await webPush.sendNotification(item.subscription, JSON.stringify({ title: "AriX bildirim testi", body: "Bu cihaz bildirim almaya hazır.", type: "test", url: "/" }));
+        item.lastSuccessAt = new Date().toISOString();
+        delete item.lastError;
+        delete item.lastErrorAt;
         delivered += 1;
       } catch (error) {
+        item.lastError = `${error?.statusCode || "push"}: ${error?.message || "Bildirim gönderilemedi"}`.slice(0, 300);
+        item.lastErrorAt = new Date().toISOString();
         if ([404, 410].includes(error?.statusCode)) db.pushSubscriptions = db.pushSubscriptions.filter((entry) => entry.endpoint !== item.endpoint);
       }
     }
@@ -3388,21 +3400,21 @@ async function handleOrderBoard(req, res, url, parts) {
         order.history.push({ status: "ready", at: now, by: actor, reason: "Packing List ve palet hazırlığı tamamlandı." });
       }
     }
-    const pushNotification = ({ recipientUserId = "", recipientName = "", type, title, message }) => {
+    const pushNotification = async ({ recipientUserId = "", recipientName = "", type, title, message }) => {
       const recipient = db.authUsers.find((user) => String(user.id) === String(recipientUserId)) || db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === normalizeSalesRepresentativeName(recipientName));
-      addOrderNotification(db, { order, recipient, type, title, message, actor: req.authUser });
+      await addOrderNotification(db, { order, recipient, type, title, message, actor: req.authUser });
     };
     if (!order.isTest && order.approvalForm.status === "draft") {
       const assignedUser = db.authUsers.find((user) => String(user.id) === order.approvalForm.salesRepresentativeUserId) || db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === order.approvalForm.salesRepresentative);
       const formEventType = previousForm ? "approval_form_edited" : "approval_form_prepared";
       const formEventTitle = previousForm ? "Sipariş formu düzenlendi" : "Sipariş formu hazırlandı";
       await notifyUsers(db, order, orderActivityRecipients(db, order), formEventType, formEventTitle, `${actor} tarafından · ${order.approvalForm.number} · ${order.approvalForm.customerName}`, req.authUser);
-      pushNotification({ recipientUserId: assignedUser?.id || order.approvalForm.salesRepresentativeUserId, recipientName: assignedUser?.name || order.approvalForm.salesRepresentative, type: "approval_requested", title: "Sipariş formu onay bekliyor", message: `${actor} tarafından gönderildi · ${order.approvalForm.number} · ${order.approvalForm.customerName}` });
-      for (const ownerUser of db.authUsers.filter((user) => orderWorkflowRole(user) === "owner")) pushNotification({ recipientUserId: ownerUser.id, recipientName: ownerUser.name, type: "approval_requested", title: "Sipariş formu onay bekliyor", message: `${actor} tarafından gönderildi · ${order.approvalForm.number} · ${order.approvalForm.customerName}` });
+      await pushNotification({ recipientUserId: assignedUser?.id || order.approvalForm.salesRepresentativeUserId, recipientName: assignedUser?.name || order.approvalForm.salesRepresentative, type: "approval_requested", title: "Sipariş formu onay bekliyor", message: `${actor} tarafından gönderildi · ${order.approvalForm.number} · ${order.approvalForm.customerName}` });
+      for (const ownerUser of db.authUsers.filter((user) => orderWorkflowRole(user) === "owner")) await pushNotification({ recipientUserId: ownerUser.id, recipientName: ownerUser.name, type: "approval_requested", title: "Sipariş formu onay bekliyor", message: `${actor} tarafından gönderildi · ${order.approvalForm.number} · ${order.approvalForm.customerName}` });
     } else if (!order.isTest) {
       const preparerName = previousForm?.updatedBy || order.createdBy;
       const preparer = db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === normalizeSalesRepresentativeName(preparerName));
-      pushNotification({ recipientUserId: preparer?.id || "", recipientName: preparer?.name || preparerName, type: "approval_completed", title: "Sipariş formu onaylandı", message: `${actor} tarafından onaylandı · ${order.approvalForm.number}` });
+      await pushNotification({ recipientUserId: preparer?.id || "", recipientName: preparer?.name || preparerName, type: "approval_completed", title: "Sipariş formu onaylandı", message: `${actor} tarafından onaylandı · ${order.approvalForm.number}` });
       if (documentType === "proforma") {
         await notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "export_packing_requested", "Palet hazırlama bekliyor", `${actor} tarafından Proforma onaylandı · ${order.number} · ${order.customerName}`, req.authUser);
       }

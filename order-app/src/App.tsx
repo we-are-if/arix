@@ -2880,34 +2880,6 @@ function BoardColumn({
   );
 }
 
-function InactiveOrdersPanel({ orders, language, onOpen }: { orders: Order[]; language: Language; onOpen: (order: Order) => void }) {
-  if (!orders.length) return null;
-  return (
-    <details className="inactive-orders-panel">
-      <summary>
-        <span><Trash2 aria-hidden="true" /><b>İptal ve silinenler</b></span>
-        <strong>{orders.length}</strong>
-      </summary>
-      <div className="inactive-orders-list">
-        {orders.map((order) => {
-          const deleted = Boolean(order.deletedAt);
-          const reason = deleted ? order.deletionReason : order.cancellationReason;
-          const actor = deleted ? order.deletedBy : order.cancelledBy;
-          const at = deleted ? order.deletedAt : order.cancelledAt || order.updatedAt;
-          return (
-            <button type="button" key={`${deleted ? "deleted" : "cancelled"}-${order.id}`} onClick={() => onOpen(order)} disabled={deleted}>
-              <span className={`inactive-order-kind ${deleted ? "deleted" : "cancelled"}`}>{deleted ? "Silindi" : "İptal edildi"}</span>
-              <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün</small></span>
-              <span className="inactive-order-reason">{reason || "Sebep kaydedilmemiş"}</span>
-              <small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language)}` : ""}</small>
-            </button>
-          );
-        })}
-      </div>
-    </details>
-  );
-}
-
 function DailyArchive({
   groups,
   currentDay,
@@ -3471,84 +3443,6 @@ function DailyReportPreview({ url, filename, onClose }: { url: string; filename:
         </nav>
       </header>
       <main className="daily-report-preview-frame"><iframe src={url} title={filename} /></main>
-    </section>
-  );
-}
-
-function DeletedOrders({
-  orders,
-  language,
-  onChanged,
-}: {
-  orders: Order[];
-  language: Language;
-  onChanged: () => void;
-}) {
-  const ui = copy[language];
-  const [busyId, setBusyId] = useState("");
-  const [error, setError] = useState("");
-  const act = async (order: Order, action: "restore" | "delete") => {
-    if (
-      action === "delete" &&
-      !confirm(`${order.number} kalıcı olarak silinsin?`)
-    )
-      return;
-    setBusyId(order.id);
-    setError("");
-    try {
-      await api(
-        `/api/orders/trash/${order.id}${action === "restore" ? "/restore" : ""}`,
-        { method: action === "restore" ? "POST" : "DELETE" },
-      );
-      onChanged();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Əməliyyat alınmadı.");
-    } finally {
-      setBusyId("");
-    }
-  };
-  if (!orders.length) return <div className="daily-empty">{ui.trashEmpty}</div>;
-  return (
-    <section className="deleted-orders">
-      {error && <p className="form-error">{error}</p>}
-      {orders.map((order) => (
-        <article className="deleted-order" key={order.id}>
-          <div>
-            <small>
-              {order.number} ·{" "}
-              {order.deletedAt
-                ? new Date(order.deletedAt).toLocaleString(language)
-                : ""}
-            </small>
-            <strong>{order.customerName}</strong>
-            <span>
-              {order.items
-                .map(
-                  (item) =>
-                    `${item.productName} ${item.preparedQuantity || item.quantity} mt`,
-                )
-                .join(" · ")}
-            </span>
-            <small>{order.deletedBy || "-"}</small>
-          </div>
-          <div className="deleted-actions">
-            <button
-              className="secondary"
-              disabled={busyId === order.id}
-              onClick={() => void act(order, "restore")}
-            >
-              {ui.restore}
-            </button>
-            <button
-              className="danger-button"
-              disabled={busyId === order.id}
-              onClick={() => void act(order, "delete")}
-            >
-              {ui.deleteForever}
-            </button>
-          </div>
-        </article>
-      ))}
     </section>
   );
 }
