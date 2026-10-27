@@ -8409,7 +8409,12 @@ function ApprovalFormEditor({
   const actorIsAssignedRepresentative = order.approvalForm?.salesRepresentativeUserId === session.id || Boolean(representativeIdentity(order.approvalForm?.salesRepresentative) && representativeIdentity(order.approvalForm?.salesRepresentative) === representativeIdentity(session.name));
   const canEditRejectedOwn = order.approvalForm?.status === "rejected" && workflowRole(session.role) === "sales" && (actorOwnsOrder || actorIsAssignedRepresentative);
   const canEdit = workflowRole(session.role) === "owner" || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn || (order.exportPackingRequired && (workflowRole(session.role) === "warehouse" || Boolean(session.permissions?.includes("orders.prepare"))));
-  const [editing, setEditing] = useState((packingMode && order.exportPackingRequired) || initialAction === "edit" || (!order.approvalForm && canEdit));
+  const [editing, setEditing] = useState(
+    (packingMode && order.exportPackingRequired) ||
+    initialAction === "edit" ||
+    (!order.approvalForm && canEdit) ||
+    (initial.status === "rejected" && canEdit),
+  );
   const automaticApprovalStarted = useRef(false);
   const [ratePublicationDate, setRatePublicationDate] = useState("");
   const totals = useMemo(() => approvalTotals(form), [form]);
