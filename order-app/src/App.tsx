@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Moon, NotepadText, Pencil, Plus, Printer, ScanText, Scissors, Search, Settings2, Share2, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
+import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Moon, NotepadText, Pencil, Plus, Printer, ScanText, Scissors, Search, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -447,6 +447,13 @@ const notificationEventOptions = [
   ["despatch_ready", "İrsaliye hazırlandı, teslim edilebilir"], ["order_delivered", "Sipariş teslim edildi"],
   ["day_closed", "Gün kapanış özeti"], ["order_locked", "Sipariş kilitlendi"],
   ["order_unlocked", "Sipariş kilidi açıldı"], ["announcement", "Yönetici duyuruları"],
+] as const;
+
+const notificationEventGroups = [
+  { label: "Siparişler", keys: ["order_created", "order_editing_started", "order_edited", "order_preparing_started", "order_status_returned", "order_ready", "order_cancelled", "order_deleted", "order_locked", "order_unlocked"] },
+  { label: "Sipariş formları", keys: ["approval_form_prepared", "approval_form_edited", "approval_form_preparing_started", "approval_form_editing_started", "approval_requested", "approval_completed", "approval_rejected", "approval_form_archived"] },
+  { label: "Teslimat", keys: ["despatch_ready", "order_delivered"] },
+  { label: "Sistem", keys: ["day_closed", "announcement"] },
 ] as const;
 
 type BrowserBackLayer = {
@@ -2534,10 +2541,9 @@ export default function App() {
                 const at = deleted ? order.deletedAt : order.cancelledAt || order.updatedAt;
                 return <article className="inactive-order-row" key={`${deleted ? "deleted" : "cancelled"}-${order.id}`}>
                   <button type="button" className="inactive-order-info" onClick={() => { if (!deleted) { setInactiveOrdersOpen(false); setActiveOrder(order); } }} disabled={deleted}>
-                    <span className={`inactive-order-kind ${deleted ? "deleted" : "cancelled"}`}>{deleted ? "Silindi" : "İptal edildi"}</span>
-                    <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün</small></span>
-                    <span className="inactive-order-reason">{reason || "Sebep kaydedilmemiş"}</span>
-                    <small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language)}` : ""}</small>
+                    <span className={`inactive-order-icon ${deleted ? "deleted" : "cancelled"}`}><Trash2 aria-hidden="true" /></span>
+                    <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün · {deleted ? "Silindi" : "İptal edildi"}</small></span>
+                    <span className="inactive-order-detail"><span>{reason || "Sebep kaydedilmemiş"}</span><small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language, { dateStyle: "short", timeStyle: "short" })}` : ""}</small></span>
                   </button>
                   {deleted && canManageTrash && <div className="inactive-order-actions">
                     <button type="button" className="secondary" disabled={inactiveOrderBusyId === order.id} onClick={() => void manageDeletedOrder(order, "restore")}>{text.restore}</button>
@@ -2611,14 +2617,24 @@ export default function App() {
       )}
 
       {notificationPreferencesOpen && (
-        <Modal title="Bildirim ayarları" subtitle="Yöneticinin izin verdiği bildirimlerden almak istediklerinizi seçin." onClose={() => setNotificationPreferencesOpen(false)} className="notification-preferences-modal">
+        <Modal title="Bildirim ayarları" subtitle="Almak istediğiniz bildirimleri seçin." onClose={() => setNotificationPreferencesOpen(false)} className="notification-preferences-modal">
           {notificationSettingsBusy && !myNotificationSettings ? <div className="center-state">Yükleniyor…</div> : myNotificationSettings && <div className="self-notification-preferences">
             <div className="self-notification-channels">
-              <label><input type="checkbox" checked={myNotificationSettings.preferences.inApp !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, inApp: event.target.checked } } : current)} /><span><b>Uygulama içi</b><small>Zil menüsünde göster</small></span></label>
-              <label><input type="checkbox" checked={myNotificationSettings.preferences.push !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, push: event.target.checked } } : current)} /><span><b>Telefon / bilgisayar</b><small>Cihaz bildirimi gönder</small></span></label>
+              <label><span className="notification-channel-icon"><Bell aria-hidden="true" /></span><span><b>Uygulama içi</b><small>Zil menüsünde göster</small></span><input type="checkbox" checked={myNotificationSettings.preferences.inApp !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, inApp: event.target.checked } } : current)} /></label>
+              <label><span className="notification-channel-icon"><Smartphone aria-hidden="true" /></span><span><b>Cihaz bildirimi</b><small>Telefon ve bilgisayara gönder</small></span><input type="checkbox" checked={myNotificationSettings.preferences.push !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, push: event.target.checked } } : current)} /></label>
             </div>
-            <div className="self-notification-events">
-              {notificationEventOptions.filter(([key]) => myNotificationSettings.permissions.events?.[key] !== false).map(([key, label]) => <label key={key}><input type="checkbox" checked={myNotificationSettings.preferences.events?.[key] !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, events: { ...current.preferences.events, [key]: event.target.checked } } } : current)} /><span>{label}</span></label>)}
+            <div className="self-notification-groups">
+              {notificationEventGroups.map((group) => {
+                const options = notificationEventOptions.filter(([key]) => group.keys.includes(key as never) && myNotificationSettings.permissions.events?.[key] !== false);
+                if (!options.length) return null;
+                const selected = options.filter(([key]) => myNotificationSettings.preferences.events?.[key] !== false).length;
+                return <details key={group.label}>
+                  <summary><span><b>{group.label}</b><small>{options.length} bildirim türü</small></span><strong>{selected}/{options.length}</strong></summary>
+                  <div className="self-notification-events">
+                    {options.map(([key, label]) => <label key={key}><span>{label}</span><input type="checkbox" checked={myNotificationSettings.preferences.events?.[key] !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, events: { ...current.preferences.events, [key]: event.target.checked } } } : current)} /></label>)}
+                  </div>
+                </details>;
+              })}
             </div>
             <div className="modal-actions"><button type="button" className="secondary" onClick={() => setNotificationPreferencesOpen(false)}>Vazgeç</button><button type="button" className="primary" disabled={notificationSettingsBusy} onClick={() => void saveMyNotificationPreferences()}>Kaydet</button></div>
           </div>}
