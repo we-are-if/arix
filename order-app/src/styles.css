@@ -3764,6 +3764,19 @@ textarea {
 .order-lock-action { display:inline-flex; align-items:center; gap:7px; }
 .order-lock-action svg { width:16px; height:16px; }
 .cancel-order-action { border-color:#e8b6be !important; color:#b4233b !important; }
+.inactive-orders-trigger { position:relative; display:grid; width:42px; height:42px; flex:0 0 42px; place-items:center; border:1px solid #dbe1eb; border-radius:8px; background:#fff; color:#59667b; cursor:pointer; }
+.inactive-orders-trigger:hover { border-color:#aaa4ff; background:#f7f6ff; color:#5145e5; }
+.inactive-orders-trigger svg { width:19px; height:19px; }
+.inactive-orders-trigger span { position:absolute; top:-6px; right:-6px; display:grid; min-width:20px; height:20px; place-items:center; border:2px solid #fff; border-radius:999px; background:#e0445d; padding:0 4px; color:#fff; font-size:9px; font-weight:900; }
+.order-lock-top-action { display:inline-flex; min-height:30px; margin-left:auto; align-items:center; gap:6px; border:1px solid #d7ddea; border-radius:7px; background:#fff; padding:5px 9px; color:#4d5870; font-size:11px; font-weight:800; cursor:pointer; }
+.order-lock-top-action:hover { border-color:#a9a2ff; color:#5145e5; }
+.order-lock-top-action svg { width:14px; height:14px; }
+.inactive-orders-modal .modal-body { padding:0; }
+.inactive-orders-list.modal-list { border-top:0; }
+.inactive-orders-empty { display:grid; min-height:220px; place-items:center; align-content:center; gap:9px; color:#7f8ba0; }
+.inactive-orders-empty svg { width:34px; height:34px; }
+.theme-dark .inactive-orders-trigger, .theme-dark .order-lock-top-action { border-color:#364156; background:#1c2534; color:#c5cede; }
+.theme-dark .inactive-orders-trigger span { border-color:#111827; }
 .theme-dark .order-lock-badge, .theme-dark .order-lock-notice { border-color:#715c28; background:#292517; color:#f4d681; }
 .theme-dark .order-lock-badge span, .theme-dark .order-lock-notice small { color:#c7ad6e; }
 .inactive-orders-panel { overflow:hidden; border:1px solid #dfe4ec; border-radius:8px; background:#fff; }
@@ -4662,7 +4675,9 @@ textarea {
   background: #fff;
 }
 .order-detail-modal .order-audit {
-  width: fit-content;
+  display: flex;
+  width: 100%;
+  align-items: center;
   margin: 0 0 10px;
   border: 0;
   border-radius: 0;

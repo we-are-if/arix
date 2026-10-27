@@ -4295,6 +4295,7 @@ async function handleOrderBoard(req, res, url, parts) {
     order.audit ??= [];
     order.audit.push({ id: randomUUID(), action: "deleted", reason: deletionReason, by: order.deletedBy, userId: req.authUser?.id, at: order.deletedAt });
     db.orderTrash.push(order);
+    if (!order.isTest) await notifyUsers(db, order, orderActivityRecipients(db, order), "order_deleted", "Sipariş silindi", `${order.deletedBy} tarafından silindi · ${order.number} · ${order.customerName} · Sebep: ${deletionReason}`, req.authUser);
     orderEditorPresence.delete(String(id));
     await writeDb(db);
     return send(res, 200, { ok: true });

@@ -1511,6 +1511,7 @@ export default function App() {
   const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [boardSearch, setBoardSearch] = useState("");
+  const [inactiveOrdersOpen, setInactiveOrdersOpen] = useState(false);
   const [pageTab, setPageTab] = useState<"board" | "forms" | "days" | "stock">(() => {
     const saved = localStorage.getItem("arix-order-page-tab");
     return ["board", "forms", "days", "stock"].includes(saved || "") ? saved as "board" | "forms" | "days" | "stock" : "board";
@@ -2324,6 +2325,10 @@ export default function App() {
               </b>
               <span>{text.active}</span>
             </div>
+            <button className="inactive-orders-trigger" type="button" onClick={() => setInactiveOrdersOpen(true)} aria-label="İptal ve silinen siparişler" title="İptal ve silinen siparişler">
+              <Trash2 aria-hidden="true" />
+              {deletedOrders.length > 0 && <span>{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</span>}
+            </button>
             {canSell && (
               <button
                 className="primary"
@@ -2451,6 +2456,24 @@ export default function App() {
             www.arix.az
           </a>
         </footer>
+        {inactiveOrdersOpen && (
+          <Modal title="İptal ve silinenler" subtitle={`${deletedOrders.length} kayıt`} onClose={() => setInactiveOrdersOpen(false)} className="inactive-orders-modal">
+            {deletedOrders.length ? <div className="inactive-orders-list modal-list">
+              {deletedOrders.map((order) => {
+                const deleted = Boolean(order.deletedAt);
+                const reason = deleted ? order.deletionReason : order.cancellationReason;
+                const actor = deleted ? order.deletedBy : order.cancelledBy;
+                const at = deleted ? order.deletedAt : order.cancelledAt || order.updatedAt;
+                return <button type="button" key={`${deleted ? "deleted" : "cancelled"}-${order.id}`} onClick={() => { if (!deleted) { setInactiveOrdersOpen(false); setActiveOrder(order); } }} disabled={deleted}>
+                  <span className={`inactive-order-kind ${deleted ? "deleted" : "cancelled"}`}>{deleted ? "Silindi" : "İptal edildi"}</span>
+                  <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün</small></span>
+                  <span className="inactive-order-reason">{reason || "Sebep kaydedilmemiş"}</span>
+                  <small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language)}` : ""}</small>
+                </button>;
+              })}
+            </div> : <div className="inactive-orders-empty"><Trash2 aria-hidden="true" /><b>Henüz iptal veya silinen sipariş yok</b></div>}
+          </Modal>
+        )}
       </div>
 
       {createOpen && (
@@ -5939,6 +5962,7 @@ function SettingsModal({
                       ["order_status_returned", "Sipariş düzenleme için geri gönderildi"],
                       ["order_ready", "Sipariş hazırlandı"],
                       ["order_cancelled", "Sipariş iptal edildi"],
+                      ["order_deleted", "Sipariş silindi"],
                       ["approval_form_prepared", "Sipariş formu hazırlandı"],
                       ["approval_form_edited", "Sipariş formu düzenlendi"],
                       ["approval_form_preparing_started", "Form hazırlanmaya başladı"],
@@ -6974,6 +6998,7 @@ function OrderDetail({
         <div className="order-audit">
           <span>{ui.createdBy}</span>
           <b>{order.createdBy}</b>
+          {canLockOrder && <button className="order-lock-top-action" type="button" disabled={busy} onClick={() => void toggleOrderLock()}>{order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}<span>{order.lockedAt ? "Kilidi aç" : "Kilitle"}</span></button>}
         </div>
         {isOwner && <div className={`order-test-mode-banner ${order.isTest ? "active" : ""}`}>
           <div>
@@ -7930,12 +7955,6 @@ function OrderDetail({
           </label>
         )}
         <div className="modal-actions">
-          {canLockOrder && (
-            <button className="secondary order-lock-action" disabled={busy} onClick={() => void toggleOrderLock()}>
-              {order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}
-              {order.lockedAt ? "Kilidi aç" : "Kilitle"}
-            </button>
-          )}
           {canEditOrder && !editing && !correctingPrepared && (
             <button
               className="secondary"
