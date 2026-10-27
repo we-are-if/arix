@@ -1957,6 +1957,8 @@ function orderRolloverSnapshot(order) {
     withoutDespatch: order.withoutDespatch,
     despatchReadyAt: order.despatchReadyAt,
     despatchReadyBy: order.despatchReadyBy,
+    despatchScope: order.despatchScope,
+    despatchItems: structuredClone(Array.isArray(order.despatchItems) ? order.despatchItems : []),
     deliveryNote: order.deliveryNote,
     deliveredAt: order.deliveredAt,
     deliveredBy: order.deliveredBy,
@@ -4115,7 +4117,23 @@ async function handleOrderBoard(req, res, url, parts) {
     const ready = body.ready === true;
     const withoutDespatch = ready && body.withoutDespatch === true;
     const number = withoutDespatch ? "" : String(body.number ?? "").trim().slice(0, 80);
+    const scope = body.scope === "partial" ? "partial" : "full";
+    const despatchItems = scope === "partial" && Array.isArray(body.items)
+      ? body.items.map((entry) => ({
+          itemIndex: Math.trunc(Number(entry.itemIndex)),
+          quantity: Math.max(0, Number(entry.quantity) || 0),
+          rollCount: Math.max(0, Math.trunc(Number(entry.rollCount) || 0)),
+        })).filter((entry) => Number.isInteger(entry.itemIndex) && entry.itemIndex >= 0 && entry.itemIndex < (order.items || []).length && (entry.quantity > 0 || entry.rollCount > 0))
+      : [];
     if (ready && !withoutDespatch && !number) return send(res, 400, { error: "İrsaliye nömrəsi məcburidir." });
+    if (ready && scope === "partial" && !despatchItems.length) return send(res, 400, { error: "İrsaliyeye bağlanacaq ən az bir məhsul və miqdar seçilməlidir." });
+    const invalidDespatchItem = despatchItems.find((entry) => {
+      const item = order.items[entry.itemIndex];
+      const maxQuantity = Math.max(0, Number(item?.preparedQuantity ?? item?.quantity) || 0);
+      const maxRolls = Math.max(0, Math.trunc(Number(item?.preparedRollCount ?? item?.orderedRollCount) || 0));
+      return entry.quantity > maxQuantity + 0.000001 || entry.rollCount > maxRolls;
+    });
+    if (ready && invalidDespatchItem) return send(res, 400, { error: "İrsaliye miqdarı hazırlanmış miqdarı aşa bilməz." });
     const wasReady = order.despatchReady === true;
     const previousNumber = String(order.despatchNumber || "").trim();
     const wasWithoutDespatch = order.withoutDespatch === true;
@@ -4128,6 +4146,8 @@ async function handleOrderBoard(req, res, url, parts) {
     order.withoutDespatch = ready ? withoutDespatch : false;
     order.despatchReadyAt = ready ? now : null;
     order.despatchReadyBy = ready ? (req.authUser?.name ?? "Satış") : null;
+    order.despatchScope = ready ? scope : undefined;
+    order.despatchItems = ready && scope === "partial" ? despatchItems : [];
     order.updatedAt = now;
     order.audit ??= [];
     order.audit.push({ id: randomUUID(), action: ready ? "despatchReady" : "despatchRevoked", newValue: withoutDespatch ? "İrsaliyesiz teslim" : number, by: req.authUser?.name ?? "Satış", userId: req.authUser?.id, at: now });

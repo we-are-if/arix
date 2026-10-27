@@ -403,6 +403,8 @@ type Order = {
   withoutDespatch?: boolean;
   despatchReadyAt?: string;
   despatchReadyBy?: string;
+  despatchScope?: "full" | "partial";
+  despatchItems?: Array<{ itemIndex: number; quantity: number; rollCount: number }>;
   attachments?: OrderAttachment[];
   approvalForm?: ApprovalForm;
   rolloverHistory?: Array<{
@@ -6412,6 +6414,9 @@ function OrderDetail({
   const [withoutDespatch, setWithoutDespatch] = useState(
     savedWork.withoutDespatch ?? order.withoutDespatch ?? false,
   );
+  const [despatchScope, setDespatchScope] = useState<"full" | "partial">(
+    order.despatchScope ?? "full",
+  );
   const [expandedProductKey, setExpandedProductKey] = useState("");
   const [previewAttachment, setPreviewAttachment] =
     useState<OrderAttachment | null>(null);
@@ -6570,14 +6575,20 @@ function OrderDetail({
     setNote(order.note ?? "");
     setActiveEditors(order.activeEditors ?? []);
     if (!keepLocalWork) setDeliveryNote(order.deliveryNote ?? "");
-    if (!keepLocalWork) setDeliverySelection(order.items.map((item) => ({
-      selected: true,
-      quantity: Number(item.preparedQuantity ?? item.quantity) || 0,
-      rollCount: Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0)),
-    })));
+    if (!keepLocalWork) setDeliverySelection(order.items.map((item, itemIndex) => {
+      const despatchItem = order.despatchScope === "partial"
+        ? order.despatchItems?.find((entry) => entry.itemIndex === itemIndex)
+        : undefined;
+      return {
+        selected: order.despatchScope === "partial" ? Boolean(despatchItem) : true,
+        quantity: despatchItem?.quantity ?? (Number(item.preparedQuantity ?? item.quantity) || 0),
+        rollCount: despatchItem?.rollCount ?? Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0)),
+      };
+    }));
     setDeliveryPhoto(order.deliveryPhoto ?? "");
     if (!keepLocalWork) setDespatchNumber(order.despatchNumber ?? "");
     if (!keepLocalWork) setWithoutDespatch(order.withoutDespatch ?? false);
+    setDespatchScope(order.despatchScope ?? "full");
   }, [order]);
 
   useEffect(() => {
@@ -6893,12 +6904,26 @@ function OrderDetail({
   };
 
   const updateDespatch = async (ready: boolean) => {
+    const selectedItems = deliverySelection
+      .map((entry, itemIndex) => ({ ...entry, itemIndex }))
+      .filter((entry) => entry.selected && (entry.quantity > 0 || entry.rollCount > 0))
+      .map(({ itemIndex, quantity, rollCount }) => ({ itemIndex, quantity, rollCount }));
+    if (ready && despatchScope === "partial" && !selectedItems.length) {
+      setError("İrsaliyeye bağlanacak en az bir ürün ve miktar seçin.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const next = await api<Order>(`/api/orders/${order.id}/despatch`, {
         method: "PATCH",
-        body: JSON.stringify({ ready, number: withoutDespatch ? "" : despatchNumber, withoutDespatch }),
+        body: JSON.stringify({
+          ready,
+          number: withoutDespatch ? "" : despatchNumber,
+          withoutDespatch,
+          scope: despatchScope,
+          items: despatchScope === "partial" ? selectedItems : [],
+        }),
       });
       onChanged(next);
     } catch (cause) {
@@ -7491,27 +7516,6 @@ function OrderDetail({
             }]);
           }}><Plus aria-hidden="true" /><span>Ürün satırı ekle</span></button>}
         </div>}
-        {order.status === "delivered" && (
-          <section className="unprepared-products">
-            <h3>{ui.unpreparedProducts}</h3>
-            {unpreparedItems.length ? (
-              <div>
-                {unpreparedItems.map((item, index) => (
-                  <article key={`unprepared-${item.productId}-${index}`}>
-                    <span>
-                      <small>{item.productCode || "-"}</small>
-                      <b>{item.productName}</b>
-                      {item.lineNote && <em>{item.lineNote}</em>}
-                    </span>
-                    <strong>{orderedQuantityLabel(item)}</strong>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p>{ui.noUnpreparedProducts}</p>
-            )}
-          </section>
-        )}
         {order.preparedBy && (
           <p className="worker">
             {ui.preparedBy}: <b>{order.preparedBy}</b>
@@ -7695,10 +7699,36 @@ function OrderDetail({
               <p>
                 <b>{order.withoutDespatch ? ui.deliveryWithoutDespatch : order.despatchNumber}</b>
                 {order.despatchReadyBy ? ` · ${order.despatchReadyBy}` : ""}
+                {` · ${order.despatchScope === "partial" ? "Seçili ürün/miktarlar" : "Siparişin tamamı"}`}
               </p>
             )}
             {canManageDespatch && (
-              <div className="prep-inputs">
+              <div className="despatch-controls">
+                {!order.despatchReady && (
+                  <div className="despatch-scope" role="group" aria-label="İrsaliye kapsamı">
+                    <button type="button" className={despatchScope === "full" ? "active" : ""} onClick={() => {
+                      setDespatchScope("full");
+                      setDeliverySelection(order.items.map((item) => ({ selected: true, quantity: Number(item.preparedQuantity ?? item.quantity) || 0, rollCount: Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0)) })));
+                    }}>Siparişin tamamı</button>
+                    <button type="button" className={despatchScope === "partial" ? "active" : ""} onClick={() => setDespatchScope("partial")}>Seçili ürün / miktar</button>
+                  </div>
+                )}
+                {!order.despatchReady && despatchScope === "partial" && (
+                  <div className="partial-delivery-picker despatch-item-picker">
+                    <header><div><b>İrsaliyeye girecek ürünler</b><small>Kesilen irsaliyedeki gerçek miktarları seçin.</small></div><span>{deliverySelection.filter((entry) => entry.selected).length}/{order.items.length}</span></header>
+                    {order.items.map((item, index) => {
+                      const entry = deliverySelection[index] || { selected: false, quantity: 0, rollCount: 0 };
+                      const maxQuantity = Number(item.preparedQuantity ?? item.quantity) || 0;
+                      const maxRolls = Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0));
+                      return <article className={entry.selected ? "selected" : ""} key={`despatch-${item.productId}-${index}`}>
+                        <label className="partial-delivery-check"><input type="checkbox" checked={entry.selected} onChange={(event) => setDeliverySelection((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, selected: event.target.checked } : row))} /><span><b>{item.productName}</b><small>{item.productCode || "-"} · Hazır: {preparedQuantityLabel(item)}</small></span></label>
+                        <label><span>İrsaliye mt</span><input type="number" min="0" max={maxQuantity} step="0.01" disabled={!entry.selected || maxQuantity <= 0} value={entry.selected && entry.quantity > 0 ? entry.quantity : ""} onChange={(event) => setDeliverySelection((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: event.target.value === "" ? 0 : Math.max(0, Number(event.target.value) || 0) } : row))} /></label>
+                        <label><span>İrsaliye rulo</span><input type="number" min="0" max={maxRolls} step="1" disabled={!entry.selected || maxRolls <= 0} value={entry.selected && entry.rollCount > 0 ? entry.rollCount : ""} onChange={(event) => setDeliverySelection((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, rollCount: event.target.value === "" ? 0 : Math.max(0, Math.trunc(Number(event.target.value) || 0)) } : row))} /></label>
+                      </article>;
+                    })}
+                  </div>
+                )}
+                <div className="prep-inputs">
                 <label className="approval-toggle despatch-without-number">
                   <input
                     type="checkbox"
@@ -7729,6 +7759,7 @@ function OrderDetail({
                       ? ui.confirmDeliveryWithoutDespatch
                       : ui.confirmDespatch}
                 </button>
+                </div>
               </div>
             )}
           </section>
