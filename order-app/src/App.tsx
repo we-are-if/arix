@@ -2166,7 +2166,7 @@ export default function App() {
                 )}
               </button>
               {notificationMenuOpen && (
-                <div className={`notification-popover surface-popover absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border shadow-xl ${isDark ? "glass-panel-dark border-white/10" : "glass-panel border-white/70"}`}>
+                <div className={`notification-popover surface-popover absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border shadow-xl ${isDark ? "is-dark glass-panel-dark border-white/10" : "glass-panel border-white/70"}`}>
                   <div className="notification-popover-header flex items-center justify-between border-b px-4 py-3">
                     <span><strong className="block text-sm">Bildirimler</strong>{unreadNotificationCount > 0 && <button type="button" className="mt-1 text-[11px] font-semibold text-slate-500" onClick={() => void markAllNotificationsRead()}>Tümünü okundu yap</button>}</span>
                     {pushEnabled ? <span className="flex items-center gap-3"><button type="button" className="text-xs font-semibold text-emerald-600" onClick={() => void testPushNotification()}>Test et</button><button type="button" className="text-xs font-semibold text-indigo-600" onClick={() => void enablePushNotifications()}>Yenile</button></span> : <button type="button" className="text-xs font-semibold text-indigo-600" onClick={() => void enablePushNotifications()}>Bu cihazda bildirimleri aç</button>}
