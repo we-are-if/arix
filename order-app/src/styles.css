@@ -455,17 +455,19 @@ select {
 .column {
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 16px;
+  border-radius: 11px;
   min-height: 620px;
-  padding: 12px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.035);
+  padding: 10px;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.04);
 }
 .column > header {
-  height: 48px;
+  height: 46px;
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 0 5px;
+  margin: 0 2px 6px;
+  padding: 0 4px;
+  border-bottom: 1px solid #edf0f4;
 }
 .column h2 {
   font-size: 14px;
@@ -499,23 +501,36 @@ select {
   min-width: 0;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: 5px;
 }
 .order-card {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   border: 1px solid #e1e5eb;
   background: #f8fafc;
-  border-radius: 12px;
+  border-radius: 8px;
   text-align: left;
-  padding: 14px;
+  padding: 11px 12px 10px 14px;
   cursor: pointer;
   color: inherit;
-  box-shadow: 0 2px 5px rgba(25, 33, 48, 0.03);
-  transition: 0.18s;
+  box-shadow: 0 1px 3px rgba(25, 33, 48, 0.025);
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
 }
+.order-card::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: #6d55ef;
+  content: "";
+}
+.column-preparing .order-card::before { background: #e8a10e; }
+.column-ready .order-card::before { background: #16a46f; }
+.column-delivered .order-card::before { background: #94a3b8; }
 .order-card:hover {
   border-color: #bdb5f8;
-  transform: translateY(-1px);
+  background: #fff;
+  box-shadow: 0 5px 14px rgba(51, 42, 135, .075);
 }
 .card-top,
 .order-card footer {
@@ -525,21 +540,26 @@ select {
   font-size: 11px;
 }
 .order-card h3 {
-  font-size: 17px;
-  margin: 8px 0 9px;
+  color: #1c2940;
+  font-size: 15px;
+  line-height: 1.25;
+  margin: 7px 0 6px;
 }
 .order-card ul {
   padding: 0;
   margin: 0;
   list-style: none;
+  border-top: 1px solid #e7ebf1;
 }
 .order-card li {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 5px 0;
-  border-top: 1px solid #f0f2f5;
-  font-size: 13px;
+  min-height: 29px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid #edf0f4;
+  font-size: 12px;
 }
 .order-card li span {
   overflow: hidden;
@@ -547,6 +567,9 @@ select {
   white-space: nowrap;
 }
 .order-card li b {
+  color: #1d2940;
+  font-size: 12px;
+  font-weight: 750;
   white-space: nowrap;
 }
 .order-card > small {
@@ -555,9 +578,14 @@ select {
   margin-top: 8px;
 }
 .order-card footer {
-  border-top: 1px solid #eef1f4;
-  margin-top: 9px;
-  padding-top: 8px;
+  border-top: 0;
+  margin-top: 5px;
+  padding-top: 2px;
+}
+.order-card .order-creator {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  font-size: 11px;
 }
 .empty {
   height: 150px;
@@ -3795,6 +3823,11 @@ textarea {
 .theme-dark .board-search input { background: transparent; color: #eef2f8; }
 .theme-dark .board-search button { color: #94a3b8; }
 .theme-dark .board-search button:hover { background: #253247; color: #c7c1ff; }
+.theme-dark .column > header { border-color:#314055; }
+.theme-dark .order-card ul,
+.theme-dark .order-card li { border-color:#3a4960; }
+.theme-dark .order-card li b,
+.theme-dark .order-card h3 { color:#f1f5f9; }
 .theme-dark .order-card {
   border-color: #43536b;
   background: #26354a;
@@ -4832,7 +4865,7 @@ textarea {
 @media (min-width:601px) {
   .board { height:min(720px, calc(100dvh - 352px)); min-height:320px; align-items:stretch; overflow:hidden; }
   .column { display:flex; height:100%; min-height:0; flex-direction:column; overflow:hidden; }
-  .column .cards { min-height:0; flex:1; overflow-x:hidden; overflow-y:auto; padding-bottom:4px; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:transparent transparent; }
+  .column .cards { width:calc(100% + 4px); min-height:0; flex:1; overflow-x:hidden; overflow-y:auto; margin-right:-4px; padding:0 4px 4px 0; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:transparent transparent; }
   .column:hover .cards,
   .column .cards:focus-within { scrollbar-color:#a9b2c1 transparent; }
   .column .cards::-webkit-scrollbar { width:4px; }
@@ -4884,8 +4917,9 @@ textarea {
   .board-search { width:100%; min-height:40px; }
   .board { height:calc(100dvh - 266px - env(safe-area-inset-bottom)); min-height:300px; gap:10px; margin-inline:-2px; overflow-x:auto; overflow-y:hidden; padding:0 2px 4px; scroll-snap-type:x mandatory; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; touch-action:pan-x pan-y; }
   .column { min-width:calc(100vw - 24px); height:100%; min-height:0; display:flex; flex-direction:column; overflow:hidden; border-radius:13px; scroll-snap-align:start; }
-  .column .cards { min-height:0; flex:1; overflow-x:hidden; overflow-y:auto; padding-bottom:8px; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; touch-action:pan-x pan-y; }
-  .order-card { padding:13px; }
+  .column .cards { min-height:0; flex:1; overflow-x:hidden; overflow-y:auto; padding-bottom:8px; overscroll-behavior-y:contain; scrollbar-width:none; -webkit-overflow-scrolling:touch; touch-action:pan-x pan-y; }
+  .column .cards::-webkit-scrollbar { width:0; height:0; }
+  .order-card { padding:11px 11px 9px 13px; }
   .approval-forms-page { overflow:visible; border-radius:12px; }
   .approval-forms-page > header { min-width:0; padding:12px; }
   .approval-forms-page > header > span { display:none; }

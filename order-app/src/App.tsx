@@ -2645,7 +2645,7 @@ function BoardColumn({
   const meta = statusMeta[status];
   const text = copy[language];
   return (
-    <section className="column">
+    <section className={`column column-${status}`}>
       <header>
         <span className={`status-dot ${meta.tone}`} />
         <h2>{text[status]}</h2>
