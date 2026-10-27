@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Moon, NotepadText, Pencil, Printer, ScanText, Scissors, Search, Settings2, Share2, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
+import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Moon, NotepadText, Pencil, Plus, Printer, ScanText, Scissors, Search, Settings2, Share2, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -4072,16 +4072,17 @@ function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onA
   const representativeName = (order.approvalForm?.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
   const sessionName = session.name.trim().toLocaleLowerCase("tr");
   const isOwner = workflowRole(session.role) === "owner";
+  const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy.trim().toLocaleLowerCase("tr") === sessionName;
+  const isAssignedRepresentative = order.approvalForm?.salesRepresentativeUserId
+    ? order.approvalForm.salesRepresentativeUserId === session.id
+    : representativeName === sessionName;
   const canEdit = isOwner || Boolean(session.permissions?.includes("order_forms.edit"));
   const canApprove = allowApproval && (isOwner || (
     (Boolean(session.permissions?.includes("order_forms.approve")) ||
-      (Boolean(session.permissions?.includes("orders.approve")) &&
-        (order.createdByUserId === session.id || order.createdBy === session.name))) &&
+      ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") &&
+        ownsOrder)) &&
     (Boolean(session.permissions?.includes("order_forms.view_all")) ||
-      order.createdByUserId === session.id ||
-      (!order.createdByUserId && order.createdBy === session.name) ||
-      order.approvalForm?.salesRepresentativeUserId === session.id ||
-      (!order.approvalForm?.salesRepresentativeUserId && representativeName === sessionName))
+      ownsOrder || isAssignedRepresentative)
   ));
 
   useEffect(() => {
@@ -7073,6 +7074,14 @@ function OrderDetail({
         ) : order.note ? (
           <div className="customer-note">{order.note}</div>
         ) : null}
+        {editing && <>
+          <datalist id={`order-product-codes-${order.id}`}>
+            {products.map((product) => <option key={product.id} value={product.code || product.sku || ""}>{product.name}</option>)}
+          </datalist>
+          <datalist id={`order-product-names-${order.id}`}>
+            {products.map((product) => <option key={product.id} value={product.name}>{product.code || product.sku || ""}</option>)}
+          </datalist>
+        </>}
         {(order.attachments || []).some(
           (attachment) => !attachment.deletedAt,
         ) && (
@@ -7165,35 +7174,47 @@ function OrderDetail({
                 </div>
                 {editing ? (
                   <div className="owner-line-edit">
-                    <select
-                      value={item.productId ?? ""}
+                    <label className="order-product-lookup">
+                      <span>Ürün kodu</span>
+                      <input
+                      list={`order-product-codes-${order.id}`}
+                      value={item.productCode || ""}
+                      placeholder="Kod yazın"
                       onChange={(event) => {
+                        const value = event.target.value;
                         const product = products.find(
-                          (candidate) =>
-                            candidate.id === Number(event.target.value),
+                          (candidate) => String(candidate.code || candidate.sku || "").toLocaleLowerCase("tr") === value.trim().toLocaleLowerCase("tr"),
                         );
-                        if (!product) return;
                         setItems((current) =>
                           current.map((row, rowIndex) =>
                             rowIndex === index
-                              ? {
+                              ? product ? {
                                   ...row,
                                   productId: product.id,
                                   productName: product.name,
-                                  productCode:
-                                    product.code || product.sku || "",
-                                }
+                                  productCode: product.code || product.sku || "",
+                                } : { ...row, productId: null, productCode: value }
                               : row,
                           ),
                         );
                       }}
-                    >
-                      {products.map((product) => (
-                        <option key={product.id} value={product.id}>
-                          {product.code || product.sku} · {product.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
+                    </label>
+                    <label className="order-product-lookup">
+                      <span>Ürün adı</span>
+                      <input
+                        list={`order-product-names-${order.id}`}
+                        value={item.productName || ""}
+                        placeholder="Ürün adı yazın"
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          const product = products.find((candidate) => candidate.name.toLocaleLowerCase("tr") === value.trim().toLocaleLowerCase("tr"));
+                          setItems((current) => current.map((row, rowIndex) => rowIndex === index
+                            ? product ? { ...row, productId: product.id, productName: product.name, productCode: product.code || product.sku || "" } : { ...row, productId: null, productName: value }
+                            : row));
+                        }}
+                      />
+                    </label>
                     <input
                       type="number"
                       min="0.01"
@@ -7419,6 +7440,12 @@ function OrderDetail({
               </div>
             );
           })}
+          {editing && <button type="button" className="add-order-line" onClick={() => {
+            setItems((current) => [...current, {
+              source: "Manuel eklenen satır", productId: null, productCode: "", productName: "", quantity: 1,
+              preparedQuantity: null, preparedRollCount: null, confidence: 1, needsReview: false, alternatives: [],
+            }]);
+          }}><Plus aria-hidden="true" /><span>Ürün satırı ekle</span></button>}
         </div>}
         {order.status === "delivered" && (
           <section className="unprepared-products">
@@ -8472,16 +8499,15 @@ function ApprovalFormEditor({
   }));
   const normalizedSessionName = session.name.trim().toLocaleLowerCase("tr");
   const normalizedRepresentative = (form.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
+  const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy.trim().toLocaleLowerCase("tr") === normalizedSessionName;
+  const isAssignedRepresentative = form.salesRepresentativeUserId ? form.salesRepresentativeUserId === session.id : normalizedRepresentative === normalizedSessionName;
   const canApprove = allowApproval && (
     workflowRole(session.role) === "owner" ||
     ((Boolean(session.permissions?.includes("order_forms.approve")) ||
-      (Boolean(session.permissions?.includes("orders.approve")) &&
-        (order.createdByUserId === session.id || order.createdBy === session.name))) &&
+      ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") &&
+        ownsOrder)) &&
       (Boolean(session.permissions?.includes("order_forms.view_all")) ||
-        order.createdByUserId === session.id ||
-        (!order.createdByUserId && order.createdBy === session.name) ||
-        form.salesRepresentativeUserId === session.id ||
-        (!form.salesRepresentativeUserId && normalizedRepresentative === normalizedSessionName))));
+        ownsOrder || isAssignedRepresentative)));
   const rejectForm = async () => {
     const reason = window.prompt("Ret sebebini yazın:", "");
     if (reason === null) return;

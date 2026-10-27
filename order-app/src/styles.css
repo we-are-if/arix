@@ -1902,6 +1902,13 @@ textarea {
 .owner-line-edit select {
   min-width: 0;
 }
+.order-product-lookup { display:grid; gap:4px; }
+.order-product-lookup > span { color:#6b778d; font-size:10px; font-weight:700; }
+.add-order-line { display:flex; width:100%; min-height:44px; align-items:center; justify-content:center; gap:7px; border:1px dashed #b8b2ff; border-radius:7px; background:#f8f7ff; color:#5145e5; font-weight:800; cursor:pointer; }
+.add-order-line:hover { border-style:solid; background:#f0efff; }
+.add-order-line svg { width:17px; height:17px; }
+.theme-dark .order-product-lookup > span { color:#a9b5c8; }
+.theme-dark .add-order-line { border-color:#5d55a5; background:#211f42; color:#c4bfff; }
 .remove-order-line {
   display:inline-flex;
   align-items:center;
