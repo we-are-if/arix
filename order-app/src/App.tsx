@@ -8447,6 +8447,9 @@ function ApprovalFormEditor({
   const isCommercialInvoice = form.documentType === "commercial_invoice";
   const isPackingTask = packingMode && order.exportPackingRequired && isPackingList;
   const exportDocumentTitle = form.documentType === "commercial_invoice" ? "Commercial Invoice" : isPackingList ? "Packing List" : "Proforma Invoice";
+  const exportExtraChargeLabel = form.extraChargeLabel?.trim().toLocaleLowerCase("tr-TR") === "nakliye / ek ücret"
+    ? "Freight / additional charge"
+    : form.extraChargeLabel;
   const switchExportDocument = (documentType: "proforma" | "commercial_invoice" | "packing_list") => {
     if (form.documentType === documentType) return;
     setError("");
@@ -9204,7 +9207,7 @@ function ApprovalFormEditor({
             <label className="approval-compact-field">
               {isProforma ? "Additional charge label" : "Ek masraf adı"}
               <input
-                value={form.extraChargeLabel}
+                value={isProforma ? (exportExtraChargeLabel ?? "") : form.extraChargeLabel}
                 onChange={(event) =>
                   setForm({ ...form, extraChargeLabel: event.target.value })
                 }
@@ -9512,7 +9515,7 @@ function ApprovalFormEditor({
                 </b>
               </span>
               <span>
-                {isProforma ? (form.extraChargeLabel || "Additional charge") : "Ek masraf"}{" "}
+                {isProforma ? (exportExtraChargeLabel || "Additional charge") : "Ek masraf"}{" "}
                 <b>
                   <i>{dualMoney(form.extraCharge, form).primary}</i>
                   {!isProforma && <small>{dualMoney(form.extraCharge, form).local}</small>}
@@ -9584,8 +9587,8 @@ function ApprovalFormEditor({
               <div className="approval-note-box approval-note-box-bottom">
                 <ApprovalIcon kind="note" />
                 <span>
-                  <b>Ek not</b>
-                  <small>{form.note || "Bu sipariş için ek not bulunmuyor."}</small>
+                  <b>{isProforma ? "Additional note" : "Ek not"}</b>
+                  <small>{form.note || (isProforma ? "No additional note for this order." : "Bu sipariş için ek not bulunmuyor.")}</small>
                 </span>
               </div>
             </section>}
