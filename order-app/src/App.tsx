@@ -7272,7 +7272,8 @@ function OrderDetail({
                         }}
                       />
                     </label>
-                    <input
+                    <div className="order-amount-choice"><small>Metre veya rulo sayısından en az birini yazın</small><div>
+                    <label className="order-product-lookup"><span>Metre</span><input
                       type="number"
                       min="0"
                       step="0.01"
@@ -7287,8 +7288,8 @@ function OrderDetail({
                           ),
                         )
                       }
-                    />
-                    <input
+                    /></label>
+                    <label className="order-product-lookup"><span>Rulo sayısı</span><input
                       type="number"
                       min="0"
                       step="1"
@@ -7297,7 +7298,8 @@ function OrderDetail({
                       onChange={(event) => setItems((current) => current.map((row, rowIndex) => rowIndex === index
                         ? { ...row, orderedRollCount: event.target.value === "" ? undefined : Math.max(0, Math.trunc(Number(event.target.value) || 0)) }
                         : row))}
-                    />
+                    /></label>
+                    </div></div>
                     <input
                       value={item.lineNote ?? ""}
                       placeholder={ui.lineNote}

@@ -4182,7 +4182,11 @@ async function handleOrderBoard(req, res, url, parts) {
       const rollError = requiredPreparedRollError(order.items);
       if (rollError) return send(res, 400, { error: rollError });
     } else if (Array.isArray(body.items)) {
-      order.items = body.items;
+      order.items = body.items.map((item) => ({
+        ...item,
+        quantity: Number(item.quantity) > 0 ? Number(item.quantity) : null,
+        orderedRollCount: Number(item.orderedRollCount) > 0 ? Math.trunc(Number(item.orderedRollCount)) : undefined,
+      }));
     }
     if (nextStatus !== order.status) {
       order.status = nextStatus;

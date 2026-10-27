@@ -1904,6 +1904,11 @@ textarea {
 }
 .order-product-lookup { display:grid; gap:4px; }
 .order-product-lookup > span { color:#6b778d; font-size:10px; font-weight:700; }
+.order-amount-choice { display:grid; gap:5px; border:1px solid #e1e5ec; border-radius:7px; background:#f9fafc; padding:8px; }
+.order-amount-choice > small { color:#68758a; font-size:10px; font-weight:700; }
+.order-amount-choice > div { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.theme-dark .order-amount-choice { border-color:#364156; background:#171d2a; }
+.theme-dark .order-amount-choice > small { color:#b7c2d3; }
 .add-order-line { display:flex; width:100%; min-height:44px; align-items:center; justify-content:center; gap:7px; border:1px dashed #b8b2ff; border-radius:7px; background:#f8f7ff; color:#5145e5; font-weight:800; cursor:pointer; }
 .add-order-line:hover { border-style:solid; background:#f0efff; }
 .add-order-line svg { width:17px; height:17px; }
