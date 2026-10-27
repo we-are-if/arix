@@ -2963,7 +2963,7 @@ async function handleOrderBoard(req, res, url, parts) {
         return customerRepresentativeId ? customerRepresentativeId === actorId : Boolean(customerRepresentativeName && customerRepresentativeName === actorName);
       })
       .filter((order) => workflowRole !== "delivery" || order.status === "delivered" || (order.status === "ready" && (
-        order.despatchReady === true || (order.audit || []).some((entry) => entry.action === "partialDeliveryCreated")
+        order.despatchReady === true || order.hasPartialDelivery === true || (order.audit || []).some((entry) => entry.action === "partialDeliveryCreated")
       )))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return send(res, 200, { data: data.map((order) => orderWithPresence(order, req.authUser)) });
