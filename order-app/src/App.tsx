@@ -386,6 +386,10 @@ type Order = {
   audit?: OrderAudit[];
   deletedAt?: string;
   deletedBy?: string;
+  deletionReason?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancellationReason?: string;
   parentOrderId?: string;
   parentOrderNumber?: string;
   deliveryNote?: string;
@@ -1610,7 +1614,7 @@ export default function App() {
     if (sessionCan(session, "counterparties.view") || sessionCan(session, "counterparties.manage")) tasks.push(api<Customer[]>("/api/orders/customers").then(setCustomers)); else setCustomers([]);
     if (sessionCan(session, "company.view") || sessionCan(session, "company.manage")) tasks.push(api<AliasRule[]>("/api/orders/aliases").then(setAliases)); else setAliases([]);
     if (sessionCan(session, "orders.days.view") || sessionCan(session, "orders.days.manage")) tasks.push(api<OrderDay>("/api/orders/day").then(setOrderDay)); else setOrderDay(null);
-    if (sessionCan(session, "trash.manage")) tasks.push(api<Order[]>("/api/orders/trash").then(setDeletedOrders)); else setDeletedOrders([]);
+    if (sessionCan(session, "orders.view")) tasks.push(api<Order[]>("/api/orders/trash").then(setDeletedOrders)); else setDeletedOrders([]);
     if (sessionCan(session, "company.view") || sessionCan(session, "company.manage")) {
       tasks.push(api<{ printSettings?: CompanyPrintSettings }>("/api/company-settings").then((companyData) => {
         if (companyData.printSettings) setPrintSettings(companyData.printSettings);
@@ -2402,6 +2406,7 @@ export default function App() {
                 />
               ))}
             </section>
+            <InactiveOrdersPanel orders={deletedOrders} language={language} onOpen={(order) => { if (order.status === "cancelled") setActiveOrder(order); }} />
           </div>
         ) : pageTab === "forms" ? (
           <ApprovalFormsPage orders={approvalOrders} onOpen={(order) => {
@@ -2544,6 +2549,7 @@ export default function App() {
           onChanged={(next) => {
             setActiveOrder(next);
             void load();
+            if (next.status === "cancelled") void loadSupportingData();
             void loadNotifications();
           }}
           onShowApprovalPdf={(order) => {
@@ -2554,6 +2560,7 @@ export default function App() {
             localStorage.removeItem(`arix-order-open:${session.id}`);
             setActiveOrder(null);
             void load();
+            void loadSupportingData();
           }}
         />
       )}
@@ -2758,6 +2765,34 @@ function BoardColumn({
         )}
       </div>
     </section>
+  );
+}
+
+function InactiveOrdersPanel({ orders, language, onOpen }: { orders: Order[]; language: Language; onOpen: (order: Order) => void }) {
+  if (!orders.length) return null;
+  return (
+    <details className="inactive-orders-panel">
+      <summary>
+        <span><Trash2 aria-hidden="true" /><b>İptal ve silinenler</b></span>
+        <strong>{orders.length}</strong>
+      </summary>
+      <div className="inactive-orders-list">
+        {orders.map((order) => {
+          const deleted = Boolean(order.deletedAt);
+          const reason = deleted ? order.deletionReason : order.cancellationReason;
+          const actor = deleted ? order.deletedBy : order.cancelledBy;
+          const at = deleted ? order.deletedAt : order.cancelledAt || order.updatedAt;
+          return (
+            <button type="button" key={`${deleted ? "deleted" : "cancelled"}-${order.id}`} onClick={() => onOpen(order)} disabled={deleted}>
+              <span className={`inactive-order-kind ${deleted ? "deleted" : "cancelled"}`}>{deleted ? "Silindi" : "İptal edildi"}</span>
+              <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün</small></span>
+              <span className="inactive-order-reason">{reason || "Sebep kaydedilmemiş"}</span>
+              <small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language)}` : ""}</small>
+            </button>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 
@@ -5903,6 +5938,7 @@ function SettingsModal({
                       ["order_preparing_started", "Sipariş hazırlanmaya başladı"],
                       ["order_status_returned", "Sipariş düzenleme için geri gönderildi"],
                       ["order_ready", "Sipariş hazırlandı"],
+                      ["order_cancelled", "Sipariş iptal edildi"],
                       ["approval_form_prepared", "Sipariş formu hazırlandı"],
                       ["approval_form_edited", "Sipariş formu düzenlendi"],
                       ["approval_form_preparing_started", "Form hazırlanmaya başladı"],
@@ -6356,6 +6392,7 @@ function OrderDetail({
   const [rollbackTarget, setRollbackTarget] = useState<Status | null>(null);
   const [rollbackReason, setRollbackReason] = useState("");
   const [editing, setEditing] = useState(false);
+  const [preparationEditing, setPreparationEditing] = useState(false);
   const [correctingPrepared, setCorrectingPrepared] = useState(false);
   const [preparedCorrectionReason, setPreparedCorrectionReason] = useState("");
   const [activeEditors, setActiveEditors] = useState(order.activeEditors ?? []);
@@ -6397,7 +6434,8 @@ function OrderDetail({
     workflowRole === "owner" || Boolean(session.permissions?.includes("orders.despatch"));
   const canViewAudit = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.audit.view"));
   const canEditOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.edit"));
-  const canDeleteOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.delete"));
+  const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy === session.name;
+  const canDeleteOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.delete")) || ownsOrder;
   const canLockOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.lock"));
   const toggleOrderLock = async () => {
     const locking = !order.lockedAt;
@@ -6683,6 +6721,7 @@ function OrderDetail({
           status,
           ...(status !== "delivered" ? { items } : {}),
           ...(reason.trim() ? { rollbackReason: reason.trim() } : {}),
+          ...(status === "cancelled" ? { cancellationReason: reason.trim() } : {}),
           ...(status === "delivered" ? { deliveryNote } : {}),
         }),
       });
@@ -6755,16 +6794,23 @@ function OrderDetail({
   };
 
   const deleteOrder = async () => {
+    const reason = window.prompt(`${order.number} neden siliniyor?`, "")?.trim();
+    if (!reason) { setError("Silme sebebi zorunludur."); return; }
     if (!confirm(`${order.number} silinsin?`)) return;
     setBusy(true);
     setError("");
     try {
-      await api(`/api/orders/${order.id}`, { method: "DELETE" });
+      await api(`/api/orders/${order.id}`, { method: "DELETE", body: JSON.stringify({ reason }) });
       onDeleted();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sifariş silinmədi.");
       setBusy(false);
     }
+  };
+  const cancelOrder = async () => {
+    const reason = window.prompt(`${order.number} neden iptal ediliyor?`, "")?.trim();
+    if (!reason) { setError("İptal sebebi zorunludur."); return; }
+    await changeStatus("cancelled", reason);
   };
 
   const updateDespatch = async (ready: boolean) => {
@@ -6996,7 +7042,9 @@ function OrderDetail({
                     <span>
                       {attachment.kind === "orderForm"
                         ? ui.orderForm
-                        : ui.despatchFile}
+                        : attachment.kind === "despatch"
+                          ? ui.despatchFile
+                          : ui.deliveryProof}
                     </span>
                     <b>{attachment.name}</b>
                     <small>
@@ -7147,7 +7195,7 @@ function OrderDetail({
                       <span>Satırı kaldır</span>
                     </button>
                   </div>
-                ) : (order.status === "preparing" && canPrepare) || (["ready", "delivered"].includes(order.status) && correctingPrepared) ? (
+                ) : (order.status === "preparing" && canPrepare && preparationEditing) || (["ready", "delivered"].includes(order.status) && correctingPrepared) ? (
                   <div className="prep-inputs prepared-quantity-fields">
                     <label className="actual">
                       <small>Hazırlanan mt</small>
@@ -7230,9 +7278,9 @@ function OrderDetail({
                       <strong>Stoktan {(Number(item.preparedQuantity || item.quantity || 0) + cutAllowanceTotal(item)).toLocaleString(language)} mt</strong>
                     </div>
                   </div>
-                ) : order.status === "ready" || order.status === "delivered" ? (
+                ) : ["preparing", "ready", "delivered"].includes(order.status) ? (
                   <div className="prepared-values">
-                    <b>{item.preparedQuantity} mt</b>
+                    <b>{Number(item.preparedQuantity ?? item.quantity).toLocaleString(language)} mt</b>
                     <span>
                       {item.preparedRollCount || "-"}{" "}
                       {ui.rollCount.toLowerCase()}
@@ -7931,6 +7979,11 @@ function OrderDetail({
               {ui.deleteOrder}
             </button>
           )}
+          {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
+            <button className="secondary cancel-order-action" disabled={busy} onClick={() => void cancelOrder()}>
+              İptal et
+            </button>
+          )}
           {order.status === "new" && canPrepare && (
             <button
               className="primary full"
@@ -7943,8 +7996,10 @@ function OrderDetail({
           {order.status === "preparing" && !order.exportPackingRequired && (canPrepare || canRollback) && (
             <>
               {canRollback && <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("new"); }}>{ui.back}</button>}
-              {canPrepare && <button className="secondary" disabled={busy} onClick={saveDraft}>{ui.saveDraft}</button>}
-              {canPrepare && <button className="primary" disabled={busy || items.every((item) => !(Number(item.preparedQuantity) > 0))} onClick={() => changeStatus("ready")}>{ui.done}</button>}
+              {canPrepare && !preparationEditing && <button className="primary" disabled={busy} onClick={() => setPreparationEditing(true)}>Hazırlamayı düzenle</button>}
+              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={() => { setItems(prepareItems(order)); setPreparationEditing(false); }}>Vazgeç</button>}
+              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={saveDraft}>{ui.saveDraft}</button>}
+              {canPrepare && preparationEditing && <button className="primary" disabled={busy || items.every((item) => !(Number(item.preparedQuantity) > 0))} onClick={() => changeStatus("ready")}>{ui.done}</button>}
             </>
           )}
           {order.status === "ready" && canRollback && !order.parentOrderId && (

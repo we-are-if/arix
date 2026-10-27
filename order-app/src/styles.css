@@ -3763,8 +3763,31 @@ textarea {
 .order-lock-notice small { color:#8d7438; }
 .order-lock-action { display:inline-flex; align-items:center; gap:7px; }
 .order-lock-action svg { width:16px; height:16px; }
+.cancel-order-action { border-color:#e8b6be !important; color:#b4233b !important; }
 .theme-dark .order-lock-badge, .theme-dark .order-lock-notice { border-color:#715c28; background:#292517; color:#f4d681; }
 .theme-dark .order-lock-badge span, .theme-dark .order-lock-notice small { color:#c7ad6e; }
+.inactive-orders-panel { overflow:hidden; border:1px solid #dfe4ec; border-radius:8px; background:#fff; }
+.inactive-orders-panel > summary { display:flex; min-height:48px; align-items:center; justify-content:space-between; gap:12px; padding:0 15px; color:#566278; cursor:pointer; list-style:none; }
+.inactive-orders-panel > summary::-webkit-details-marker { display:none; }
+.inactive-orders-panel > summary span { display:flex; align-items:center; gap:8px; }
+.inactive-orders-panel > summary svg { width:17px; height:17px; }
+.inactive-orders-panel > summary strong { display:grid; min-width:28px; height:28px; place-items:center; border:1px solid #dde3ec; border-radius:6px; background:#f7f9fc; color:#263148; font-size:12px; }
+.inactive-orders-list { display:grid; border-top:1px solid #e6eaf0; }
+.inactive-orders-list > button { display:grid; grid-template-columns:90px minmax(170px,.8fr) minmax(220px,1.4fr) auto; align-items:center; gap:12px; min-height:58px; border:0; border-bottom:1px solid #edf0f4; background:#fff; padding:9px 15px; color:#283248; text-align:left; cursor:pointer; }
+.inactive-orders-list > button:last-child { border-bottom:0; }
+.inactive-orders-list > button:hover:not(:disabled) { background:#fafbfe; }
+.inactive-orders-list > button:disabled { cursor:default; opacity:1; }
+.inactive-order-kind { width:max-content; border-radius:5px; padding:4px 7px; font-size:10px; font-weight:800; }
+.inactive-order-kind.deleted { background:#fff0f2; color:#bd3045; }
+.inactive-order-kind.cancelled { background:#fff7df; color:#916900; }
+.inactive-order-main { display:grid; gap:2px; }
+.inactive-order-main small, .inactive-orders-list > button > small { color:#8490a3; font-size:10px; }
+.inactive-order-reason { overflow:hidden; color:#59667a; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.theme-dark .inactive-orders-panel, .theme-dark .inactive-orders-list > button { border-color:#30394a; background:#171d2a; color:#edf1f8; }
+.theme-dark .inactive-orders-panel > summary, .theme-dark .inactive-order-reason { color:#b8c4d6; }
+.theme-dark .inactive-orders-panel > summary strong { border-color:#384359; background:#202838; color:#edf1f8; }
+.theme-dark .inactive-orders-list { border-color:#30394a; }
+.theme-dark .inactive-orders-list > button:hover:not(:disabled) { background:#202838; }
 .notification-popover-header {
   border-color: #e2e8f0;
   background: #ffffff;
@@ -4928,6 +4951,8 @@ textarea {
   }
   .notification-popover.is-dark { border-color:#334155 !important; background:#111827 !important; box-shadow:0 12px 28px rgba(0,0,0,.38) !important; }
   .mobile-hide-print { display:none !important; }
+  .inactive-orders-list > button { grid-template-columns:auto minmax(0,1fr); gap:6px 10px; padding:10px 12px; }
+  .inactive-order-reason, .inactive-orders-list > button > small { grid-column:1 / -1; white-space:normal; }
   .order-content { padding:10px 10px calc(92px + env(safe-area-inset-bottom)); }
   .page-head { align-items:center; gap:10px; padding:14px 2px 12px; }
   .page-head h1 { margin:2px 0; font-size:25px; }

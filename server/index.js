@@ -2438,12 +2438,18 @@ async function handleOrderBoard(req, res, url, parts) {
   }
 
   if (parts[1] === "trash") {
-    if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, "trash.manage")) return send(res, 403, { error: "Silinən sifarişləri idarə etmək üçün icazəniz yoxdur." });
     db.orderTrash ??= [];
     const trashId = String(parts[2] ?? "");
     if (req.method === "GET" && !trashId) {
-      return send(res, 200, { data: [...db.orderTrash].sort((left, right) => String(right.deletedAt).localeCompare(String(left.deletedAt))).map((order) => orderWithPresence(order, req.authUser)) });
+      const canManageTrash = normalizedRole(req.authUser?.role) === "sahib" || hasPermission(req.authUser, "trash.manage");
+      const actorId = String(req.authUser?.id || "");
+      const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
+      const maySee = (order) => canManageTrash || String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
+      const deleted = db.orderTrash.filter(maySee);
+      const cancelled = db.orderBoard.filter((order) => order.status === "cancelled" && maySee(order));
+      return send(res, 200, { data: [...deleted, ...cancelled].sort((left, right) => String(right.deletedAt || right.updatedAt).localeCompare(String(left.deletedAt || left.updatedAt))).map((order) => orderWithPresence(order, req.authUser)) });
     }
+    if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, "trash.manage")) return send(res, 403, { error: "Silinən sifarişləri idarə etmək üçün icazəniz yoxdur." });
     if (req.method === "POST" && trashId && parts[3] === "restore") {
       const index = db.orderTrash.findIndex((item) => String(item.id) === trashId);
       if (index < 0) return notFound(res);
@@ -4041,14 +4047,17 @@ async function handleOrderBoard(req, res, url, parts) {
       || (previousStatus === "ready" && nextStatus === "preparing");
     const rollbackReason = String(body.rollbackReason || "").trim().slice(0, 500);
     if (statusWasRolledBack && !rollbackReason) return send(res, 400, { error: "Geri gönderme nedeni zorunludur." });
+    const cancellationReason = String(body.cancellationReason || "").trim().slice(0, 500);
+    if (nextStatus === "cancelled" && !cancellationReason) return send(res, 400, { error: "İptal sebebi zorunludur." });
     const beforeEdit = structuredClone({ customerName: order.customerName, note: order.note, items: order.items || [] });
     const now = new Date().toISOString();
     const actor = req.authUser?.name ?? "Əməkdaş";
-    const allowed = { new: ["preparing", "cancelled"], preparing: ["ready", "new", "cancelled"], ready: ["delivered", "preparing"], delivered: [], cancelled: ["new"] };
+    const allowed = { new: ["preparing", "cancelled"], preparing: ["ready", "new", "cancelled"], ready: ["delivered", "preparing", "cancelled"], delivered: [], cancelled: ["new"] };
     if (order.parentOrderId && order.status === "ready" && nextStatus === "preparing") {
       return send(res, 409, { error: "Hazır partiya yenidən hazırlanmağa qaytarıla bilməz. Qalan məhsullar ana sifarişdə hazırlanır." });
     }
     const isOwner = normalizedRole(req.authUser?.role) === "sahib";
+    const isCreator = String(order.createdByUserId || "") === String(req.authUser?.id || "") || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === normalizeSalesRepresentativeName(req.authUser?.name || ""));
     const canEditOrder = isOwner || hasPermission(req.authUser, "orders.edit");
     if (nextStatus !== order.status) {
       const isRollback = (order.status === "preparing" && nextStatus === "new")
@@ -4059,7 +4068,7 @@ async function handleOrderBoard(req, res, url, parts) {
         || (nextStatus === "ready" && canPrepare)
         || (!isRollback && nextStatus === "new" && canPrepare)
         || (nextStatus === "delivered" && canDeliver)
-        || ((isOwner || hasPermission(req.authUser, "orders.delete")) && nextStatus === "cancelled");
+        || ((isOwner || hasPermission(req.authUser, "orders.delete") || isCreator) && nextStatus === "cancelled");
       if (!roleAllowed) return send(res, 403, { error: "Bu əməliyyat hesabınızın roluna icazə verilmir." });
       if (nextStatus === "delivered" && order.despatchReady !== true) return send(res, 409, { error: "Təhvil üçün əvvəlcə irsaliye hazır olmalıdır." });
     }
@@ -4106,7 +4115,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (nextStatus !== order.status) {
       order.status = nextStatus;
       order.history ??= [];
-      order.history.push({ status: nextStatus, at: now, by: actor });
+      order.history.push({ status: nextStatus, at: now, by: actor, ...(nextStatus === "cancelled" ? { reason: cancellationReason } : {}) });
       if (nextStatus === "preparing") order.preparedBy = actor;
       if (nextStatus === "ready") order.readyAt = now;
       if (previousStatus === "ready" && nextStatus === "preparing") {
@@ -4194,6 +4203,12 @@ async function handleOrderBoard(req, res, url, parts) {
           });
         }
       }
+      if (nextStatus === "cancelled") {
+        order.cancelledAt = now;
+        order.cancelledBy = actor;
+        order.cancellationReason = cancellationReason;
+        await notifyUsers(db, order, orderActivityRecipients(db, order), "order_cancelled", "Sipariş iptal edildi", `${actor} tarafından iptal edildi · ${order.number} · Sebep: ${cancellationReason}`, req.authUser);
+      }
       if (nextStatus === "ready") {
         await notifyUsers(db, order, orderActivityRecipients(db, order), "order_ready", "Sipariş hazırlandı", `${actor} tarafından hazırlandı · ${order.number} · ${order.customerName}`, req.authUser);
       }
@@ -4218,7 +4233,7 @@ async function handleOrderBoard(req, res, url, parts) {
     }
     order.audit ??= [];
     if (previousStatus !== nextStatus) {
-      order.audit.push({ id: randomUUID(), action: "status", oldValue: previousStatus, newValue: nextStatus, ...(statusWasRolledBack ? { reason: rollbackReason } : {}), by: actor, userId: req.authUser?.id, at: now });
+      order.audit.push({ id: randomUUID(), action: "status", oldValue: previousStatus, newValue: nextStatus, ...(statusWasRolledBack ? { reason: rollbackReason } : {}), ...(nextStatus === "cancelled" ? { reason: cancellationReason } : {}), by: actor, userId: req.authUser?.id, at: now });
     }
     if (orderEdited) {
       const reason = String(body.editReason || "Düzenleme nedeni belirtilmedi").trim().slice(0, 300);
@@ -4258,10 +4273,14 @@ async function handleOrderBoard(req, res, url, parts) {
   }
 
   if (req.method === "DELETE" && id) {
-    if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, "orders.delete")) return send(res, 403, { error: "Sifarişi silmək icazəniz yoxdur." });
     const index = db.orderBoard.findIndex((item) => String(item.id) === id);
     if (index < 0) return notFound(res);
     const deletingOrder = db.orderBoard[index];
+    const isCreator = String(deletingOrder.createdByUserId || "") === String(req.authUser?.id || "") || (!deletingOrder.createdByUserId && normalizeSalesRepresentativeName(deletingOrder.createdBy || "") === normalizeSalesRepresentativeName(req.authUser?.name || ""));
+    if (normalizedRole(req.authUser?.role) !== "sahib" && !hasPermission(req.authUser, "orders.delete") && !isCreator) return send(res, 403, { error: "Yalnız öz siparişinizi silebilirsiniz." });
+    const body = await parseBody(req);
+    const deletionReason = String(body.reason || "").trim().slice(0, 500);
+    if (!deletionReason) return send(res, 400, { error: "Silme sebebi zorunludur." });
     const hasPartialDelivery = db.orderBoard.some((item) => String(item.parentOrderId || "") === String(deletingOrder.id));
     const hasRemainingQuantity = (deletingOrder.items || []).some((item) => Number(item.quantity) > 0);
     const forceDelete = normalizedRole(req.authUser?.role) === "sahib" && url.searchParams.get("force") === "1";
@@ -4272,8 +4291,9 @@ async function handleOrderBoard(req, res, url, parts) {
     const [order] = db.orderBoard.splice(index, 1);
     order.deletedAt = new Date().toISOString();
     order.deletedBy = req.authUser?.name ?? "Sahib";
+    order.deletionReason = deletionReason;
     order.audit ??= [];
-    order.audit.push({ id: randomUUID(), action: "deleted", by: order.deletedBy, userId: req.authUser?.id, at: order.deletedAt });
+    order.audit.push({ id: randomUUID(), action: "deleted", reason: deletionReason, by: order.deletedBy, userId: req.authUser?.id, at: order.deletedAt });
     db.orderTrash.push(order);
     orderEditorPresence.delete(String(id));
     await writeDb(db);
@@ -7137,7 +7157,7 @@ async function handleApiRequest(req, res) {
         else if (resource === "approval-forms") required = ["order_forms.view"];
         else if (action === "approval-form") required = ["order_forms.view"];
         else if (resource === "day") required = ["orders.days.view", "orders.days.manage"];
-        else if (resource === "trash") required = ["trash.manage"];
+        else if (resource === "trash") required = ["orders.view", "trash.manage"];
         else if (resource === "stock-movements") required = ["products.view", "orders.audit.view"];
         else if (resource === "stock-documents") required = ["products.view", "products.manage"];
         else if (resource === "attachments") required = ["documents.view", "orders.deliver"];
@@ -7161,7 +7181,7 @@ async function handleApiRequest(req, res) {
       else if (action === "draft" || action === "partial-ready") required = ["orders.prepare"];
       else if (action === "despatch") required = ["orders.despatch"];
       else if (action === "presence") required = ["orders.view"];
-      else if (req.method === "DELETE") required = ["orders.delete"];
+      else if (req.method === "DELETE") required = ["orders.delete", "orders.create", "orders.view"];
       else if (req.method === "PATCH") required = ["orders.edit", "orders.prepare", "orders.rollback", "orders.deliver", "orders.delete"];
       const warehouseOrderAccess = orderWorkflowRole(authUser) === "warehouse" && (
         action === "draft" || action === "partial-ready" || action === "approval-form" || req.method === "PATCH"
