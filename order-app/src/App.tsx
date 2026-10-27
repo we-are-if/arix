@@ -9104,10 +9104,10 @@ function ApprovalFormEditor({
                     <label><span>Net kg</span><input type="number" min="0" step="0.01" value={line.netWeight || ""} onChange={(event) => updateLine(index, { netWeight: Number(event.target.value) })} /></label>
                     <label><span>Gross kg</span><input type="number" min="0" step="0.01" value={line.grossWeight || ""} onChange={(event) => updateLine(index, { grossWeight: Number(event.target.value) })} /></label>
                   </div>}
-                  {isPackingList ? <div className="approval-packing-fields"><small>Product weights are calculated from the pallet total by meter ratio.</small></div> : <label className="approval-price-pair">
-                    <span>{isProforma && line.manual ? "Unit price" : "En (m) / Birim fiyat (m²)"}</span>
-                    <span>
-                      {!(isProforma && line.manual && line.unit !== "M2") && <input
+                  {isPackingList ? <div className="approval-packing-fields"><small>Product weights are calculated from the pallet total by meter ratio.</small></div> : <div className="approval-price-pair">
+                    {!(isProforma && line.manual && line.unit !== "M2") && <label>
+                      <span>En (m)</span>
+                      <input
                         aria-label="Ürün eni"
                         type="number"
                         min="0.01"
@@ -9119,7 +9119,10 @@ function ApprovalFormEditor({
                             width: Number(event.target.value),
                           })
                         }
-                      />}
+                      />
+                    </label>}
+                    <label className="approval-unit-price">
+                      <span>{isProforma && line.manual ? "Unit price" : "Birim fiyat (m²)"}</span>
                       <input
                         aria-label="m² fiyatı"
                         type="number"
@@ -9139,8 +9142,8 @@ function ApprovalFormEditor({
                           ? `${formatMoney(line.unitPrice, "TRY")} / m²`
                           : `${formatMoney(line.unitPrice, form.currency)} × ${Number(form.exchangeRate || 0).toLocaleString("tr-TR", { maximumFractionDigits: 4 })} = ${formatMoney(line.unitPrice * (Number(form.exchangeRate) || 0), "TRY")} / m²`}
                       </small>}
-                    </span>
-                  </label>}
+                    </label>
+                  </div>}
                   {!isPackingList && <label>
                     <span>İskonto %</span>
                     <input
