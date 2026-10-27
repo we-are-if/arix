@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Moon, NotepadText, Pencil, Printer, ScanText, Scissors, Settings2, Share2, Sun, Trash2, Truck, UserRound } from "lucide-react";
+import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Moon, NotepadText, Pencil, Printer, ScanText, Scissors, Search, Settings2, Share2, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -1498,6 +1498,7 @@ export default function App() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [boardSearch, setBoardSearch] = useState("");
   const [pageTab, setPageTab] = useState<"board" | "forms" | "days" | "stock">(() => {
     const saved = localStorage.getItem("arix-order-page-tab");
     return ["board", "forms", "days", "stock"].includes(saved || "") ? saved as "board" | "forms" | "days" | "stock" : "board";
@@ -1781,11 +1782,15 @@ export default function App() {
 
   const grouped = useMemo(
     () => {
+      const query = boardSearch.trim().toLocaleLowerCase("tr-TR");
+      const boardOrders = query
+        ? orders.filter((order) => order.customerName.toLocaleLowerCase("tr-TR").includes(query))
+        : orders;
       return {
-        new: orders.filter((order) => order.status === "new"),
-        preparing: orders.filter((order) => order.status === "preparing"),
-        ready: orders.filter((order) => order.status === "ready"),
-        delivered: orders.filter((order) => {
+        new: boardOrders.filter((order) => order.status === "new"),
+        preparing: boardOrders.filter((order) => order.status === "preparing"),
+        ready: boardOrders.filter((order) => order.status === "ready"),
+        delivered: boardOrders.filter((order) => {
           if (order.status !== "delivered") return false;
           const deliveredDate = String(order.deliveredAt || "").slice(0, 10);
           return !orderDay?.date
@@ -1794,7 +1799,7 @@ export default function App() {
         }),
       };
     },
-    [orders, orderDay?.date],
+    [orders, orderDay?.date, boardSearch],
   );
   const deliveredByDay = useMemo(() => {
     const groups = new Map<string, Order[]>();
@@ -2357,21 +2362,38 @@ export default function App() {
           </div>
         )}
         {initialDataLoading && !orders.length ? null : pageTab === "board" ? (
-          <section className="board">
-            {visibleBoardStatuses.map((status) => (
-              <BoardColumn
-                key={status}
-                status={status}
-                orders={grouped[status]}
-                onOpen={setActiveOrder}
-                language={language}
-                onMerge={status === "ready" && canMergeReady && mergeReadyGroups.length ? (group) => {
-                  setMergeReadySelection(group);
-                  setMergeReadyCheckedIds([]);
-                } : undefined}
+          <div className="board-view">
+            <label className="board-search">
+              <Search aria-hidden="true" />
+              <input
+                type="search"
+                value={boardSearch}
+                onChange={(event) => setBoardSearch(event.target.value)}
+                placeholder="Müşteri adıyla ara"
+                aria-label="Müşteri adıyla sipariş ara"
               />
-            ))}
-          </section>
+              {boardSearch && (
+                <button type="button" onClick={() => setBoardSearch("")} aria-label="Aramayı temizle">
+                  <X aria-hidden="true" />
+                </button>
+              )}
+            </label>
+            <section className="board">
+              {visibleBoardStatuses.map((status) => (
+                <BoardColumn
+                  key={status}
+                  status={status}
+                  orders={grouped[status]}
+                  onOpen={setActiveOrder}
+                  language={language}
+                  onMerge={status === "ready" && canMergeReady && mergeReadyGroups.length ? (group) => {
+                    setMergeReadySelection(group);
+                    setMergeReadyCheckedIds([]);
+                  } : undefined}
+                />
+              ))}
+            </section>
+          </div>
         ) : pageTab === "forms" ? (
           <ApprovalFormsPage orders={approvalOrders} onOpen={(order) => {
             setApprovalEntrySource("forms");
