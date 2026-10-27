@@ -981,6 +981,7 @@ const PERMISSION_CATALOG = [
   { key: "orders.create", group: "orders", action: "create" },
   { key: "orders.approve", group: "orders", action: "approve" },
   { key: "orders.edit", group: "orders", action: "edit" },
+  { key: "orders.lock", group: "orders", action: "lock" },
   { key: "orders.prepare", group: "orders", action: "prepare" },
   { key: "orders.merge_ready", group: "orders", action: "merge_ready" },
   { key: "orders.rollback", group: "orders", action: "rollback" },
@@ -1017,7 +1018,7 @@ const ROLE_PERMISSIONS = {
   "admin": ALL_PERMISSIONS,
   "administrator": ALL_PERMISSIONS,
   "rəhbər": ALL_PERMISSIONS,
-  "satış rəhbəri": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.create", "orders.edit", "orders.merge_ready", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.view_all", "order_forms.edit", "order_forms.approve", "money.view", "counterparties.view", "counterparties.manage", "reports.view"],
+  "satış rəhbəri": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.create", "orders.edit", "orders.lock", "orders.merge_ready", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.view_all", "order_forms.edit", "order_forms.approve", "money.view", "counterparties.view", "counterparties.manage", "reports.view"],
   "satış": ["dashboard.view", "products.view", "orders.view", "orders.create", "orders.approve", "orders.edit", "orders.merge_ready", "orders.despatch", "documents.view", "documents.create", "documents.edit", "order_forms.view", "order_forms.edit", "counterparties.view", "counterparties.manage", "reports.view"],
   "anbar əməliyyatları": ["dashboard.view", "products.view", "products.manage", "orders.view", "orders.view_all", "orders.edit", "orders.prepare", "orders.merge_ready", "documents.view", "documents.create", "documents.edit", "reports.view"],
   "təhvilat": ["dashboard.view", "products.view", "orders.view", "orders.view_all", "orders.deliver", "documents.view"],
@@ -3080,6 +3081,39 @@ async function handleOrderBoard(req, res, url, parts) {
     return send(res, 200, { data: orderWithPresence(order, req.authUser) });
   }
 
+  if (req.method === "PATCH" && id && parts[2] === "lock") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.lock")) return send(res, 403, { error: "Siparişi kilitleme yetkiniz yok." });
+    const body = await parseBody(req);
+    const locked = body.locked === true;
+    const now = new Date().toISOString();
+    const actor = req.authUser?.name || "Kullanıcı";
+    if (locked) {
+      order.lockedAt = now;
+      order.lockedBy = actor;
+      order.lockedByUserId = req.authUser?.id || "";
+      order.lockReason = String(body.reason || "").trim().slice(0, 300);
+    } else {
+      delete order.lockedAt;
+      delete order.lockedBy;
+      delete order.lockedByUserId;
+      delete order.lockReason;
+    }
+    order.updatedAt = now;
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: locked ? "orderLocked" : "orderUnlocked", newValue: locked ? order.lockReason : "", by: actor, userId: req.authUser?.id, at: now });
+    if (!order.isTest) await notifyUsers(db, order, orderActivityRecipients(db, order), locked ? "order_locked" : "order_unlocked", locked ? "Sipariş kilitlendi" : "Sipariş kilidi açıldı", `${actor} tarafından · ${order.number} · ${order.customerName}${locked && order.lockReason ? ` · ${order.lockReason}` : ""}`, req.authUser);
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
+  }
+
+  if (id && !["GET", "HEAD"].includes(req.method)) {
+    const lockedOrder = db.orderBoard.find((item) => String(item.id) === id);
+    const lockExempt = parts[2] === "lock" || parts[2] === "presence" || (parts[2] === "approval-form" && parts[3] === "presence");
+    if (lockedOrder?.lockedAt && !lockExempt) return send(res, 423, { error: `Bu sipariş ${lockedOrder.lockedBy || "bir kullanıcı"} tarafından kilitlendi. İşlem yapmak için önce kilidi açın.` });
+  }
+
   if (req.method === "POST" && id && parts[2] === "activity") {
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
@@ -3146,6 +3180,32 @@ async function handleOrderBoard(req, res, url, parts) {
     const body = await parseBody(req);
     touchOrderEditor(`approval-form:${id}`, req.authUser, body.active !== false);
     return send(res, 200, { data: { active: true } });
+  }
+
+  if (req.method === "POST" && id && parts[2] === "approval-form" && parts[3] === "reject") {
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (!order.approvalForm) return send(res, 409, { error: "Reddedilecek sipariş formu bulunamadı." });
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "order_forms.approve") && !hasPermission(req.authUser, "orders.approve")) return send(res, 403, { error: "Sipariş formunu reddetme yetkiniz yok." });
+    const body = await parseBody(req);
+    const reason = String(body.reason || "").trim().slice(0, 500);
+    if (!reason) return send(res, 400, { error: "Ret sebebi zorunludur." });
+    const now = new Date().toISOString();
+    const actor = req.authUser?.name || "Onaylayan";
+    order.approvalForm = { ...order.approvalForm, status: "rejected", rejectedAt: now, rejectedBy: actor, rejectionReason: reason, updatedAt: now, updatedBy: actor };
+    delete order.approvalForm.approvedAt;
+    delete order.approvalForm.approvedBy;
+    order.audit ??= [];
+    order.audit.push({ id: randomUUID(), action: "approvalFormRejected", newValue: reason, by: actor, userId: req.authUser?.id, at: now });
+    order.updatedAt = now;
+    if (!order.isTest) {
+      const preparerName = order.approvalForm.preparedBy || order.createdBy;
+      const preparer = db.authUsers.find((user) => normalizeSalesRepresentativeName(user.name) === normalizeSalesRepresentativeName(preparerName));
+      const recipients = [...new Map([...orderActivityRecipients(db, order), ...(preparer ? [preparer] : [])].map((user) => [String(user.id), user])).values()];
+      await notifyUsers(db, order, recipients, "approval_rejected", "Sipariş formu reddedildi", `${actor} tarafından · ${order.approvalForm.number} · Sebep: ${reason}`, req.authUser);
+    }
+    await writeDb(db);
+    return send(res, 200, { data: orderWithPresence(order, req.authUser) });
   }
 
   if (req.method === "PUT" && id && parts[2] === "approval-form") {
@@ -7096,6 +7156,7 @@ async function handleApiRequest(req, res) {
       else if (resource === "merge-ready") required = ["orders.merge_ready"];
       else if (action === "attachments") required = req.method === "POST" ? ["documents.create", "orders.deliver"] : ["documents.delete", "orders.deliver"];
       else if (action === "approval-form") required = ["order_forms.edit", "order_forms.approve", "orders.approve"];
+      else if (action === "lock") required = ["orders.lock"];
       else if (action === "delivery-photo") required = ["orders.deliver"];
       else if (action === "draft" || action === "partial-ready") required = ["orders.prepare"];
       else if (action === "despatch") required = ["orders.despatch"];

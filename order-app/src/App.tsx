@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Moon, NotepadText, Pencil, Printer, ScanText, Scissors, Search, Settings2, Share2, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
+import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Moon, NotepadText, Pencil, Printer, ScanText, Scissors, Search, Settings2, Share2, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -290,11 +291,14 @@ type ApprovalForm = {
   paymentTerms: string;
   deliveryTerms: string;
   note: string;
-  status: "draft" | "approved";
+  status: "draft" | "approved" | "rejected";
   preparedAt?: string;
   preparedBy?: string;
   approvedAt?: string;
   approvedBy?: string;
+  rejectedAt?: string;
+  rejectedBy?: string;
+  rejectionReason?: string;
   customerName?: string;
   customerContact?: string;
   customerAddress?: string;
@@ -410,6 +414,10 @@ type Order = {
   mergedIntoOrderNumber?: string;
   exportPackingRequired?: boolean;
   exportPackingStatus?: "pending" | "preparing" | "ready";
+  lockedAt?: string;
+  lockedBy?: string;
+  lockedByUserId?: string;
+  lockReason?: string;
 };
 
 type Status =
@@ -1482,7 +1490,7 @@ export default function App() {
   const [activeApprovalOrder, setActiveApprovalOrder] = useState<Order | null>(null);
   const [approvalPreviewOnly, setApprovalPreviewOnly] = useState(false);
   const [exportPreviewOrder, setExportPreviewOrder] = useState<Order | null>(null);
-  const [approvalEditorIntent, setApprovalEditorIntent] = useState<"view" | "edit" | "approve">("view");
+  const [approvalEditorIntent, setApprovalEditorIntent] = useState<"view" | "edit" | "approve" | "reject">("view");
   const [approvalEntrySource, setApprovalEntrySource] = useState<"forms" | "order">("order");
   const [pdfOrder, setPdfOrder] = useState<Order | null>(null);
   const [error, setError] = useState("");
@@ -2165,7 +2173,7 @@ export default function App() {
                   </span>
                 )}
               </button>
-              {notificationMenuOpen && (
+              {notificationMenuOpen && createPortal(
                 <div className={`notification-popover surface-popover absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border shadow-xl ${isDark ? "is-dark glass-panel-dark border-white/10" : "glass-panel border-white/70"}`}>
                   <div className="notification-popover-header flex items-center justify-between border-b px-4 py-3">
                     <span><strong className="block text-sm">Bildirimler</strong>{unreadNotificationCount > 0 && <button type="button" className="mt-1 text-[11px] font-semibold text-slate-500" onClick={() => void markAllNotificationsRead()}>Tümünü okundu yap</button>}</span>
@@ -2193,7 +2201,8 @@ export default function App() {
                       <div className="px-4 py-8 text-center text-sm text-slate-500">Henüz bildirim yok</div>
                     )}
                   </div>
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
 
@@ -2623,6 +2632,11 @@ export default function App() {
             setApprovalEditorIntent("approve");
             setActiveApprovalOrder(pdfOrder);
           }}
+          onReject={() => {
+            setPdfOrder(null);
+            setApprovalEditorIntent("reject");
+            setActiveApprovalOrder(pdfOrder);
+          }}
         />
       )}
     </main>
@@ -2676,6 +2690,11 @@ function BoardColumn({
                   })}
                 </time>
               </div>
+              {order.lockedAt && (
+                <div className="order-lock-badge" title={order.lockReason || "Sipariş değişikliklere karşı kilitlendi"}>
+                  <Lock aria-hidden="true" /><b>Kilitli</b><span>{order.lockedBy}</span>
+                </div>
+              )}
               {order.parentOrderNumber && (
                 <div className="parent-order-link">
                   {text.originalOrder}: <b>{order.parentOrderNumber}</b>
@@ -3928,9 +3947,9 @@ function ApprovalFormsPage({
                       <span>Göster</span>
                     </button>
                   ) : <span className="approval-form-pdf-missing">PDF yok</span>}
-                  <span className={`approval-form-state ${form.status}`} title={form.status === "approved" ? "Onaylandı" : "Onay bekliyor"}>
+                  <span className={`approval-form-state ${form.status}`} title={form.status === "approved" ? "Onaylandı" : form.status === "rejected" ? `Reddedildi: ${form.rejectionReason || "Sebep belirtilmedi"}` : "Onay bekliyor"}>
                     <i>{form.status === "approved" && <Check />}</i>
-                    <b>{form.status === "approved" ? "Onaylandı" : "Onay bekliyor"}</b>
+                    <b>{form.status === "approved" ? "Onaylandı" : form.status === "rejected" ? "Reddedildi" : "Onay bekliyor"}</b>
                   </span>
                   <button className="approval-form-open" type="button" onClick={() => onOpen(order)}>
                     <span><b>{form.number}</b><small>{order.number}</small></span>
@@ -3948,13 +3967,14 @@ function ApprovalFormsPage({
   );
 }
 
-function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onApprove }: {
+function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onApprove, onReject }: {
   order: Order;
   session: Session;
   allowApproval: boolean;
   onClose: () => void;
   onEdit: () => void;
   onApprove: () => void;
+  onReject: () => void;
 }) {
   const [pdfUrl, setPdfUrl] = useState("");
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
@@ -4113,8 +4133,9 @@ function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onA
         <div><b>{order.approvalForm?.number || order.number}</b><small>{filename}</small></div>
         <nav>
           {canEdit && <button type="button" onClick={onEdit}><Pencil aria-hidden="true" /><span>Düzenle</span></button>}
+          {canApprove && order.approvalForm?.status !== "approved" && <button type="button" className="approval-viewer-reject" onClick={onReject}><X aria-hidden="true" /><span>Reddet</span></button>}
           {canApprove && order.approvalForm?.status !== "approved" && <button type="button" className="approval-viewer-approve" onClick={onApprove}><Check aria-hidden="true" /><span>Onayla</span></button>}
-          <button type="button" disabled={!pdfRendered} onClick={() => void printPdf()}><Printer aria-hidden="true" /><span>Yazdır</span></button>
+          <button className="mobile-hide-print" type="button" disabled={!pdfRendered} onClick={() => void printPdf()}><Printer aria-hidden="true" /><span>Yazdır</span></button>
           <button type="button" disabled={!pdfBlob} onClick={() => void share()}>{nativeShare ? <Share2 aria-hidden="true" /> : <Download aria-hidden="true" />}<span>{nativeShare ? "Paylaş" : "İndir"}</span></button>
         </nav>
       </header>
@@ -4729,6 +4750,7 @@ function SettingsModal({
     "orders.create": "Sipariş oluştur",
     "orders.approve": "Kendi siparişini onayla",
     "orders.edit": "Sipariş düzenle",
+    "orders.lock": "Sipariş kilitle / kilidi aç",
     "orders.prepare": "Ürün hazırla, metre ve rulo gir",
     "orders.merge_ready": "Hazır siparişleri birleştir",
     "orders.rollback": "Siparişi önceki aşamaya geri gönder",
@@ -5866,6 +5888,14 @@ function SettingsModal({
                 <section className="order-permission-group notification-preferences">
                   <header><b>Bildirimler</b></header>
                   <div>
+                    <label>
+                      <input type="checkbox" checked={employee.notificationPreferences?.inApp !== false} onChange={(event) => void updateEmployeeRole(employee, { notificationPreferences: { inApp: event.target.checked, push: employee.notificationPreferences?.push !== false, events: employee.notificationPreferences?.events ?? {} } })} />
+                      <span>Uygulama içi bildirimler</span>
+                    </label>
+                    <label>
+                      <input type="checkbox" checked={employee.notificationPreferences?.push !== false} onChange={(event) => void updateEmployeeRole(employee, { notificationPreferences: { inApp: employee.notificationPreferences?.inApp !== false, push: event.target.checked, events: employee.notificationPreferences?.events ?? {} } })} />
+                      <span>Telefon / bilgisayar bildirimleri</span>
+                    </label>
                     {[
                       ["order_created", "Yeni sipariş"],
                       ["order_editing_started", "Sipariş düzenlenmeye başladı"],
@@ -5879,10 +5909,13 @@ function SettingsModal({
                       ["approval_form_editing_started", "Form düzenlenmeye başladı"],
                       ["approval_requested", "Onay bekleyen form"],
                       ["approval_completed", "Form onaylandı"],
+                      ["approval_rejected", "Form reddedildi"],
                       ["approval_form_archived", "Form PDF arşivlendi"],
                       ["despatch_ready", "İrsaliye hazırlandı, teslim edilebilir"],
                       ["order_delivered", "Sipariş teslim edildi"],
                       ["day_closed", "Gün kapanış özeti"],
+                      ["order_locked", "Sipariş kilitlendi"],
+                      ["order_unlocked", "Sipariş kilidi açıldı"],
                       ["announcement", "Yönetici duyuruları"],
                     ].map(([key, label]) => (
                       <label key={key}>
@@ -6365,6 +6398,21 @@ function OrderDetail({
   const canViewAudit = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.audit.view"));
   const canEditOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.edit"));
   const canDeleteOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.delete"));
+  const canLockOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.lock"));
+  const toggleOrderLock = async () => {
+    const locking = !order.lockedAt;
+    const reason = locking ? window.prompt("Kilitleme nedenini yazın (isteğe bağlı):", "Değişiklik bekleniyor") : "";
+    if (locking && reason === null) return;
+    setBusy(true);
+    setError("");
+    try {
+      const next = await api<Order>(`/api/orders/${order.id}/lock`, { method: "PATCH", body: JSON.stringify({ locked: locking, reason }) });
+      onChanged(next);
+      setNotice(locking ? "Sipariş kilitlendi." : "Sipariş kilidi açıldı.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kilit durumu değiştirilemedi.");
+    } finally { setBusy(false); }
+  };
 
   useEffect(() => {
     if (!["preparing", "ready"].includes(order.status)) {
@@ -7817,6 +7865,7 @@ function OrderDetail({
               </div>
             </details>
           )}
+        {order.lockedAt && <div className="order-lock-notice"><Lock aria-hidden="true" /><span><b>Sipariş kilitli</b><small>{order.lockedBy}{order.lockReason ? ` · ${order.lockReason}` : ""}</small></span></div>}
         {notice && <p className="form-success">{notice}</p>}
         {error && <p className="form-error">{error}</p>}
         {correctingPrepared && (
@@ -7833,6 +7882,12 @@ function OrderDetail({
           </label>
         )}
         <div className="modal-actions">
+          {canLockOrder && (
+            <button className="secondary order-lock-action" disabled={busy} onClick={() => void toggleOrderLock()}>
+              {order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}
+              {order.lockedAt ? "Kilidi aç" : "Kilitle"}
+            </button>
+          )}
           {canEditOrder && !editing && !correctingPrepared && (
             <button
               className="secondary"
@@ -7984,7 +8039,7 @@ function ApprovalFormEditor({
   printSettings: CompanyPrintSettings;
   session: Session;
   language: Language;
-  initialAction?: "view" | "edit" | "approve";
+  initialAction?: "view" | "edit" | "approve" | "reject";
   allowApproval?: boolean;
   previewOnly?: boolean;
   packingMode?: boolean;
@@ -8330,6 +8385,23 @@ function ApprovalFormEditor({
         (!order.createdByUserId && order.createdBy === session.name) ||
         form.salesRepresentativeUserId === session.id ||
         (!form.salesRepresentativeUserId && normalizedRepresentative === normalizedSessionName))));
+  const rejectForm = async () => {
+    const reason = window.prompt("Ret sebebini yazın:", "");
+    if (reason === null) return;
+    if (!reason.trim()) { setError("Ret sebebi zorunludur."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const next = await api<Order>(`/api/orders/${order.id}/approval-form/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      onSaved(next);
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Sipariş formu reddedilemedi.");
+    } finally { setBusy(false); }
+  };
   const save = async (status: ApprovalForm["status"]) => {
     setBusy(true);
     setError("");
@@ -8387,6 +8459,11 @@ function ApprovalFormEditor({
     if (initialAction !== "approve" || !canApprove || form.status === "approved" || automaticApprovalStarted.current) return;
     automaticApprovalStarted.current = true;
     void save("approved");
+  }, [initialAction, canApprove, form.status]);
+  useEffect(() => {
+    if (initialAction !== "reject" || !canApprove || form.status === "approved" || automaticApprovalStarted.current) return;
+    automaticApprovalStarted.current = true;
+    void rejectForm();
   }, [initialAction, canApprove, form.status]);
   const openArchiveFolder = async () => {
     setError("");
@@ -9319,7 +9396,7 @@ function ApprovalFormEditor({
         </div>
       )}
       <div className="modal-actions">
-        <button className="secondary" onClick={() => void print()}>
+        <button className="secondary mobile-hide-print" onClick={() => void print()}>
           {labels.print}
         </button>
         {canEdit && !editing && (
@@ -9337,6 +9414,11 @@ function ApprovalFormEditor({
             onClick={() => void save("draft")}
           >
             {labels.save}
+          </button>
+        )}
+        {canApprove && (
+          <button className="danger-button" disabled={busy || form.status === "approved"} onClick={() => void rejectForm()}>
+            Reddet
           </button>
         )}
         {canApprove && (
@@ -9599,7 +9681,7 @@ function ApprovalFormEditor({
       </div>
       {error && <p className="form-error">{error}</p>}
       <div className="modal-actions">
-        <button className="secondary" onClick={print}>
+        <button className="secondary mobile-hide-print" onClick={print}>
           {labels.print}
         </button>
         <button
@@ -9609,6 +9691,11 @@ function ApprovalFormEditor({
         >
           {labels.save}
         </button>
+        {canApprove && (
+          <button className="danger-button" disabled={busy || form.status === "approved"} onClick={() => void rejectForm()}>
+            Reddet
+          </button>
+        )}
         {canApprove && (
           <button
             className="primary"
