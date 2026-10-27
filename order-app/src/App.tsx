@@ -4062,7 +4062,9 @@ function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onA
   const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy.trim().toLocaleLowerCase("tr") === sessionName;
   const isAssignedRepresentative = order.approvalForm?.salesRepresentativeUserId
     === session.id || Boolean(representativeName && representativeName === sessionName);
-  const canEdit = isOwner || Boolean(session.permissions?.includes("order_forms.edit"));
+  const canEditRejectedOwn = order.approvalForm?.status === "rejected" &&
+    workflowRole(session.role) === "sales" && (ownsOrder || isAssignedRepresentative);
+  const canEdit = isOwner || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn;
   const canApprove = allowApproval && (isOwner ||
     Boolean(session.permissions?.includes("order_forms.approve")) ||
     ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") && (ownsOrder || isAssignedRepresentative)));
@@ -4832,7 +4834,7 @@ function SettingsModal({
     "documents.delete": "Belgeleri sil",
     "order_forms.view": "Sipariş formlarını gör",
     "order_forms.view_all": "Tüm temsilcilerin formlarını gör",
-    "order_forms.edit": "Sipariş formunu düzenle: fiyat, KDV, iskonto ve koşullar",
+    "order_forms.edit": "Sipariş formu düzenle",
     "order_forms.approve": "Sipariş formunu onayla ve PDF'yi arşivle",
     "money.view": "Finansı gör",
     "money.manage": "Finansı yönet",
@@ -8403,7 +8405,10 @@ function ApprovalFormEditor({
   const [palletMoveQuantities, setPalletMoveQuantities] = useState<Record<string, number>>({});
   const [activePalletMoveKey, setActivePalletMoveKey] = useState("");
   const [packingStep, setPackingStep] = useState<1 | 2>(initial.palletAllocations?.length ? 2 : 1);
-  const canEdit = workflowRole(session.role) === "owner" || Boolean(session.permissions?.includes("order_forms.edit")) || (order.exportPackingRequired && (workflowRole(session.role) === "warehouse" || Boolean(session.permissions?.includes("orders.prepare"))));
+  const actorOwnsOrder = order.createdByUserId ? order.createdByUserId === session.id : representativeIdentity(order.createdBy) === representativeIdentity(session.name);
+  const actorIsAssignedRepresentative = order.approvalForm?.salesRepresentativeUserId === session.id || Boolean(representativeIdentity(order.approvalForm?.salesRepresentative) && representativeIdentity(order.approvalForm?.salesRepresentative) === representativeIdentity(session.name));
+  const canEditRejectedOwn = order.approvalForm?.status === "rejected" && workflowRole(session.role) === "sales" && (actorOwnsOrder || actorIsAssignedRepresentative);
+  const canEdit = workflowRole(session.role) === "owner" || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn || (order.exportPackingRequired && (workflowRole(session.role) === "warehouse" || Boolean(session.permissions?.includes("orders.prepare"))));
   const [editing, setEditing] = useState((packingMode && order.exportPackingRequired) || initialAction === "edit" || (!order.approvalForm && canEdit));
   const automaticApprovalStarted = useRef(false);
   const [ratePublicationDate, setRatePublicationDate] = useState("");

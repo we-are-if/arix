@@ -3275,7 +3275,7 @@ async function handleOrderBoard(req, res, url, parts) {
     let documentType = ["proforma", "commercial_invoice", "packing_list"].includes(String(body.documentType)) ? String(body.documentType) : "domestic";
     if (order.isExport && documentType === "domestic") documentType = "proforma";
     const canPrepareExportPacking = body.status !== "approved" && order.exportPackingRequired && documentType === "packing_list" && (workflowRole === "owner" || workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare"));
-    if (!canSell && !canPrepareExportPacking) return send(res, 403, { error: "Sifariş təsdiq formasını yalnız satış əməkdaşı hazırlaya bilər." });
+    if (!canSell && !canPrepareExportPacking && !(workflowRole === "sales" && order.approvalForm?.status === "rejected")) return send(res, 403, { error: "Sifariş təsdiq formasını yalnız satış əməkdaşı hazırlaya bilər." });
     if (!["ready", "delivered"].includes(order.status) && !order.isTest && !(order.exportPackingRequired && ["commercial_invoice", "packing_list"].includes(documentType))) {
       return send(res, 409, { error: "Təsdiq formu yalnız hazır sifariş üçün yaradıla bilər." });
     }
@@ -3287,7 +3287,8 @@ async function handleOrderBoard(req, res, url, parts) {
     const ownsOrder = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
     const isAssignedRepresentative = assignedUserId === actorId || Boolean(assignedName && actorName && assignedName === actorName);
     const canApproveOwnOrder = body.status === "approved" && (workflowRole === "sales" || hasPermission(req.authUser, "orders.approve")) && (ownsOrder || isAssignedRepresentative);
-    if (workflowRole !== "owner" && !canPrepareExportPacking && !canApproveOwnOrder && !hasPermission(req.authUser, body.status === "approved" ? "order_forms.approve" : "order_forms.edit")) {
+    const canEditRejectedOwn = order.approvalForm?.status === "rejected" && workflowRole === "sales" && (ownsOrder || isAssignedRepresentative);
+    if (workflowRole !== "owner" && !canPrepareExportPacking && !canApproveOwnOrder && !canEditRejectedOwn && !hasPermission(req.authUser, body.status === "approved" ? "order_forms.approve" : "order_forms.edit")) {
       return send(res, 403, { error: body.status === "approved" ? "Sifariş formasını təsdiqləmək icazəniz yoxdur." : "Sifariş formasını dəyişmək icazəniz yoxdur." });
     }
     if (body.status === "approved" && workflowRole !== "owner") {
