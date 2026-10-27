@@ -2855,11 +2855,9 @@ async function handleOrderBoard(req, res, url, parts) {
       })
       .filter((order) => {
         if (canViewAll) return true;
-        const ownsOrder = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
         const assignedId = String(order.approvalForm?.salesRepresentativeUserId || "");
         const assignedName = normalizeSalesRepresentativeName(order.approvalForm?.salesRepresentative || "");
-        const isAssigned = assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName);
-        return ownsOrder || isAssigned;
+        return assignedId === actorId || Boolean(assignedName && assignedName === actorName);
       })
       .sort((left, right) => String(right.approvalForm?.updatedAt || right.updatedAt || "").localeCompare(String(left.approvalForm?.updatedAt || left.updatedAt || "")));
     return send(res, 200, { data: data.map((order) => orderWithPresence(order, req.authUser)) });
@@ -3199,7 +3197,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const assignedUserId = String(order.approvalForm.salesRepresentativeUserId || "");
     const assignedName = normalizeSalesRepresentativeName(order.approvalForm.salesRepresentative || "");
     const ownsOrder = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
-    const isAssignedRepresentative = assignedUserId ? assignedUserId === actorId : Boolean(assignedName && actorName && assignedName === actorName);
+    const isAssignedRepresentative = assignedUserId === actorId || Boolean(assignedName && actorName && assignedName === actorName);
     const canRejectOwnOrder = (workflowRole === "sales" || hasPermission(req.authUser, "orders.approve")) && (ownsOrder || isAssignedRepresentative);
     if (workflowRole !== "owner" && !hasPermission(req.authUser, "order_forms.approve") && !canRejectOwnOrder) return send(res, 403, { error: "Sipariş formunu reddetme yetkiniz yok." });
     const body = await parseBody(req);
@@ -3241,7 +3239,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const assignedUserId = String(body.salesRepresentativeUserId || order.approvalForm?.salesRepresentativeUserId || "").trim();
     const assignedName = normalizeSalesRepresentativeName(body.salesRepresentative || order.approvalForm?.salesRepresentative || "");
     const ownsOrder = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
-    const isAssignedRepresentative = assignedUserId ? assignedUserId === actorId : Boolean(assignedName && actorName && assignedName === actorName);
+    const isAssignedRepresentative = assignedUserId === actorId || Boolean(assignedName && actorName && assignedName === actorName);
     const canApproveOwnOrder = body.status === "approved" && (workflowRole === "sales" || hasPermission(req.authUser, "orders.approve")) && (ownsOrder || isAssignedRepresentative);
     if (workflowRole !== "owner" && !canPrepareExportPacking && !canApproveOwnOrder && !hasPermission(req.authUser, body.status === "approved" ? "order_forms.approve" : "order_forms.edit")) {
       return send(res, 403, { error: body.status === "approved" ? "Sifariş formasını təsdiqləmək icazəniz yoxdur." : "Sifariş formasını dəyişmək icazəniz yoxdur." });
@@ -3397,7 +3395,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const archiveOwnsOrder = String(order.createdByUserId || "") === archiveActorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === archiveActorName);
     const archiveAssignedId = String(order.approvalForm.salesRepresentativeUserId || "");
     const archiveAssignedName = normalizeSalesRepresentativeName(order.approvalForm.salesRepresentative || "");
-    const archiveIsAssignedRepresentative = archiveAssignedId ? archiveAssignedId === archiveActorId : Boolean(archiveAssignedName && archiveAssignedName === archiveActorName);
+    const archiveIsAssignedRepresentative = archiveAssignedId === archiveActorId || Boolean(archiveAssignedName && archiveAssignedName === archiveActorName);
     const mayArchiveOwnApproval = archiveIsApproved && (workflowRole === "sales" || hasPermission(req.authUser, "orders.approve")) && (archiveOwnsOrder || archiveIsAssignedRepresentative);
     const mayPreparePackingArchive = !archiveIsApproved && order.exportPackingRequired && order.approvalForm.documentType === "packing_list" && (workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare"));
     const mayArchive = workflowRole === "owner" || mayArchiveOwnApproval || mayPreparePackingArchive || hasPermission(req.authUser, archiveIsApproved ? "order_forms.approve" : "order_forms.edit");

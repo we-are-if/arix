@@ -547,6 +547,13 @@ function workflowRole(role: string): WorkflowRole {
   return "viewer";
 }
 
+function representativeIdentity(value: string | undefined) {
+  const normalized = String(value || "").trim().toLocaleLowerCase("tr");
+  if (normalized.includes("mustafa")) return "mustafa";
+  if (normalized.includes("serkan")) return "serkan";
+  return normalized;
+}
+
 const languageOptions: Array<{ id: Language; short: string; label: string }> = [
   { id: "az", short: "AZ", label: "Azərbaycan" },
   { id: "tr", short: "TR", label: "Türkçe" },
@@ -4068,21 +4075,16 @@ function ApprovalPdfViewer({ order, session, allowApproval, onClose, onEdit, onA
   const nativeShare = Reflect.get(navigator, "share") as ((data: ShareData) => Promise<void>) | undefined;
   const nativeCanShare = Reflect.get(navigator, "canShare") as ((data: ShareData) => boolean) | undefined;
   const useNativeWindowsViewer = /Windows NT/i.test(navigator.userAgent);
-  const representativeName = (order.approvalForm?.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
-  const sessionName = session.name.trim().toLocaleLowerCase("tr");
+  const representativeName = representativeIdentity(order.approvalForm?.salesRepresentative);
+  const sessionName = representativeIdentity(session.name);
   const isOwner = workflowRole(session.role) === "owner";
   const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy.trim().toLocaleLowerCase("tr") === sessionName;
   const isAssignedRepresentative = order.approvalForm?.salesRepresentativeUserId
-    ? order.approvalForm.salesRepresentativeUserId === session.id
-    : representativeName === sessionName;
+    === session.id || Boolean(representativeName && representativeName === sessionName);
   const canEdit = isOwner || Boolean(session.permissions?.includes("order_forms.edit"));
-  const canApprove = allowApproval && (isOwner || (
-    (Boolean(session.permissions?.includes("order_forms.approve")) ||
-      ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") &&
-        ownsOrder)) &&
-    (Boolean(session.permissions?.includes("order_forms.view_all")) ||
-      ownsOrder || isAssignedRepresentative)
-  ));
+  const canApprove = allowApproval && (isOwner ||
+    Boolean(session.permissions?.includes("order_forms.approve")) ||
+    ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") && (ownsOrder || isAssignedRepresentative)));
 
   useEffect(() => {
     let objectUrl = "";
@@ -8596,17 +8598,14 @@ function ApprovalFormEditor({
     ...current,
     lines: current.lines.filter((_, lineIndex) => lineIndex !== index),
   }));
-  const normalizedSessionName = session.name.trim().toLocaleLowerCase("tr");
-  const normalizedRepresentative = (form.salesRepresentative ?? "").trim().toLocaleLowerCase("tr");
+  const normalizedSessionName = representativeIdentity(session.name);
+  const normalizedRepresentative = representativeIdentity(form.salesRepresentative);
   const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy.trim().toLocaleLowerCase("tr") === normalizedSessionName;
-  const isAssignedRepresentative = form.salesRepresentativeUserId ? form.salesRepresentativeUserId === session.id : normalizedRepresentative === normalizedSessionName;
+  const isAssignedRepresentative = form.salesRepresentativeUserId === session.id || Boolean(normalizedRepresentative && normalizedRepresentative === normalizedSessionName);
   const canApprove = allowApproval && (
     workflowRole(session.role) === "owner" ||
-    ((Boolean(session.permissions?.includes("order_forms.approve")) ||
-      ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") &&
-        ownsOrder)) &&
-      (Boolean(session.permissions?.includes("order_forms.view_all")) ||
-        ownsOrder || isAssignedRepresentative)));
+    Boolean(session.permissions?.includes("order_forms.approve")) ||
+    ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") && (ownsOrder || isAssignedRepresentative)));
   const rejectForm = async () => {
     const reason = window.prompt("Ret sebebini yazın:", "");
     if (reason === null) return;
