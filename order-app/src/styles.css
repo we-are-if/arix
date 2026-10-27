@@ -5145,8 +5145,13 @@ textarea {
 .theme-dark .loan-return-toggle.active { border-color:#34a87b; background:#153127; }
 .order-kind-badge.loan-return,
 .day-document-badge.loan-return { width:fit-content; border:1px solid #8bd8ba; border-radius:5px; background:#eaf9f2; padding:4px 8px; color:#08734d; font-size:11px; }
+.order-kind-badge.partial-delivery,
+.order-kind-badge.partial-remaining { width:fit-content; margin-top:5px; border:1px solid #b8b2ff; border-radius:5px; background:#f0efff; padding:4px 8px; color:#5145d8; font-size:11px; }
+.order-kind-badge.partial-remaining { border-color:#9ed7cb; background:#eaf8f5; color:#087766; }
 .theme-dark .order-kind-badge.loan-return,
 .theme-dark .day-document-badge.loan-return { border-color:#26785d; background:#12382c; color:#7ee2bd; }
+.theme-dark .order-kind-badge.partial-delivery { border-color:#4c438f; background:#28234d; color:#c3beff; }
+.theme-dark .order-kind-badge.partial-remaining { border-color:#245f58; background:#163631; color:#76ddd0; }
 @media (max-width:700px) {
   .order-type-toggles { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
   .order-type-toggles .test-order-toggle { gap:7px; padding:9px; }

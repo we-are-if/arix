@@ -393,6 +393,9 @@ type Order = {
   cancellationReason?: string;
   parentOrderId?: string;
   parentOrderNumber?: string;
+  partialDeliverySourceId?: string;
+  isPartialDelivery?: boolean;
+  hasPartialDelivery?: boolean;
   deliveryNote?: string;
   deliveryPhoto?: string;
   despatchReady?: boolean;
@@ -2838,6 +2841,12 @@ function BoardColumn({
               {order.mergedOrderNumbers?.length ? (
                 <div className="parent-order-link merged-order-link">Birleşenler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
               ) : null}
+              {(order.isPartialDelivery || order.partialDeliverySourceId) && (
+                <div className="order-kind-badge partial-delivery"><b>Kısmi teslim</b></div>
+              )}
+              {order.status === "ready" && (order.hasPartialDelivery || order.audit?.some((entry) => entry.action === "partialDeliveryCreated")) && (
+                <div className="order-kind-badge partial-remaining"><b>Kısmi teslim · Kalan miktar</b></div>
+              )}
               {order.status === "ready" && (
                 <div className="parent-order-link">
                   <b>
@@ -6757,7 +6766,11 @@ function OrderDetail({
       const entry = deliverySelection[index];
       const availableQuantity = Number(item.preparedQuantity ?? item.quantity) || 0;
       const availableRolls = Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0));
-      return entry?.selected && Math.abs(Number(entry.quantity) - availableQuantity) < 0.000001 && Number(entry.rollCount) === availableRolls;
+      const orderedQuantity = Math.max(0, Number(item.quantity) || 0);
+      const orderedRolls = Math.max(0, Math.trunc(Number(item.orderedRollCount) || 0));
+      return entry?.selected
+        && Math.abs(Number(entry.quantity) - Math.max(availableQuantity, orderedQuantity)) < 0.000001
+        && Number(entry.rollCount) === Math.max(availableRolls, orderedRolls);
     });
     if (isFullDelivery) {
       await changeStatus("delivered");
