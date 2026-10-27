@@ -2855,9 +2855,11 @@ async function handleOrderBoard(req, res, url, parts) {
       })
       .filter((order) => {
         if (canViewAll) return true;
+        const ownsOrder = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
         const assignedId = String(order.approvalForm?.salesRepresentativeUserId || "");
         const assignedName = normalizeSalesRepresentativeName(order.approvalForm?.salesRepresentative || "");
-        return assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName);
+        const isAssigned = assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName);
+        return ownsOrder || isAssigned;
       })
       .sort((left, right) => String(right.approvalForm?.updatedAt || right.updatedAt || "").localeCompare(String(left.approvalForm?.updatedAt || left.updatedAt || "")));
     return send(res, 200, { data: data.map((order) => orderWithPresence(order, req.authUser)) });
@@ -3914,6 +3916,65 @@ async function handleOrderBoard(req, res, url, parts) {
     return send(res, 200, { data: { order: orderWithPresence(order, req.authUser), batch: orderWithPresence(batch, req.authUser) } });
   }
 
+  if (req.method === "POST" && id && parts[2] === "partial-delivery") {
+    if (!canDeliver) return send(res, 403, { error: "Kısmi teslimat yapma yetkiniz yok." });
+    const order = db.orderBoard.find((item) => String(item.id) === id);
+    if (!order) return notFound(res);
+    if (order.status !== "ready" || order.despatchReady !== true) return send(res, 409, { error: "Kısmi teslimat yalnız irsaliyesi hazır siparişte yapılabilir." });
+    const body = await parseBody(req);
+    const requested = Array.isArray(body.items) ? body.items : [];
+    const selected = [];
+    const remaining = [];
+    for (const [index, item] of (order.items || []).entries()) {
+      const request = requested.find((entry) => Number(entry.itemIndex) === index);
+      const availableQuantity = Math.max(0, Number(item.preparedQuantity ?? item.quantity) || 0);
+      const availableRolls = Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0));
+      const quantity = request ? Math.max(0, Number(request.quantity) || 0) : 0;
+      const rollCount = request ? Math.max(0, Math.trunc(Number(request.rollCount) || 0)) : 0;
+      if (quantity > availableQuantity + 0.000001 || rollCount > availableRolls) return send(res, 400, { error: `${item.productName}: teslim miktarı hazır miktarı aşamaz.` });
+      if (quantity > 0 || rollCount > 0) selected.push({
+        ...structuredClone(item), quantity: quantity > 0 ? quantity : null, orderedRollCount: rollCount > 0 ? rollCount : undefined,
+        preparedQuantity: quantity > 0 ? quantity : null, preparedRollCount: rollCount > 0 ? rollCount : 0,
+      });
+      const quantityLeft = Number((availableQuantity - quantity).toFixed(3));
+      const rollsLeft = Math.max(0, availableRolls - rollCount);
+      if (quantityLeft > 0.000001 || rollsLeft > 0) remaining.push({
+        ...item, quantity: quantityLeft > 0 ? quantityLeft : null, orderedRollCount: rollsLeft > 0 ? rollsLeft : undefined,
+        preparedQuantity: quantityLeft > 0 ? quantityLeft : null, preparedRollCount: rollsLeft,
+        cutAllowanceApplied: false, cutPieceCount: 0, cutAllowancePerPiece: 0, cutAllowanceMeters: 0,
+        stockConsumptionQuantity: quantityLeft,
+      });
+    }
+    if (!selected.length) return send(res, 400, { error: "Teslim edilecek en az bir ürün veya miktar seçin." });
+    if (!remaining.length) return send(res, 400, { error: "Siparişin tamamı seçildi. Normal teslim işlemini kullanın." });
+    const now = new Date().toISOString();
+    const actor = req.authUser?.name || "Teslimat";
+    const deliveryNumber = db.orderBoard.filter((item) => String(item.partialDeliverySourceId || "") === String(order.id)).length + 1;
+    const auditEntry = { id: randomUUID(), action: "partialDeliveryCreated", newValue: `${order.number}-T${deliveryNumber}`, by: actor, userId: req.authUser?.id, at: now };
+    const batch = {
+      ...structuredClone(order), id: randomUUID(), number: `${order.number}-T${deliveryNumber}`,
+      parentOrderId: order.parentOrderId || order.id, parentOrderNumber: order.parentOrderNumber || order.number,
+      partialDeliverySourceId: order.id, status: "ready", items: selected, createdAt: order.createdAt || now,
+      batchCreatedAt: now, updatedAt: now, history: [...structuredClone(order.history || [])],
+      audit: [...structuredClone(order.audit || []), auditEntry],
+    };
+    order.items = remaining;
+    order.despatchReady = false;
+    order.despatchNumber = "";
+    order.withoutDespatch = false;
+    delete order.despatchReadyAt;
+    delete order.despatchReadyBy;
+    order.attachments = (order.attachments || []).filter((attachment) => attachment.kind === "orderForm");
+    delete order.deliveryPhoto;
+    delete order.deliveryNote;
+    order.updatedAt = now;
+    order.audit ??= [];
+    order.audit.push(auditEntry);
+    db.orderBoard.push(batch);
+    await writeDb(db);
+    return send(res, 200, { data: { order: orderWithPresence(order, req.authUser), batch: orderWithPresence(batch, req.authUser) } });
+  }
+
   if (req.method === "POST" && parts[1] === "merge-ready") {
     if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.merge_ready")) return send(res, 403, { error: "Hazır siparişleri birleştirme yetkiniz yok." });
     const body = await parseBody(req);
@@ -4095,10 +4156,14 @@ async function handleOrderBoard(req, res, url, parts) {
         if (removedCount > 0 && (removedItems.length < removedCount || removedItems.some((item) => !String(item?.reason || "").trim()))) {
           return send(res, 400, { error: "Siparişten kaldırılan her ürün için neden yazılmalıdır." });
         }
-        if (!body.items.length || body.items.some((item) => !item.productId || !(Number(item.quantity) > 0))) {
-          return send(res, 400, { error: "Bütün məhsullar və metrajlar düzgün doldurulmalıdır." });
+        if (!body.items.length || body.items.some((item) => !item.productId || (!(Number(item.quantity) > 0) && !(Number(item.orderedRollCount) > 0)))) {
+          return send(res, 400, { error: "Bütün ürünlerde metre veya rulo sayısından en az biri yazılmalıdır." });
         }
-        order.items = body.items;
+        order.items = body.items.map((item) => ({
+          ...item,
+          quantity: Number(item.quantity) > 0 ? Number(item.quantity) : null,
+          orderedRollCount: Number(item.orderedRollCount) > 0 ? Math.trunc(Number(item.orderedRollCount)) : undefined,
+        }));
       }
     }
     if (nextStatus === "ready") {
@@ -7187,6 +7252,7 @@ async function handleApiRequest(req, res) {
       else if (action === "lock") required = ["orders.lock"];
       else if (action === "delivery-photo") required = ["orders.deliver"];
       else if (action === "draft" || action === "partial-ready") required = ["orders.prepare"];
+      else if (action === "partial-delivery") required = ["orders.deliver"];
       else if (action === "despatch") required = ["orders.despatch"];
       else if (action === "presence") required = ["orders.view"];
       else if (req.method === "DELETE") required = ["orders.delete", "orders.create", "orders.view"];

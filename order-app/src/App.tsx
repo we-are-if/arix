@@ -2428,7 +2428,6 @@ export default function App() {
                 />
               ))}
             </section>
-            <InactiveOrdersPanel orders={deletedOrders} language={language} onOpen={(order) => { if (order.status === "cancelled") setActiveOrder(order); }} />
           </div>
         ) : pageTab === "forms" ? (
           <ApprovalFormsPage orders={approvalOrders} onOpen={(order) => {
@@ -6450,6 +6449,11 @@ function OrderDetail({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deliveryNote, setDeliveryNote] = useState(savedWork.deliveryNote ?? order.deliveryNote ?? "");
+  const [deliverySelection, setDeliverySelection] = useState(() => order.items.map((item) => ({
+    selected: true,
+    quantity: Number(item.preparedQuantity ?? item.quantity) || 0,
+    rollCount: Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0)),
+  })));
   const [deliveryPhoto, setDeliveryPhoto] = useState(order.deliveryPhoto ?? "");
   const [despatchNumber, setDespatchNumber] = useState(
     savedWork.despatchNumber ?? order.despatchNumber ?? "",
@@ -6615,6 +6619,11 @@ function OrderDetail({
     setNote(order.note ?? "");
     setActiveEditors(order.activeEditors ?? []);
     if (!keepLocalWork) setDeliveryNote(order.deliveryNote ?? "");
+    if (!keepLocalWork) setDeliverySelection(order.items.map((item) => ({
+      selected: true,
+      quantity: Number(item.preparedQuantity ?? item.quantity) || 0,
+      rollCount: Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0)),
+    })));
     setDeliveryPhoto(order.deliveryPhoto ?? "");
     if (!keepLocalWork) setDespatchNumber(order.despatchNumber ?? "");
     if (!keepLocalWork) setWithoutDespatch(order.withoutDespatch ?? false);
@@ -6779,6 +6788,54 @@ function OrderDetail({
       setRollbackReason("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Mərhələ dəyişmədi.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deliverSelected = async () => {
+    const selected = deliverySelection
+      .map((entry, itemIndex) => ({ ...entry, itemIndex }))
+      .filter((entry) => entry.selected && (Number(entry.quantity) > 0 || Number(entry.rollCount) > 0));
+    if (!selected.length) {
+      setError("Teslim edilecek en az bir ürün ve miktar seçin.");
+      return;
+    }
+    const invalid = selected.find((entry) => {
+      const item = order.items[entry.itemIndex];
+      const availableQuantity = Number(item?.preparedQuantity ?? item?.quantity) || 0;
+      const availableRolls = Math.max(0, Math.trunc(Number(item?.preparedRollCount ?? item?.orderedRollCount) || 0));
+      return entry.quantity < 0 || entry.rollCount < 0 || entry.quantity > availableQuantity + 0.000001 || entry.rollCount > availableRolls;
+    });
+    if (invalid) {
+      setError(`${order.items[invalid.itemIndex]?.productName || "Ürün"}: teslim miktarı hazır miktarı aşamaz.`);
+      return;
+    }
+    const isFullDelivery = order.items.every((item, index) => {
+      const entry = deliverySelection[index];
+      const availableQuantity = Number(item.preparedQuantity ?? item.quantity) || 0;
+      const availableRolls = Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0));
+      return entry?.selected && Math.abs(Number(entry.quantity) - availableQuantity) < 0.000001 && Number(entry.rollCount) === availableRolls;
+    });
+    if (isFullDelivery) {
+      await changeStatus("delivered");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const split = await api<{ order: Order; batch: Order }>(`/api/orders/${order.id}/partial-delivery`, {
+        method: "POST",
+        body: JSON.stringify({ items: selected.map(({ itemIndex, quantity, rollCount }) => ({ itemIndex, quantity, rollCount })) }),
+      });
+      await api<Order>(`/api/orders/${split.batch.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "delivered", deliveryNote }),
+      });
+      setNotice("Seçilen ürünler teslim edildi. Kalan miktarlar Hazır bölümünde bırakıldı.");
+      onChanged(split.order);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kısmi teslimat tamamlanamadı.");
     } finally {
       setBusy(false);
     }
@@ -7217,18 +7274,29 @@ function OrderDetail({
                     </label>
                     <input
                       type="number"
-                      min="0.01"
+                      min="0"
                       step="0.01"
-                      value={item.quantity ?? ""}
+                      value={Number(item.quantity) > 0 ? item.quantity ?? "" : ""}
+                      placeholder="Metre"
                       onChange={(event) =>
                         setItems((current) =>
                           current.map((row, rowIndex) =>
                             rowIndex === index
-                              ? { ...row, quantity: Number(event.target.value) }
+                              ? { ...row, quantity: event.target.value === "" ? null : Number(event.target.value) }
                               : row,
                           ),
                         )
                       }
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={Number(item.orderedRollCount) > 0 ? item.orderedRollCount ?? "" : ""}
+                      placeholder="Rulo sayısı"
+                      onChange={(event) => setItems((current) => current.map((row, rowIndex) => rowIndex === index
+                        ? { ...row, orderedRollCount: event.target.value === "" ? undefined : Math.max(0, Math.trunc(Number(event.target.value) || 0)) }
+                        : row))}
                     />
                     <input
                       value={item.lineNote ?? ""}
@@ -7442,8 +7510,8 @@ function OrderDetail({
           })}
           {editing && <button type="button" className="add-order-line" onClick={() => {
             setItems((current) => [...current, {
-              source: "Manuel eklenen satır", productId: null, productCode: "", productName: "", quantity: 1,
-              preparedQuantity: null, preparedRollCount: null, confidence: 1, needsReview: false, alternatives: [],
+              source: "Manuel eklenen satır", productId: null, productCode: "", productName: "", quantity: null,
+              preparedQuantity: null, preparedRollCount: null, orderedRollCount: undefined, confidence: 1, needsReview: false, alternatives: [],
             }]);
           }}><Plus aria-hidden="true" /><span>Ürün satırı ekle</span></button>}
         </div>}
@@ -7692,6 +7760,19 @@ function OrderDetail({
         {order.status === "ready" && canDeliver && order.despatchReady && (
           <section className="delivery-form">
             <h3>{ui.deliveryProof}</h3>
+            <div className="partial-delivery-picker">
+              <header><div><b>Teslim edilecek ürünler</b><small>Ürünün tamamını veya bir kısmını seçebilirsiniz.</small></div><span>{deliverySelection.filter((entry) => entry.selected).length}/{order.items.length}</span></header>
+              {order.items.map((item, index) => {
+                const entry = deliverySelection[index] || { selected: false, quantity: 0, rollCount: 0 };
+                const maxQuantity = Number(item.preparedQuantity ?? item.quantity) || 0;
+                const maxRolls = Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0));
+                return <article className={entry.selected ? "selected" : ""} key={`delivery-${item.productId}-${index}`}>
+                  <label className="partial-delivery-check"><input type="checkbox" checked={entry.selected} onChange={(event) => setDeliverySelection((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, selected: event.target.checked } : row))} /><span><b>{item.productName}</b><small>{item.productCode || "-"} · Hazır: {preparedQuantityLabel(item)}</small></span></label>
+                  <label><span>Gidecek mt</span><input type="number" min="0" max={maxQuantity} step="0.01" disabled={!entry.selected || maxQuantity <= 0} value={entry.selected && entry.quantity > 0 ? entry.quantity : ""} placeholder={maxQuantity > 0 ? String(maxQuantity) : "-"} onChange={(event) => setDeliverySelection((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: event.target.value === "" ? 0 : Math.max(0, Number(event.target.value) || 0) } : row))} /></label>
+                  <label><span>Gidecek rulo</span><input type="number" min="0" max={maxRolls} step="1" disabled={!entry.selected || maxRolls <= 0} value={entry.selected && entry.rollCount > 0 ? entry.rollCount : ""} placeholder={maxRolls > 0 ? String(maxRolls) : "-"} onChange={(event) => setDeliverySelection((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, rollCount: event.target.value === "" ? 0 : Math.max(0, Math.trunc(Number(event.target.value) || 0)) } : row))} /></label>
+                </article>;
+              })}
+            </div>
             <textarea
               rows={3}
               value={deliveryNote}
@@ -8032,7 +8113,7 @@ function OrderDetail({
                 busy ||
                 !customerName.trim() ||
                 !editReason.trim() ||
-                items.some((item) => !item.productId || !item.quantity)
+                items.some((item) => !item.productId || (!(Number(item.quantity) > 0) && !(Number(item.orderedRollCount) > 0)))
               }
               onClick={saveChanges}
             >
@@ -8085,9 +8166,9 @@ function OrderDetail({
               <button
                 className="primary"
                 disabled={busy || (!canDeliverWithoutProof && (!deliveryNote.trim() || !hasDeliveryProof))}
-                onClick={() => changeStatus("delivered")}
+                onClick={() => void deliverSelected()}
               >
-                {ui.delivered}
+                {deliverySelection.every((entry) => entry.selected) ? ui.delivered : "Seçilenleri teslim et"}
               </button>
             </>
           )}
