@@ -9543,8 +9543,8 @@ function ApprovalFormEditor({
               </div>
               <div className="approval-commercial-panel approval-commercial-stamp-panel">
                 <div className="approval-commercial-declaration">
-                  <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>Exporter declaration</b><small>{isProforma ? "Certified proforma invoice statement" : "Certified commercial invoice statement"}</small></span></div>
-                  <span>{form.exporterDeclaration || "-"}</span>
+                  <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>{isProforma ? "Proforma invoice note" : "Exporter declaration"}</b><small>{isProforma ? "Additional information" : "Certified commercial invoice statement"}</small></span></div>
+                  <span>{isProforma ? (form.note || "-") : (form.exporterDeclaration || "-")}</span>
                 </div>
                 <div className="approval-commercial-stamp">
                   <div className="approval-condition-heading"><ApprovalIcon kind="company" /><span><b>Authorized signature / stamp</b><small>Exporter approval</small></span></div>
