@@ -350,6 +350,7 @@ const EXPORT_GENERAL_TERMS = [
   "Delivery, cost and risk responsibilities are governed by the stated Incoterms® 2020 rule.",
   "Final quantities and shipment details will be confirmed on the commercial invoice and packing list.",
 ] as const;
+const DEFAULT_PROFORMA_NOTE = "We hereby confirm that the information stated in this Proforma Invoice is accurate and complete to the best of our knowledge.";
 type CompanyPrintSettings = {
   companyName: string;
   brandSubtitle?: string;
@@ -9248,10 +9249,10 @@ function ApprovalFormEditor({
               />
             </label>
             <label className="wide-field">
-              {isProforma ? "Additional note" : "Ek not"}
+              {isProforma ? "Proforma invoice note" : "Ek not"}
               <textarea
                 rows={2}
-                placeholder={isProforma ? "Additional information for this order" : "Bu siparişe özel ek açıklama"}
+                placeholder={isProforma ? DEFAULT_PROFORMA_NOTE : "Bu siparişe özel ek açıklama"}
                 value={form.note}
                 onChange={(event) =>
                   setForm({ ...form, note: event.target.value })
@@ -9555,7 +9556,7 @@ function ApprovalFormEditor({
               <div className="approval-commercial-panel approval-commercial-stamp-panel">
                 <div className="approval-commercial-declaration">
                   <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>{isProforma ? "Proforma invoice note" : "Exporter declaration"}</b><small>{isProforma ? "Additional information" : "Certified commercial invoice statement"}</small></span></div>
-                  <span>{isProforma ? (form.note || "-") : (form.exporterDeclaration || "-")}</span>
+                  <span>{isProforma ? (form.note || DEFAULT_PROFORMA_NOTE) : (form.exporterDeclaration || "-")}</span>
                 </div>
                 <div className="approval-commercial-stamp">
                   <div className="approval-condition-heading"><ApprovalIcon kind="company" /><span><b>Authorized signature / stamp</b><small>Exporter approval</small></span></div>
@@ -9583,7 +9584,7 @@ function ApprovalFormEditor({
                 </div>
               </div>
             </section>}
-            {!isCommercialInvoice && !isPackingList && <section className="approval-document-conditions">
+            {!isCommercialInvoice && !isPackingList && !isProforma && <section className="approval-document-conditions">
               <div className="approval-note-box approval-note-box-bottom">
                 <ApprovalIcon kind="note" />
                 <span>
