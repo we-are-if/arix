@@ -41,6 +41,14 @@ Kontrol noktasi sunlari saklar:
 
 Kontrol noktalari `.arix-backups/` altindadir ve Git'e gonderilmez.
 
+Disk arizasina karsi secilen kontrol noktasini kullanicinin production sunucusundaki root erisimli arsive kopyalamak icin:
+
+```powershell
+./scripts/safety/Sync-ArixCheckpoint.ps1 -ConfirmRemote
+```
+
+Uzak kopya `/srv/arix/source-checkpoints/` altinda `0600` yetkisiyle saklanir ve yuklemeden sonra SHA-256 ile dogrulanir. Bu kopya GitHub'a gonderilmez.
+
 ## Degisiklikten sonra
 
 Yalnizca ilgili dosyalari sahneleyin:
