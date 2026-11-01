@@ -14,7 +14,7 @@ $scopePrefixes = @{
   Daily = @("daily-app/")
   Order = @("order-app/")
   Panel = @("src/", "public/", "index.html", "vite.config.ts", "tsconfig.json", "tsconfig.app.json", "tsconfig.node.json")
-  Server = @("server/")
+  Server = @("server/", "deploy/backup-arix.sh", "deploy/arix-backup.service", "deploy/arix-backup.timer")
   All = @()
 }
 $sharedPrefixes = @(
