@@ -26,6 +26,16 @@ dist-marketing/
 .audit.json
 ersafolyo-site/
 
+# Local recovery checkpoints and generated release artifacts
+.arix-backups/
+.arix-restores/
+*-dist.tgz
+output/
+
+# Daily source data stays local; generated TypeScript is versioned instead
+daily-app/data/
+daily-app-first/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
