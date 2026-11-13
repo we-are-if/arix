@@ -24,6 +24,16 @@ type ExchangeSettings = {
   symbols: string[];
   manualRates: Record<string, number>;
 };
+type CompanyProfile = {
+  organizationName: string;
+  countryCode: string;
+  baseCurrency: string;
+  currencySymbol: string;
+  weightBarcodePrefix: string;
+  phone: string;
+  email: string;
+  website: string;
+};
 type CompanySettings = {
   stockMode: StockMode;
   allowNegativeStock: boolean;
@@ -32,6 +42,7 @@ type CompanySettings = {
   exchangeSettings: ExchangeSettings;
   printSettings: PrintSettings;
   eDocumentSettings?: { company?: Partial<PrintCompanyDetails> };
+  profile: CompanyProfile;
 };
 type CompanyStore = {
   id: number;
@@ -55,6 +66,16 @@ const defaultCompanySettings: CompanySettings = {
     baseCurrency: "TRY",
     symbols: ["USD", "EUR", "AZN"],
     manualRates: { USD: 0, EUR: 0, AZN: 0 },
+  },
+  profile: {
+    organizationName: "",
+    countryCode: "TR",
+    baseCurrency: "TRY",
+    currencySymbol: "₺",
+    weightBarcodePrefix: "21",
+    phone: "",
+    email: "",
+    website: "",
   },
   printSettings: defaultPrintSettings,
 };
@@ -89,6 +110,25 @@ const mergeCompanySettings = (data?: Partial<CompanySettings>): CompanySettings 
       : defaultCompanySettings.exchangeSettings.symbols,
   },
   printSettings: mergePrintSettings(data?.printSettings),
+  profile: {
+    ...defaultCompanySettings.profile,
+    organizationName: data?.profile?.organizationName
+      || data?.eDocumentSettings?.company?.title
+      || data?.printSettings?.companyName
+      || "",
+    countryCode: data?.profile?.countryCode
+      || data?.eDocumentSettings?.company?.country
+      || "TR",
+    baseCurrency: data?.profile?.baseCurrency
+      || data?.exchangeSettings?.baseCurrency
+      || "TRY",
+    currencySymbol: data?.profile?.currencySymbol
+      || ({ TRY: "₺", AZN: "₼", USD: "$", EUR: "€" }[data?.exchangeSettings?.baseCurrency || "TRY"] ?? "₺"),
+    weightBarcodePrefix: data?.profile?.weightBarcodePrefix || "21",
+    phone: data?.profile?.phone || data?.eDocumentSettings?.company?.phone || "",
+    email: data?.profile?.email || data?.eDocumentSettings?.company?.email || "",
+    website: data?.profile?.website || data?.eDocumentSettings?.company?.website || "",
+  },
 });
 
 const preparePrintImage = (file: File) =>
@@ -195,7 +235,7 @@ type PermissionItem = { key: string; group: string; action: string };
 
 const permissionGroupLabels: Record<string, string> = {
   dashboard: "Ana səhifə", products: "Məhsullar və stok", documents: "Sənədlər", money: "Pul fəaliyyəti",
-  counterparties: "Kontragentlər", company: "Şirkət ayarları", employees: "Əməkdaşlar", accounting: "Mühasibat", reports: "Hesabatlar", trash: "Silinənlər",
+  counterparties: "Kontragentlər", company: "Şirkət ayarları", employees: "Əməkdaşlar", accounting: "Mühasibat", reports: "Hesabatlar", trash: "Silinənlər", chat: "Ekip sohbeti",
 };
 const permissionActionLabels: Record<string, string> = { view: "Görmək", create: "Yaratmaq", edit: "Dəyişmək", delete: "Silmək", manage: "İdarə etmək" };
 
@@ -504,6 +544,7 @@ export default function Company({ section, isDark = false }: { section: CompanyS
 function SettingsView({ border, card, subtle, input }: { border: string; card: string; subtle: string; input: string }) {
   const [settings, setSettings] = useState<CompanySettings>(defaultCompanySettings);
   const [saving, setSaving] = useState(false);
+  const [companyMessage, setCompanyMessage] = useState("");
   const [ratePreview, setRatePreview] = useState<ExchangeRatePreview | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
   const [rateMessage, setRateMessage] = useState("");
@@ -521,6 +562,74 @@ function SettingsView({ border, card, subtle, input }: { border: string; card: s
       alive = false;
     };
   }, []);
+
+  const updateProfile = (patch: Partial<CompanyProfile>) => {
+    setSettings((current) => ({
+      ...current,
+      profile: { ...current.profile, ...patch },
+    }));
+    setCompanyMessage("");
+  };
+
+  const saveCompanyProfile = async () => {
+    const profile = {
+      ...settings.profile,
+      organizationName: settings.profile.organizationName.trim(),
+      countryCode: settings.profile.countryCode.trim().toUpperCase().slice(0, 2) || "TR",
+      baseCurrency: settings.profile.baseCurrency.trim().toUpperCase().slice(0, 3) || "TRY",
+      currencySymbol: settings.profile.currencySymbol.trim().slice(0, 4),
+      weightBarcodePrefix: settings.profile.weightBarcodePrefix.replace(/\D/g, "").slice(0, 2),
+      phone: settings.profile.phone.trim(),
+      email: settings.profile.email.trim(),
+      website: settings.profile.website.trim(),
+    };
+    if (!profile.organizationName) {
+      setCompanyMessage("Şirket adı boş bırakılamaz.");
+      return;
+    }
+    const companyDetails: PrintCompanyDetails = {
+      ...settings.printSettings.companyDetails,
+      title: profile.organizationName,
+      country: profile.countryCode,
+      phone: profile.phone,
+      email: profile.email,
+      website: profile.website,
+    };
+    const printSettings: PrintSettings = {
+      ...settings.printSettings,
+      companyName: profile.organizationName,
+      companyDetails,
+    };
+    const exchangeSettings = {
+      ...settings.exchangeSettings,
+      baseCurrency: profile.baseCurrency,
+    };
+    setSaving(true);
+    setCompanyMessage("");
+    try {
+      const payload = await requestJson<{ data: CompanySettings }>("/api/company-settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          profile,
+          printSettings,
+          exchangeSettings,
+          eDocumentSettings: { company: companyDetails },
+        }),
+      });
+      const next = mergeCompanySettings(payload.data);
+      setSettings(next);
+      setCompanyMessage("Şirket bilgileri kaydedildi.");
+      window.dispatchEvent(new CustomEvent("arix:company-settings-updated", { detail: payload.data }));
+      window.dispatchEvent(new CustomEvent("arix:print-settings-updated", { detail: next.printSettings }));
+      showToast("Şirket bilgileri kaydedildi.", { tone: "success", title: "Şirket bilgileri" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Şirket bilgileri kaydedilemedi.";
+      setCompanyMessage(message);
+      showToast(message, { tone: "error", title: "Şirket bilgileri" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const saveStockMode = async (stockMode: StockMode) => {
     const nextSettings = {
@@ -663,12 +772,14 @@ function SettingsView({ border, card, subtle, input }: { border: string; card: s
     <div className={cx("min-h-0 flex-1 overflow-y-auto rounded-2xl border p-5 [scrollbar-gutter:stable]", border, card)}>
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-3xl font-semibold">AriX</h2>
-          <p className={cx("mt-1 text-sm", subtle)}>Yaradıldı 22 sentyabr 2024</p>
+          <h2 className="text-3xl font-semibold">{settings.profile.organizationName || "Şirket bilgileri"}</h2>
+          <p className={cx("mt-1 text-sm", subtle)}>Belge, iletişim ve para birimi bilgileri</p>
         </div>
-        <div className={cx("text-right text-3xl font-semibold", subtle)}>
-          Şirkət
-          <div className="mt-1 text-sm font-medium">ID 66f01208b6f19c57377baaea</div>
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <button type="button" onClick={() => void saveCompanyProfile()} disabled={saving} className="surface-primary h-10 rounded-xl px-5 text-sm font-semibold disabled:opacity-60">
+            {saving ? "Kaydediliyor..." : "Şirket bilgilerini kaydet"}
+          </button>
+          {companyMessage && <div className={cx("text-sm font-medium", companyMessage.includes("kaydedildi") ? "text-emerald-600" : "text-rose-600")}>{companyMessage}</div>}
         </div>
       </div>
       <div className="mb-6 flex flex-wrap gap-2">
@@ -679,14 +790,14 @@ function SettingsView({ border, card, subtle, input }: { border: string; card: s
         ))}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Field label="Təşkilatın adı" className="lg:col-span-2"><input className={input} defaultValue="AriX" /></Field>
-        <Field label="Ölkə"><select className={input} defaultValue="Azərbaycan"><option>Azərbaycan</option><option>Türkiyə</option></select></Field>
-        <Field label="Əsas valyuta"><select className={input} defaultValue="AZN"><option>AZN</option><option>USD</option><option>TRY</option></select></Field>
-        <Field label="Valyuta göstər" className="lg:col-span-2"><input className={input} defaultValue="₼" /></Field>
-        <Field label="Çəki mallarının prefiks barkodu" className="lg:col-span-2"><input className={input} defaultValue="21" /></Field>
-        <Field label="Telefon" className="lg:col-span-2"><input className={input} defaultValue="+994 50 000 00 00" /></Field>
-        <Field label="E-poçt" className="lg:col-span-2"><input className={input} placeholder="mail@arix.az" /></Field>
-        <Field label="Sayt" className="lg:col-span-2"><input className={input} placeholder="www.example.com" /></Field>
+        <Field label="Şirket adı" className="lg:col-span-2"><input className={input} value={settings.profile.organizationName} onChange={(event) => updateProfile({ organizationName: event.target.value })} /></Field>
+        <Field label="Ülke"><select className={input} value={settings.profile.countryCode} onChange={(event) => updateProfile({ countryCode: event.target.value })}><option value="TR">Türkiye</option><option value="AZ">Azerbaycan</option></select></Field>
+        <Field label="Ana para birimi"><select className={input} value={settings.profile.baseCurrency} onChange={(event) => { const baseCurrency = event.target.value; updateProfile({ baseCurrency, currencySymbol: ({ TRY: "₺", AZN: "₼", USD: "$", EUR: "€" } as Record<string, string>)[baseCurrency] || settings.profile.currencySymbol }); }}><option value="TRY">TRY</option><option value="AZN">AZN</option><option value="USD">USD</option><option value="EUR">EUR</option></select></Field>
+        <Field label="Para birimi simgesi"><input className={input} value={settings.profile.currencySymbol} onChange={(event) => updateProfile({ currencySymbol: event.target.value.slice(0, 4) })} /></Field>
+        <Field label="Tartılı ürün barkod ön eki"><input className={input} value={settings.profile.weightBarcodePrefix} inputMode="numeric" onChange={(event) => updateProfile({ weightBarcodePrefix: event.target.value.replace(/\D/g, "").slice(0, 2) })} /></Field>
+        <Field label="Telefon"><input className={input} value={settings.profile.phone} onChange={(event) => updateProfile({ phone: event.target.value })} /></Field>
+        <Field label="E-posta"><input className={input} type="email" value={settings.profile.email} onChange={(event) => updateProfile({ email: event.target.value })} placeholder="mail@firma.com" /></Field>
+        <Field label="Web sitesi" className="lg:col-span-2"><input className={input} value={settings.profile.website} onChange={(event) => updateProfile({ website: event.target.value })} placeholder="www.example.com" /></Field>
       </div>
       <div className={cx("mt-6 rounded-2xl border p-4", border, card)}>
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

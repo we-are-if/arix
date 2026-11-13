@@ -1,8 +1,14 @@
+import { domesticFinalMultiplier } from "../../shared/approvalPrice.js";
+import { canWithdrawApproval } from "../../shared/approvalPermissions.js";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Moon, NotepadText, Pencil, Plus, Printer, ScanText, Scissors, Search, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
+import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Moon, NotepadText, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
+import { matchOrderFormItems, mergeFormWarning } from "../../shared/orderFormItems.js";
+import { sortApprovalHistory } from "../../shared/approvalFormHistory.js";
+import { TeamChatWidget } from "./components/TeamChatWidget";
+import { AriXContextMenu, ContextMenuTarget } from "./components/AriXContextMenu";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 let pdfRendererPromise: ReturnType<typeof importPdfRenderer> | null = null;
@@ -100,14 +106,80 @@ type AccessLog = {
   userId: string; userName: string; role: string; ip: string; userAgent: string; createdAt: string;
 };
 
+type OrderCustomUnit = "mt" | "rulo" | "BUCKET" | "KG" | "LT" | "ML" | "GR" | "BOX" | "PCS" | "ROLL" | "M" | "M2" | "SET" | "PALLET" | "BAG" | "CRATE" | "BUNDLE";
+
+const ORDER_UNIT_LABELS_TR: Record<string, string> = {
+  mt: "mt",
+  rulo: "rulo",
+  BUCKET: "kova",
+  KG: "kg",
+  LT: "lt",
+  ML: "ml",
+  GR: "gr",
+  BOX: "kutu",
+  PCS: "adet",
+  ROLL: "rulo",
+  M: "mt",
+  M2: "m²",
+  SET: "set",
+  PALLET: "palet",
+  BAG: "çuval",
+  CRATE: "kasa",
+  BUNDLE: "paket",
+};
+
+const ORDER_UNIT_LABELS_EN: Record<string, string> = {
+  mt: "m",
+  rulo: "roll",
+  BUCKET: "bucket",
+  KG: "kg",
+  LT: "lt",
+  ML: "ml",
+  GR: "g",
+  BOX: "box",
+  PCS: "pcs",
+  ROLL: "roll",
+  M: "m",
+  M2: "m²",
+  SET: "set",
+  PALLET: "pallet",
+  BAG: "bag",
+  CRATE: "crate",
+  BUNDLE: "bundle",
+};
+
+function isCustomUnitItem(item?: Partial<Match> | null): boolean {
+  if (!item) return false;
+  if (item.manual === true) return true;
+  return Boolean(item.unit && !["mt", "rulo"].includes(item.unit));
+}
+
+function orderUnitShortLabel(unit?: string, lang: "tr" | "en" = "tr"): string {
+  const key = String(unit || "mt");
+  return (lang === "en" ? ORDER_UNIT_LABELS_EN[key] : ORDER_UNIT_LABELS_TR[key]) || key;
+}
+
+function mapOrderUnitToApprovalUnit(unit?: string, isManual = false): ApprovalFormLine["unit"] {
+  const upper = String(unit || "").trim().toUpperCase();
+  if (upper === "RULO" || upper === "ROLL") return "ROLL";
+  if (upper === "MT" || upper === "M") return isManual ? "M" : "M2";
+  if (["M2", "M", "ROLL", "BOX", "BUCKET", "PCS", "KG", "LT", "ML", "GR", "SET", "PALLET", "BAG", "CRATE", "BUNDLE"].includes(upper)) {
+    return upper as ApprovalFormLine["unit"];
+  }
+  return isManual ? "PCS" : "M2";
+}
+
 type Match = {
   source: string;
   productId: number | null;
   productName: string;
   productCode: string;
   quantity: number | null;
-  unit?: "mt" | "rulo";
+  unit?: OrderCustomUnit;
   orderedRollCount?: number;
+  manual?: boolean;
+  innerQuantity?: number;
+  innerUnit?: OrderCustomUnit;
   lineNote?: string;
   confidence: number;
   needsReview: boolean;
@@ -203,13 +275,13 @@ type OrderItem = Match & {
 const CUT_ALLOWANCE_REQUIRED_BELOW_METERS = 70;
 
 const requiresCutAllowance = (item: OrderItem, preparedQuantity = Number(item.preparedQuantity ?? item.quantity) || 0) =>
-  preparedQuantity > 0 && preparedQuantity < CUT_ALLOWANCE_REQUIRED_BELOW_METERS;
+  !isCustomUnitItem(item) && preparedQuantity > 0 && preparedQuantity < CUT_ALLOWANCE_REQUIRED_BELOW_METERS;
 
 const hasRequiredCutAllowance = (item: OrderItem) =>
   !requiresCutAllowance(item) || (item.cutAllowanceApplied === true && cutAllowanceTotal(item) > 0);
 
 const requiredCutAllowancePatch = (item: OrderItem, preparedQuantity: number) => {
-  if (!(preparedQuantity > 0 && preparedQuantity < CUT_ALLOWANCE_REQUIRED_BELOW_METERS)) return {};
+  if (isCustomUnitItem(item) || !(preparedQuantity > 0 && preparedQuantity < CUT_ALLOWANCE_REQUIRED_BELOW_METERS)) return {};
   return {
     cutAllowanceApplied: true,
     cutPieceCount: Math.max(1, Number(item.cutPieceCount) || 1),
@@ -242,6 +314,7 @@ type OrderAttachment = {
   deletedBy?: string;
 };
 type ApprovalFormLine = {
+  sourceItemRef?: { index: number; code: string; name: string };
   productId: number | null;
   productCode: string;
   productName: string;
@@ -251,8 +324,11 @@ type ApprovalFormLine = {
   unitPrice: number;
   discountRate: number;
   vatRate: number;
-  unit?: "M2" | "M" | "ROLL" | "BOX" | "PCS" | "KG" | "SET" | "PALLET";
+  unit?: "M2" | "M" | "ROLL" | "BOX" | "BUCKET" | "PCS" | "KG" | "LT" | "ML" | "GR" | "SET" | "PALLET" | "BAG" | "CRATE" | "BUNDLE";
   unitsPerBox?: number;
+  innerQuantity?: number;
+  innerUnit?: "M2" | "M" | "ROLL" | "BOX" | "BUCKET" | "PCS" | "KG" | "LT" | "ML" | "GR" | "SET" | "PALLET" | "BAG" | "CRATE" | "BUNDLE";
+  priceBasis?: "PACKAGE" | "CONTENT" | "BOX" | "PCS";
   manual?: boolean;
   packageCount?: number;
   netWeight?: number;
@@ -260,14 +336,26 @@ type ApprovalFormLine = {
   hsCode?: string;
   countryOfOrigin?: string;
 };
+type ApprovalFormRevision = {
+  id: string;
+  sourceOrderId?: string;
+  sourceOrderNumber?: string;
+  documentType: "domestic" | "proforma" | "commercial_invoice" | "packing_list";
+  status: "draft" | "approved" | "rejected";
+  createdAt: string;
+  createdBy: string;
+  reason?: string;
+  form: ApprovalForm;
+};
 type ApprovalForm = {
   number: string;
   documentType?: "domestic" | "proforma" | "commercial_invoice" | "packing_list";
+  pageFit?: "single" | "multi";
   proformaNumber?: string;
   invoiceNumber?: string;
   shipmentDate?: string;
   palletDistribution?: number[];
-  palletAllocations?: Array<Array<{ lineIndex: number; rolls: number; quantity?: number }>>;
+  palletAllocations?: Array<Array<{ lineIndex: number; rolls: number; quantity?: number; netWeight?: number }>>;
   allowSeventeenRollPallet?: boolean;
   palletDetails?: Array<{
     grossWeight: number;
@@ -293,10 +381,15 @@ type ApprovalForm = {
   deliveryTerms: string;
   note: string;
   status: "draft" | "approved" | "rejected";
+  submittedForApproval?: boolean;
+  submittedAt?: string;
+  submittedBy?: string;
   preparedAt?: string;
   preparedBy?: string;
+  preparedByUserId?: string;
   approvedAt?: string;
   approvedBy?: string;
+  approvalNote?: string;
   rejectedAt?: string;
   rejectedBy?: string;
   rejectionReason?: string;
@@ -335,7 +428,159 @@ type ApprovalForm = {
     archivedBy: string;
     status?: "draft" | "approved";
   };
+  printedByCurrentUser?: boolean;
+  printedAtForCurrentUser?: string;
+  exportDocuments?: Partial<Record<"proforma" | "commercial_invoice" | "packing_list", ApprovalForm>>;
+  revisions?: ApprovalFormRevision[];
 };
+
+type ExportDocumentType = "proforma" | "commercial_invoice" | "packing_list";
+
+const exportDocumentNumber = (documentType: ExportDocumentType, sourceNumber: string): string => {
+  const prefix = documentType === "commercial_invoice" ? "CIN" : documentType === "packing_list" ? "PCK" : "PRF";
+  return documentNumberFromSource(prefix, sourceNumber);
+};
+
+const documentNumberFromSource = (prefix: "SOF" | "PRF" | "CIN" | "PCK", sourceNumber: string): string => {
+  const suffix = String(sourceNumber || "")
+    .trim()
+    .toUpperCase()
+    .replace(/^(?:ORD|SOF|PRF|CIN|PCK)-?/, "")
+    .replace(/[^A-Z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `${prefix}-${suffix}`;
+};
+
+const approvalDocumentWithoutVariants = (form: ApprovalForm): ApprovalForm => {
+  const { exportDocuments: _exportDocuments, revisions: _revisions, ...document } = form;
+  return document as ApprovalForm;
+};
+
+const approvalDocumentVariant = (form: ApprovalForm, documentType: ExportDocumentType): ApprovalForm => {
+  const variants = form.exportDocuments;
+  const stored = variants?.[documentType];
+  if (stored) return { ...stored, number: exportDocumentNumber(documentType, stored.number || form.number), exportDocuments: variants };
+  if (form.documentType === documentType) return { ...form, number: exportDocumentNumber(documentType, form.number) };
+  const base = approvalDocumentWithoutVariants(form);
+  return {
+    ...base,
+    documentType,
+    number: exportDocumentNumber(documentType, base.number),
+    shipmentDate: documentType === "proforma" ? base.shipmentDate : new Date().toISOString().slice(0, 10),
+    status: "draft",
+    approvedAt: undefined,
+    approvedBy: undefined,
+    approvalNote: undefined,
+    rejectedAt: undefined,
+    rejectedBy: undefined,
+    rejectionReason: undefined,
+    archive: undefined,
+    exportDocuments: variants,
+  };
+};
+
+type ApprovalFormVersionEntry = ApprovalFormRevision & { isCurrent?: boolean; isMissing?: boolean };
+
+function approvalFormRevisionNumber(revision: ApprovalFormVersionEntry): string {
+  if (revision.documentType === "domestic") return revision.form.number;
+  if (revision.documentType === "proforma") return revision.form.proformaNumber || exportDocumentNumber("proforma", revision.form.number);
+  return exportDocumentNumber(revision.documentType, revision.form.number);
+}
+
+function approvalFormVersionDisplayNumbers(entries: ApprovalFormVersionEntry[]): Map<string, string> {
+  const result = new Map<string, string>();
+  const documentTypes: ApprovalFormRevision["documentType"][] = ["domestic", "proforma", "commercial_invoice", "packing_list"];
+  for (const documentType of documentTypes) {
+    const documents = entries
+      .filter((entry) => entry.documentType === documentType && !entry.sourceOrderId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+    documents.forEach((entry, index) => {
+      const baseNumber = approvalFormRevisionNumber(entry);
+      result.set(entry.id, documents.length > 1 ? `${baseNumber}-${index + 1}` : baseNumber);
+    });
+  }
+  for (const entry of entries.filter((entry) => entry.sourceOrderId)) result.set(entry.id, approvalFormRevisionNumber(entry));
+  return result;
+}
+
+function approvalFormNeedsOrderSync(order: Order, form: ApprovalForm): boolean {
+  if ((form.documentType ?? "domestic") !== "domestic") return false;
+  const items = safeItems(order);
+  const matchedLineIndexes = new Set<number>();
+  for (const item of items) {
+    const lineIndex = form.lines.findIndex((line, index) => !line.manual && !matchedLineIndexes.has(index) && (
+      (line.productId != null && Number(line.productId) === Number(item.productId))
+      || Boolean(line.productCode && item.productCode && line.productCode.trim().toLocaleUpperCase("tr") === item.productCode.trim().toLocaleUpperCase("tr"))
+    ));
+    if (lineIndex < 0) return true;
+    matchedLineIndexes.add(lineIndex);
+    const line = form.lines[lineIndex];
+    const quantity = Number(item.preparedQuantity ?? item.quantity) || 0;
+    const rollCount = Number(item.preparedRollCount) > 0 ? Number(item.preparedRollCount) : (Number(item.orderedRollCount) || 0);
+    if (
+      Math.abs(Number(line.quantity || 0) - quantity) > 0.001
+      || Number(line.rollCount || 0) !== rollCount
+      || line.productCode.trim() !== item.productCode.trim()
+      || line.productName.trim() !== item.productName.trim()
+    ) return true;
+  }
+  return form.lines.some((line, index) => !line.manual && !matchedLineIndexes.has(index));
+}
+
+function approvalFormRevisionEntries(form: ApprovalForm): ApprovalFormVersionEntry[] {
+  const entries: ApprovalFormVersionEntry[] = (Array.isArray(form.revisions) ? form.revisions : []).map((revision) => ({ ...revision }));
+  const currentDocuments = [
+    approvalDocumentWithoutVariants(form),
+    ...Object.values(form.exportDocuments ?? {}).filter((document): document is ApprovalForm => Boolean(document)),
+  ];
+  for (const current of currentDocuments) {
+    const documentType = current.documentType ?? "domestic";
+    const createdAt = current.updatedAt ?? current.approvedAt ?? current.rejectedAt ?? current.preparedAt ?? current.date;
+    const existing = entries.find((revision) => !revision.sourceOrderId && revision.documentType === documentType
+      && revision.status === current.status
+      && revision.createdAt === createdAt);
+    if (existing) {
+      existing.isCurrent = true;
+      existing.form = approvalDocumentWithoutVariants(current);
+      continue;
+    }
+    entries.push({
+      id: `current-${documentType}-${createdAt}`,
+      documentType,
+      status: current.status,
+      createdAt,
+      createdBy: current.updatedBy ?? current.approvedBy ?? current.rejectedBy ?? current.preparedBy ?? "AriX",
+      reason: current.rejectionReason || current.approvalNote,
+      form: approvalDocumentWithoutVariants(current),
+      isCurrent: true,
+    });
+  }
+  const isExport = form.documentType !== "domestic" || Object.keys(form.exportDocuments ?? {}).length > 0;
+  if (isExport) {
+    for (const documentType of ["proforma", "commercial_invoice", "packing_list"] as ExportDocumentType[]) {
+      if (entries.some((entry) => entry.documentType === documentType && entry.isCurrent)) continue;
+      const generated = approvalDocumentVariant(form, documentType);
+      const createdAt = generated.updatedAt ?? generated.preparedAt ?? generated.date;
+      entries.push({
+        id: `missing-${documentType}-${form.number}`,
+        documentType,
+        status: "draft",
+        createdAt,
+        createdBy: "Henüz hazırlanmadı",
+        form: approvalDocumentWithoutVariants(generated),
+        isCurrent: true,
+        isMissing: true,
+      });
+    }
+  }
+  const meaningfulEntries = entries.filter((entry) => entry.status !== "draft" || entry.isCurrent || entry.isMissing);
+  if (isExport) {
+    const documentOrder: Record<ApprovalFormRevision["documentType"], number> = { proforma: 0, commercial_invoice: 1, packing_list: 2, domestic: 3 };
+    return sortApprovalHistory(meaningfulEntries).sort((left, right) => documentOrder[left.documentType] - documentOrder[right.documentType]);
+  }
+  return sortApprovalHistory(meaningfulEntries);
+}
 
 const DOMESTIC_GENERAL_TERMS = [
   "Fiyatlarımıza KDV dahil değildir.",
@@ -376,6 +621,7 @@ type Order = {
   createdByUserId?: string | null;
   businessDate?: string;
   preparedBy?: string;
+  preparedByUserId?: string;
   createdAt: string;
   updatedAt?: string;
   readyAt?: string;
@@ -389,6 +635,9 @@ type Order = {
   deletedAt?: string;
   deletedBy?: string;
   deletionReason?: string;
+  archivedAt?: string;
+  archivedBy?: string;
+  archiveReason?: string;
   cancelledAt?: string;
   cancelledBy?: string;
   cancellationReason?: string;
@@ -423,12 +672,81 @@ type Order = {
   mergedOrderNumbers?: string[];
   mergedIntoOrderId?: string;
   mergedIntoOrderNumber?: string;
+  mergeUndoneAt?: string;
   exportPackingRequired?: boolean;
   exportPackingStatus?: "pending" | "preparing" | "ready";
   lockedAt?: string;
   lockedBy?: string;
   lockedByUserId?: string;
   lockReason?: string;
+  isDeferredDelivery?: boolean;
+  deliveryWaitingSourceId?: string;
+  deliveryWaitingNumber?: string;
+  deliveryReleaseId?: string;
+  deferredDeliveryWaitingId?: string;
+  deferredDeliveryDocumentId?: string;
+};
+
+type DeferredDeliveryInvoiceOption = {
+  id: string;
+  sourceKind: "waiting" | "document" | "order";
+  number: string;
+  date: string;
+  total: number;
+  currency: string;
+  itemCount: number;
+  deferred: boolean;
+  completed: boolean;
+  remainingQuantity: number;
+  waitingNumber?: string;
+};
+
+type DeliveryWaitingItem = {
+  id: string;
+  productId: number | null;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  orderedRollCount: number;
+  releasedQuantity: number;
+  releasedRollCount: number;
+  deliveredQuantity: number;
+  deliveredRollCount: number;
+  remainingQuantity: number;
+  remainingRollCount: number;
+  sourceGroupId?: string;
+  sourceGroupLabel?: string;
+  sourceGroupRange?: string;
+};
+
+type DeliveryWaitingRelease = {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  items: Array<OrderItem & { waitingItemId?: string; deliveredQuantity?: number; deliveredRollCount?: number }>;
+  createdAt: string;
+  createdBy: string;
+  deliveredAt?: string;
+  deliveredBy?: string;
+  deliveryNote?: string;
+  despatchNumber?: string;
+  withoutDespatch?: boolean;
+  cancelledAt?: string;
+};
+
+type DeliveryWaiting = {
+  id: string;
+  number: string;
+  sourceType: "finance_sale" | "opening_balance";
+  sourceDocumentId?: string;
+  customerName: string;
+  note?: string;
+  status: "waiting" | "active" | "completed";
+  items: DeliveryWaitingItem[];
+  releases: DeliveryWaitingRelease[];
+  createdAt: string;
+  createdBy: string;
+  updatedAt?: string;
 };
 
 type Status =
@@ -446,19 +764,22 @@ const notificationEventOptions = [
   ["order_edited", "Sipariş düzenlendi"], ["order_preparing_started", "Sipariş hazırlanmaya başladı"],
   ["order_status_returned", "Sipariş düzenleme için geri gönderildi"], ["order_ready", "Sipariş hazırlandı"],
   ["order_cancelled", "Sipariş iptal edildi"], ["order_deleted", "Sipariş silindi"],
+  ["order_archived", "Sipariş arşivlendi"], ["order_unarchived", "Sipariş aktife alındı"], ["order_delivery_deferred", "Teslimat daha sonraya alındı"],
   ["approval_form_prepared", "Sipariş formu hazırlandı"], ["approval_form_edited", "Sipariş formu düzenlendi"],
   ["approval_form_preparing_started", "Form hazırlanmaya başladı"], ["approval_form_editing_started", "Form düzenlenmeye başladı"],
   ["approval_requested", "Onay bekleyen form"], ["approval_completed", "Form onaylandı"],
   ["approval_rejected", "Form reddedildi"], ["approval_form_archived", "Form PDF arşivlendi"],
+  ["approval_overdue", "Onay gecikiyor"], ["task_due", "Görev gecikti"], ["task_assigned", "Yeni görev atandı"],
   ["despatch_ready", "İrsaliye hazırlandı, teslim edilebilir"], ["order_delivered", "Sipariş teslim edildi"],
   ["day_closed", "Gün kapanış özeti"], ["order_locked", "Sipariş kilitlendi"],
   ["order_unlocked", "Sipariş kilidi açıldı"], ["announcement", "Yönetici duyuruları"],
 ] as const;
 
 const notificationEventGroups = [
-  { label: "Siparişler", keys: ["order_created", "order_editing_started", "order_edited", "order_preparing_started", "order_status_returned", "order_ready", "order_cancelled", "order_deleted", "order_locked", "order_unlocked"] },
-  { label: "Sipariş formları", keys: ["approval_form_prepared", "approval_form_edited", "approval_form_preparing_started", "approval_form_editing_started", "approval_requested", "approval_completed", "approval_rejected", "approval_form_archived"] },
+  { label: "Siparişler", keys: ["order_created", "order_editing_started", "order_edited", "order_preparing_started", "order_status_returned", "order_ready", "order_cancelled", "order_deleted", "order_archived", "order_unarchived", "order_delivery_deferred", "order_locked", "order_unlocked"] },
+  { label: "Sipariş formları", keys: ["approval_form_prepared", "approval_form_edited", "approval_form_preparing_started", "approval_form_editing_started", "approval_requested", "approval_completed", "approval_rejected", "approval_form_archived", "approval_overdue"] },
   { label: "Teslimat", keys: ["despatch_ready", "order_delivered"] },
+  { label: "Görevler", keys: ["task_due", "task_assigned"] },
   { label: "Sistem", keys: ["day_closed", "announcement"] },
 ] as const;
 
@@ -1180,6 +1501,17 @@ function preparedByForDisplay(order: Order) {
 }
 
 function orderedQuantityLabel(item: Match) {
+  if (isCustomUnitItem(item)) {
+    const qty = Number(item.quantity ?? item.orderedRollCount ?? 0);
+    const unitLabel = orderUnitShortLabel(item.unit, "tr");
+    const innerQty = Number(item.innerQuantity) || 0;
+    const innerLabel = innerQty > 0 && item.innerUnit
+      ? ` (${innerQty} ${orderUnitShortLabel(item.innerUnit, "tr")}/${unitLabel} · Toplam ${(qty * innerQty).toLocaleString("tr-TR")} ${orderUnitShortLabel(item.innerUnit, "tr")})`
+      : item.innerUnit
+        ? ` (${orderUnitShortLabel(item.innerUnit, "tr")})`
+        : "";
+    return `${qty} ${unitLabel}${innerLabel}`;
+  }
   const parts = [];
   if (Number(item.quantity) > 0) parts.push(`${Number(item.quantity)} mt`);
   if (Number(item.orderedRollCount) > 0) parts.push(`${Number(item.orderedRollCount)} rulo`);
@@ -1187,6 +1519,17 @@ function orderedQuantityLabel(item: Match) {
 }
 
 function preparedQuantityLabel(item: OrderItem) {
+  if (isCustomUnitItem(item)) {
+    const qty = Number(item.preparedQuantity ?? item.quantity ?? item.orderedRollCount ?? 0);
+    const unitLabel = orderUnitShortLabel(item.unit, "tr");
+    const innerQty = Number(item.innerQuantity) || 0;
+    const innerLabel = innerQty > 0 && item.innerUnit
+      ? ` (${(qty * innerQty).toLocaleString("tr-TR")} ${orderUnitShortLabel(item.innerUnit, "tr")})`
+      : item.innerUnit
+        ? ` (${orderUnitShortLabel(item.innerUnit, "tr")})`
+        : "";
+    return `${qty} ${unitLabel}${innerLabel}`;
+  }
   const parts = [];
   if (Number(item.preparedQuantity) > 0) parts.push(`${Number(item.preparedQuantity)} mt`);
   if (Number(item.preparedRollCount) > 0) parts.push(`${Number(item.preparedRollCount)} rulo`);
@@ -1387,9 +1730,7 @@ function approvalTotals(form: ApprovalForm) {
     Math.max(0, Number(form.overallDiscountRate) || 0),
   );
   const lines = form.lines.map((line) => {
-    const billableQuantity = (line.unit ?? "M2") === "M2"
-      ? line.quantity * (Number(line.width) || 1.42)
-      : line.quantity;
+    const billableQuantity = approvalLineBillableQuantity(line);
     const gross = billableQuantity * line.unitPrice;
     const net = gross * (1 - line.discountRate / 100);
     const discountedNet = net * (1 - overallDiscountRate / 100);
@@ -1410,6 +1751,38 @@ function approvalTotals(form: ApprovalForm) {
     insurance,
     total: subtotal - overallDiscount + vat + form.extraCharge + freight + insurance,
   };
+}
+
+function approvalLineInnerQuantity(line: ApprovalFormLine) {
+  return Math.max(0, Number(line.innerQuantity ?? line.unitsPerBox) || 0);
+}
+
+function approvalLineInnerUnit(line: ApprovalFormLine): ApprovalFormLine["innerUnit"] | undefined {
+  const innerQuantity = approvalLineInnerQuantity(line);
+  if (innerQuantity <= 0) return line.innerUnit;
+  return line.innerUnit ?? (line.unit === "BOX" ? "PCS" : (line.unit === "BUCKET" ? "KG" : undefined));
+}
+
+function approvalLineHasPackageContent(line: ApprovalFormLine) {
+  return Boolean(line.manual && approvalLineInnerQuantity(line) > 0 && approvalLineInnerUnit(line));
+}
+
+function approvalLineUsesContentPrice(line: ApprovalFormLine) {
+  return line.priceBasis === "CONTENT" || line.priceBasis === "PCS";
+}
+
+function approvalLineBillableQuantity(line: ApprovalFormLine) {
+  const unit = line.unit ?? "M2";
+  if (unit === "M2") return line.quantity * (Number(line.width) || 1.42);
+  if (line.manual && approvalLineUsesContentPrice(line) && approvalLineInnerQuantity(line) > 0) {
+    return line.quantity * approvalLineInnerQuantity(line);
+  }
+  return line.quantity;
+}
+
+function approvalLineFinalAmount(line: ApprovalFormLine) {
+  const discountMultiplier = 1 - Math.min(100, Math.max(0, Number(line.discountRate) || 0)) / 100;
+  return approvalLineBillableQuantity(line) * (Number(line.unitPrice) || 0) * discountMultiplier;
 }
 
 function balancedPalletDistribution(totalRolls: number) {
@@ -1440,15 +1813,86 @@ function packingPalletPlan(lines: ApprovalFormLine[], distribution: number[]) {
       pallets[palletIndex].remaining -= rolls;
       remainingRolls -= rolls;
     }
-    if (totalRolls === 0 && pallets.length) pallets[0].items.push({ line, lineIndex, rolls: 0, quantity: Number(line.quantity || 0) });
+    if (totalRolls === 0 && pallets.length) pallets[pallets.length - 1].items.push({ line, lineIndex, rolls: 0, quantity: Number(line.quantity || 0) });
   });
   return pallets;
 }
 
-function packingAllocationsFromPlan(lines: ApprovalFormLine[], distribution: number[]) {
+function packingAllocationsFromPlan(lines: ApprovalFormLine[], distribution: number[]): Array<Array<{ lineIndex: number; rolls: number; quantity?: number; netWeight?: number }>> {
   return packingPalletPlan(lines, distribution).map((pallet) => pallet.items
-    .filter((item) => item.rolls > 0)
-    .map((item) => ({ lineIndex: item.lineIndex, rolls: item.rolls, quantity: item.quantity })));
+    .filter((item) => item.rolls > 0 || Number(item.quantity || 0) > 0)
+    .map((item) => ({ lineIndex: item.lineIndex, rolls: item.rolls, quantity: item.quantity, netWeight: undefined })));
+}
+
+function lineHasRolls(line?: ApprovalFormLine) {
+  if (!line) return false;
+  return Math.max(0, Math.trunc(Number(line.rollCount) || 0)) > 0 || (line.unit as string) === "ROLL" || (line.unit as string) === "rulo";
+}
+
+interface ComputedPalletItemWeight {
+  netWeight: number;
+  grossWeight: number;
+  isFixed: boolean;
+  isIntrinsicKg: boolean;
+  isManual: boolean;
+}
+
+function computePalletItemWeights(
+  items: Array<{ line: ApprovalFormLine; lineIndex: number; rolls: number; quantity: number; netWeight?: number }>,
+  detail: { grossWeight: number; tareWeight: number }
+): ComputedPalletItemWeight[] {
+  const palletGross = Math.max(0, Number(detail?.grossWeight) || 0);
+  const palletTare = Math.max(0, Number(detail?.tareWeight) || 0);
+  const palletNet = Math.max(0, palletGross - palletTare);
+
+  const itemConfigs = items.map((item) => {
+    if (item.netWeight != null && !Number.isNaN(Number(item.netWeight)) && Number(item.netWeight) > 0) {
+      return { fixedNet: Number(item.netWeight), isManual: true, isKg: false };
+    }
+
+    const line = item.line;
+    const isDirectKg = line.unit === "KG" || (line.unit as string)?.toLowerCase() === "kg";
+    const innerUnit = approvalLineInnerUnit(line);
+    const innerQty = approvalLineInnerQuantity(line);
+    const isInnerKg = (innerUnit === "KG" || (innerUnit as string)?.toLowerCase() === "kg") && innerQty > 0;
+
+    if (isDirectKg) {
+      return { fixedNet: Number(item.quantity) || 0, isManual: false, isKg: true };
+    }
+    if (isInnerKg) {
+      return { fixedNet: Number((Number(item.quantity || 0) * innerQty).toFixed(3)), isManual: false, isKg: true };
+    }
+
+    return { fixedNet: null, isManual: false, isKg: false };
+  });
+
+  const totalFixedNet = itemConfigs.reduce((sum, cfg) => sum + (cfg.fixedNet ?? 0), 0);
+  const nonFixedItems = items.filter((_, idx) => itemConfigs[idx].fixedNet == null);
+  const nonFixedQtySum = nonFixedItems.reduce((sum, it) => sum + Math.max(0, Number(it.quantity) || 0), 0);
+  const remainingNet = Math.max(0, palletNet - totalFixedNet);
+
+  return items.map((item, idx) => {
+    const cfg = itemConfigs[idx];
+    let net = 0;
+    if (cfg.fixedNet != null) {
+      net = cfg.fixedNet;
+    } else if (nonFixedQtySum > 0 && remainingNet > 0) {
+      const ratio = Math.max(0, Number(item.quantity) || 0) / nonFixedQtySum;
+      net = Number((remainingNet * ratio).toFixed(2));
+    }
+
+    const gross = palletNet > 0
+      ? Number(((net / palletNet) * palletGross).toFixed(2))
+      : (items.length > 0 ? Number((palletGross / items.length).toFixed(2)) : 0);
+
+    return {
+      netWeight: net,
+      grossWeight: gross,
+      isFixed: cfg.fixedNet != null,
+      isIntrinsicKg: cfg.isKg,
+      isManual: cfg.isManual,
+    };
+  });
 }
 
 function ApprovalIcon({ kind }: { kind: "document" | "calendar" | "representative" | "source" | "currency" | "company" | "note" | "terms" | "payment" | "delivery" }) {
@@ -1501,12 +1945,20 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [deliveryWaiting, setDeliveryWaiting] = useState<DeliveryWaiting[]>([]);
+  const [deliveryWaitingOpen, setDeliveryWaitingOpen] = useState(false);
+  const [activeDeliveryWaiting, setActiveDeliveryWaiting] = useState<DeliveryWaiting | null>(null);
+  const [activeDeliveryWaitingGroupId, setActiveDeliveryWaitingGroupId] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [aliases, setAliases] = useState<AliasRule[]>([]);
   const [deletedOrders, setDeletedOrders] = useState<Order[]>([]);
+  const [archivedOrders, setArchivedOrders] = useState<Order[]>([]);
   const [approvalOrders, setApprovalOrders] = useState<Order[]>([]);
   const [notifications, setNotifications] = useState<OrderNotification[]>([]);
+  const [notificationToast, setNotificationToast] = useState<OrderNotification | null>(null);
+  const knownNotificationIdsRef = useRef<Set<string>>(new Set());
+  const notificationsInitializedRef = useRef(false);
   const [printSettings, setPrintSettings] = useState<CompanyPrintSettings>({
     companyName: "ERSAFOLYO MİMARLIK DEKORASYON SAN. TİC. LTD. ŞTİ.",
     brandSubtitle: "MEHMET AKİF MH. BAHARİYE CD. NO:161",
@@ -1523,12 +1975,14 @@ export default function App() {
   const [mergeReadySelection, setMergeReadySelection] = useState<Order[] | null>(null);
   const [mergeReadyCheckedIds, setMergeReadyCheckedIds] = useState<string[]>([]);
   const [mergeReadyBusy, setMergeReadyBusy] = useState(false);
+  const [mergeReadyError, setMergeReadyError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsMode, setSettingsMode] = useState<"settings" | "stock">("settings");
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [activeApprovalOrder, setActiveApprovalOrder] = useState<Order | null>(null);
+  const [approvalHistoricalPreview, setApprovalHistoricalPreview] = useState(false);
   const [approvalPreviewOnly, setApprovalPreviewOnly] = useState(false);
-  const [exportPreviewOrder, setExportPreviewOrder] = useState<Order | null>(null);
+  const [approvalSingleDocument, setApprovalSingleDocument] = useState(false);
   const [approvalEditorIntent, setApprovalEditorIntent] = useState<"view" | "edit" | "approve" | "reject">("view");
   const [approvalEntrySource, setApprovalEntrySource] = useState<"forms" | "order">("order");
   const [pdfOrder, setPdfOrder] = useState<Order | null>(null);
@@ -1547,15 +2001,57 @@ export default function App() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [chatPresetOrder, setChatPresetOrder] = useState<any | null>(null);
+  const [chatPresetProduct, setChatPresetProduct] = useState<any | null>(null);
+  const [isChatOpenExternal, setIsChatOpenExternal] = useState<boolean | undefined>(undefined);
+  const [contextMenuTarget, setContextMenuTarget] = useState<ContextMenuTarget | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const colTouchTimerRef = useRef<any>(null);
+  const colTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const handleOpenContextMenu = (target: ContextMenuTarget, pos: { x: number; y: number }) => {
+    setContextMenuTarget(target);
+    setContextMenuPos(pos);
+  };
+
+  const handleContextMenuShare = (target: ContextMenuTarget) => {
+    if (target.type === "product") {
+      setChatPresetProduct({
+        id: target.product.id ? String(target.product.id) : undefined,
+        name: target.product.name,
+        code: target.product.code,
+        unit: target.product.unit,
+      });
+      if (target.order) {
+        setChatPresetOrder({
+          id: target.order.id,
+          number: target.order.number,
+          customerName: target.order.customerName,
+          status: target.order.status,
+        });
+      }
+      setIsChatOpenExternal(true);
+    } else if (target.type === "order") {
+      setChatPresetOrder({
+        id: target.order.id,
+        number: target.order.number,
+        customerName: target.order.customerName,
+        status: target.order.status,
+      });
+      setIsChatOpenExternal(true);
+    }
+  };
   const [notificationPreferencesOpen, setNotificationPreferencesOpen] = useState(false);
   const [myNotificationSettings, setMyNotificationSettings] = useState<{ preferences: { inApp: boolean; push: boolean; events: Record<string, boolean> }; permissions: { events: Record<string, boolean> } } | null>(null);
   const [notificationSettingsBusy, setNotificationSettingsBusy] = useState(false);
   const [boardSearch, setBoardSearch] = useState("");
+  const [archiveOrdersOpen, setArchiveOrdersOpen] = useState(false);
   const [inactiveOrdersOpen, setInactiveOrdersOpen] = useState(false);
   const [inactiveOrderBusyId, setInactiveOrderBusyId] = useState("");
-  const [pageTab, setPageTab] = useState<"board" | "forms" | "days" | "stock">(() => {
+  const [inactiveDetailOrder, setInactiveDetailOrder] = useState<Order | null>(null);
+  const [pageTab, setPageTab] = useState<"board" | "waiting" | "forms" | "days" | "stock">(() => {
     const saved = localStorage.getItem("arix-order-page-tab");
-    return ["board", "forms", "days", "stock"].includes(saved || "") ? saved as "board" | "forms" | "days" | "stock" : "board";
+    return ["board", "forms", "days", "stock"].includes(saved || "") ? saved as "board" | "waiting" | "forms" | "days" | "stock" : "board";
   });
   const [orderDay, setOrderDay] = useState<OrderDay | null>(null);
   const dayToggleBusyRef = useRef(false);
@@ -1605,16 +2101,10 @@ export default function App() {
   }, [session?.id, activeOrder?.id, pageTab]);
 
   useEffect(() => {
-    if (!session || activeOrder) return;
-    const savedOrderId = localStorage.getItem(`arix-order-open:${session.id}`);
-    if (!savedOrderId) return;
-    const savedOrder = [...orders, ...approvalOrders].find((order) => order.id === savedOrderId);
-    if (savedOrder) setActiveOrder(savedOrder);
-  }, [session, orders, approvalOrders, activeOrder]);
-
-  useEffect(() => {
-    if (session && activeOrder) localStorage.setItem(`arix-order-open:${session.id}`, activeOrder.id);
-  }, [session, activeOrder]);
+    if (!session) return;
+    // Order details must open only after an explicit user action.
+    localStorage.removeItem(`arix-order-open:${session.id}`);
+  }, [session]);
 
   useEffect(() => {
     if (!session) return;
@@ -1656,7 +2146,16 @@ export default function App() {
     if (sessionCan(session, "counterparties.view") || sessionCan(session, "counterparties.manage")) tasks.push(api<Customer[]>("/api/orders/customers").then(setCustomers)); else setCustomers([]);
     if (sessionCan(session, "company.view") || sessionCan(session, "company.manage")) tasks.push(api<AliasRule[]>("/api/orders/aliases").then(setAliases)); else setAliases([]);
     if (sessionCan(session, "orders.days.view") || sessionCan(session, "orders.days.manage")) tasks.push(api<OrderDay>("/api/orders/day").then(setOrderDay)); else setOrderDay(null);
-    if (sessionCan(session, "orders.view")) tasks.push(api<Order[]>("/api/orders/trash").then(setDeletedOrders)); else setDeletedOrders([]);
+    if (sessionCan(session, "orders.view")) {
+      tasks.push(api<Order[]>("/api/orders/trash").then(setDeletedOrders));
+      tasks.push(api<Order[]>("/api/orders/archived").then(setArchivedOrders));
+    } else {
+      setDeletedOrders([]);
+      setArchivedOrders([]);
+    }
+    if (workflowRole(session.role) === "owner" || sessionCan(session, "orders.create") || sessionCan(session, "order_forms.edit")) {
+      tasks.push(api<DeliveryWaiting[]>("/api/orders/delivery-waiting").then(setDeliveryWaiting));
+    } else setDeliveryWaiting([]);
     if (sessionCan(session, "company.view") || sessionCan(session, "company.manage")) {
       tasks.push(api<{ printSettings?: CompanyPrintSettings }>("/api/company-settings").then((companyData) => {
         if (companyData.printSettings) setPrintSettings(companyData.printSettings);
@@ -1670,11 +2169,31 @@ export default function App() {
   const loadNotifications = useCallback(async () => {
     if (!sessionCan(session, "orders.view")) return setNotifications([]);
     try {
-      setNotifications(await api<OrderNotification[]>("/api/orders/notifications"));
+      const next = await api<OrderNotification[]>("/api/orders/notifications");
+      if (notificationsInitializedRef.current) {
+        const fresh = next.find((item) => !item.readAt && !knownNotificationIdsRef.current.has(item.id));
+        if (fresh) setNotificationToast(fresh);
+      } else {
+        notificationsInitializedRef.current = true;
+      }
+      knownNotificationIdsRef.current = new Set(next.map((item) => item.id));
+      setNotifications(next);
     } catch {
       // Notifications must not interrupt the operational order screen.
     }
   }, [session]);
+
+  useEffect(() => {
+    knownNotificationIdsRef.current = new Set();
+    notificationsInitializedRef.current = false;
+    setNotificationToast(null);
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (!notificationToast) return;
+    const timer = window.setTimeout(() => setNotificationToast(null), 7_000);
+    return () => window.clearTimeout(timer);
+  }, [notificationToast]);
 
   const load = useCallback(async () => {
     if (!sessionCan(session, "orders.view")) {
@@ -1754,9 +2273,25 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
-    api<Session | null>("/api/auth/session")
-      .then(setSession)
-      .catch(() => setSession(null));
+    let cancelled = false;
+    let retries = 0;
+    const checkSession = () => {
+      api<Session | null>("/api/auth/session")
+        .then((user) => {
+          if (!cancelled) setSession(user);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          if (retries < 3) {
+            retries += 1;
+            window.setTimeout(checkSession, 1200);
+          } else {
+            setSession(null);
+          }
+        });
+    };
+    checkSession();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -1794,6 +2329,7 @@ export default function App() {
       setCustomers([]);
       setApprovalOrders([]);
       setDeletedOrders([]);
+      setArchivedOrders([]);
       setActiveOrder(null);
       setActiveApprovalOrder(null);
       setCreateOpen(false);
@@ -1904,7 +2440,8 @@ export default function App() {
     : false;
   const currentWorkflowRole = session ? workflowRole(session.role) : "viewer";
   const canSell =
-    currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.create"));
+    currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.create")) || Boolean(session?.permissions?.includes("order_forms.edit"));
+  const canManageDeliveryWaiting = canSell;
   const canMergeReady = currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.merge_ready"));
   const mergeReadyGroups = useMemo(() => {
     const groups = new Map<string, Order[]>();
@@ -1916,8 +2453,12 @@ export default function App() {
     return [...groups.values()].filter((items) => items.length >= 2);
   }, [orders]);
 
+  const selectedMergeFormWarning = mergeFormWarning((mergeReadySelection || []).filter((order) => mergeReadyCheckedIds.includes(order.id)));
   const mergeReadyOrders = async (selected: Order[]) => {
+    const warning = mergeFormWarning(selected);
+    if (warning) { setMergeReadyError(warning); return; }
     setMergeReadyBusy(true);
+    setMergeReadyError("");
     setError("");
     try {
       const merged = await api<Order>("/api/orders/merge-ready", { method: "POST", body: JSON.stringify({ orderIds: selected.map((order) => order.id) }) });
@@ -1926,14 +2467,14 @@ export default function App() {
       await load();
       setActiveOrder(merged);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Hazır siparişler birleştirilemedi.");
+      setMergeReadyError(cause instanceof Error ? cause.message : "Hazır siparişler birleştirilemedi.");
     } finally {
       setMergeReadyBusy(false);
     }
   };
   const canViewApprovalForms =
     currentWorkflowRole === "owner" ||
-    Boolean(session?.permissions?.includes("order_forms.view"));
+    ["order_forms.view", "order_forms.edit", "order_forms.approve", "order_forms.reject_approved", "order_forms.delete_revision", "order_forms.export_manage"].some((permission) => session?.permissions?.includes(permission));
   const canViewDays = currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.days.view"));
   const canManageDays = currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("orders.days.manage"));
   const canManageTrash = currentWorkflowRole === "owner" || Boolean(session?.permissions?.includes("trash.manage"));
@@ -1961,6 +2502,20 @@ export default function App() {
     }
   };
 
+  const restoreArchivedOrder = async (order: Order) => {
+    setInactiveOrderBusyId(order.id);
+    setError("");
+    try {
+      await api(`/api/orders/${order.id}/unarchive`, { method: "POST" });
+      setInactiveDetailOrder(null);
+      await Promise.all([load(), loadSupportingData()]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Sipariş aktife alınamadı.");
+    } finally {
+      setInactiveOrderBusyId("");
+    }
+  };
+
   useEffect(() => {
     if (!session || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
     let cancelled = false;
@@ -1977,20 +2532,51 @@ export default function App() {
 
   const enablePushNotifications = async () => {
     try {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("Bu cihaz push bildirimini desteklemiyor.");
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        throw new Error("Bu cihaz veya tarayıcı push bildirimini desteklemiyor.");
+      }
+      if (typeof Notification !== "undefined" && Notification.permission === "denied") {
+        throw new Error("Tarayıcınızda bildirimler engellenmiş. Adres çubuğundaki kilit (veya site ayarları) simgesine tıklayarak Bildirimler iznini 'İzin ver' olarak ayarlayın.");
+      }
       const permission = await Notification.requestPermission();
-      if (permission !== "granted") throw new Error("Bildirim izni verilmedi.");
+      if (permission !== "granted") {
+        throw new Error("Bildirim izni verilmedi. Tarayıcı ayarlarından (adres çubuğundaki kilit simgesinden) bildirimlere izin vermelisiniz.");
+      }
       const registration = await navigator.serviceWorker.ready;
       const config = await api<{ publicKey: string }>("/api/orders/push-config");
       if (!config.publicKey) throw new Error("Push bildirim anahtarı sunucuda tanımlı değil.");
-      const bytes = Uint8Array.from(atob(config.publicKey.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(config.publicKey.length / 4) * 4, "=")), (character) => character.charCodeAt(0));
-      const existing = await registration.pushManager.getSubscription();
-      if (existing) await existing.unsubscribe();
-      const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
-      await api("/api/orders/push-subscriptions", { method: "POST", body: JSON.stringify({ subscription: subscription.toJSON() }) });
+
+      const padding = "=".repeat((4 - (config.publicKey.length % 4)) % 4);
+      const base64 = (config.publicKey + padding).replace(/-/g, "+").replace(/_/g, "/");
+      const rawData = window.atob(base64);
+      const applicationServerKey = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) applicationServerKey[i] = rawData.charCodeAt(i);
+
+      let subscription = await registration.pushManager.getSubscription().catch(() => null);
+      if (subscription) {
+        try {
+          await subscription.unsubscribe();
+        } catch {
+          // Ignore unsubscribe failures
+        }
+      }
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
+      await api("/api/orders/push-subscriptions", {
+        method: "POST",
+        body: JSON.stringify({ subscription: subscription.toJSON() }),
+      });
       setPushEnabled(true);
+      setError("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Bildirimler açılamadı.");
+      const message = cause instanceof Error ? cause.message : "Bildirimler açılamadı.";
+      if (message.includes("push service error") || message.includes("Registration failed")) {
+        setError("Bildirim servisi hatası: Windows Ayarlarından (Sistem > Bildirimler) veya tarayıcınızın bildirim ayarlarının açık olduğundan emin olun.");
+      } else {
+        setError(message);
+      }
     }
   };
 
@@ -2064,6 +2650,17 @@ export default function App() {
       }, 100);
       return;
     }
+    if (notification.type === "order_archived") {
+      const archivedOrder = archivedOrders.find((item) => item.id === notification.orderId);
+      if (!archivedOrder) {
+        setError("Arşivlenen sipariş mevcut listenizde bulunamadı veya erişim yetkiniz yok.");
+        return;
+      }
+      setArchiveOrdersOpen(false);
+      setInactiveDetailOrder(archivedOrder);
+      setNotificationMenuOpen(false);
+      return;
+    }
     const target = [...approvalOrders, ...orders].find((item) => item.id === notification.orderId);
     if (!target) {
       setError("İlgili sipariş mevcut listenizde bulunamadı veya erişim yetkiniz yok.");
@@ -2072,6 +2669,7 @@ export default function App() {
     if (targetType === "form") {
       setPageTab("forms");
       setApprovalEntrySource("forms");
+      setApprovalSingleDocument(false);
       setApprovalEditorIntent("view");
       setActiveApprovalOrder(target);
     } else {
@@ -2369,6 +2967,33 @@ export default function App() {
         </div>
       </header>
 
+      {notificationToast && createPortal(
+        <aside className={`desktop-notification-toast ${isDark ? "is-dark" : ""}`} aria-live="polite">
+          <div
+            className="desktop-notification-toast-card"
+            role="button"
+            tabIndex={0}
+            onClick={() => { const target = notificationToast; setNotificationToast(null); void runNotificationAction(target); }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              const target = notificationToast;
+              setNotificationToast(null);
+              void runNotificationAction(target);
+            }}
+          >
+            <span className="desktop-notification-toast-icon"><Bell aria-hidden="true" /></span>
+            <span className="desktop-notification-toast-copy">
+              <b>{notificationToast.title}</b>
+              <span>{notificationToast.message}</span>
+              <small>Şimdi · Açmak için tıklayın</small>
+            </span>
+            <button type="button" className="desktop-notification-toast-close" aria-label="Bildirimi kapat" onClick={(event) => { event.stopPropagation(); setNotificationToast(null); }}><X aria-hidden="true" /></button>
+          </div>
+        </aside>,
+        document.body,
+      )}
+
       <div className="order-content">
         {syncWarning && (
           <div className="sync-warning" role="status">
@@ -2409,7 +3034,17 @@ export default function App() {
               </b>
               <span>{text.active}</span>
             </div>
-            <button className="inactive-orders-trigger" type="button" onClick={() => setInactiveOrdersOpen(true)} aria-label="İptal ve silinen siparişler" title="İptal ve silinen siparişler">
+            <button className="inactive-orders-trigger archive-trigger" type="button" onClick={() => setArchiveOrdersOpen(true)} aria-label="Arşivlenen siparişler" title="Arşivlenen siparişler">
+              <Archive aria-hidden="true" />
+              {archivedOrders.length > 0 && <span>{archivedOrders.length > 99 ? "99+" : archivedOrders.length}</span>}
+            </button>
+            {canManageDeliveryWaiting && (
+              <button className="inactive-orders-trigger waiting-trigger" type="button" onClick={() => setDeliveryWaitingOpen(true)} aria-label="Teslimat bekleyenler" title="Teslimat bekleyenler">
+                <Truck aria-hidden="true" />
+                {deliveryWaiting.filter((record) => record.status !== "completed").length > 0 && <span>{deliveryWaiting.filter((record) => record.status !== "completed").length > 99 ? "99+" : deliveryWaiting.filter((record) => record.status !== "completed").length}</span>}
+              </button>
+            )}
+            <button className="inactive-orders-trigger trash-trigger" type="button" onClick={() => setInactiveOrdersOpen(true)} aria-label="Silinen ve iptal edilen siparişler" title="Silinen ve iptal edilen siparişler">
               <Trash2 aria-hidden="true" />
               {deletedOrders.length > 0 && <span>{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</span>}
             </button>
@@ -2488,6 +3123,7 @@ export default function App() {
                   orders={grouped[status]}
                   onOpen={setActiveOrder}
                   language={language}
+                  onOpenContextMenu={handleOpenContextMenu}
                   onMerge={status === "ready" && canMergeReady && mergeReadyGroups.length ? (group) => {
                     setMergeReadySelection(group);
                     setMergeReadyCheckedIds([]);
@@ -2497,16 +3133,33 @@ export default function App() {
             </section>
           </div>
         ) : pageTab === "forms" ? (
-          <ApprovalFormsPage orders={approvalOrders} onOpen={(order) => {
+          <ApprovalFormsPage orders={approvalOrders} session={session} onPrintStatusChanged={(orderId, printedAt) => {
+            setApprovalOrders((current) => current.map((order) => order.id === orderId && order.approvalForm ? {
+              ...order,
+              approvalForm: { ...order.approvalForm, printedByCurrentUser: Boolean(printedAt), printedAtForCurrentUser: printedAt || undefined },
+            } : order));
+          }} onRevisionDeleted={(nextOrder) => {
+            setApprovalOrders((current) => current.map((order) => order.id === nextOrder.id ? nextOrder : order));
+            void load();
+          }} onOpen={(order) => {
             setApprovalEntrySource("forms");
             setApprovalPreviewOnly(false);
+            setApprovalSingleDocument(false);
             setApprovalEditorIntent("view");
             setActiveApprovalOrder(order);
-          }} onShowPdf={(order) => {
-            setApprovalEntrySource("forms");
-            const documentType = order.approvalForm?.documentType;
-            if (order.isExport || (documentType && documentType !== "domestic")) setExportPreviewOrder(order);
-            else setPdfOrder(order);
+          }} onShowPdf={(order, revision) => {
+            const selectedOrder = { ...order, id: revision.sourceOrderId || order.id, ...(revision.sourceOrderId ? { mergedIntoOrderId: order.id, mergedIntoOrderNumber: order.number } : {}), approvalForm: revision.form };
+            const isDomesticWithoutArchive = revision.documentType === "domestic" && (!revision.isCurrent || !revision.form.archive?.path);
+            setApprovalEntrySource(revision.isCurrent ? "forms" : "order");
+            setApprovalHistoricalPreview(!revision.isCurrent);
+            if (!isDomesticWithoutArchive) {
+              setPdfOrder(selectedOrder);
+              return;
+            }
+            setApprovalSingleDocument(true);
+            setApprovalPreviewOnly(true);
+            setApprovalEditorIntent("view");
+            setActiveApprovalOrder(selectedOrder);
           }} />
         ) : pageTab === "days" ? (
           <DailyArchive
@@ -2539,17 +3192,47 @@ export default function App() {
             www.arix.az
           </a>
         </footer>
+        {archiveOrdersOpen && (
+          <Modal title="Arşivlenen siparişler" subtitle={`${archivedOrders.length} kayıt`} onClose={() => setArchiveOrdersOpen(false)} className="inactive-orders-modal">
+            {archivedOrders.length ? <div className="inactive-orders-list modal-list">
+              {archivedOrders.map((order) => {
+                const reason = order.archiveReason;
+                const actor = order.archivedBy;
+                const at = order.archivedAt;
+                return <article className="inactive-order-row" key={`archived-${order.id}`}>
+                  <button type="button" className="inactive-order-info" onClick={() => { setArchiveOrdersOpen(false); setInactiveDetailOrder(order); }}>
+                    <span className="inactive-order-icon archived"><Archive aria-hidden="true" /></span>
+                    <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün · Arşivlendi</small></span>
+                    <span className="inactive-order-detail"><span>{reason || "Sebep kaydedilmemiş"}</span><small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language, { dateStyle: "short", timeStyle: "short" })}` : ""}</small></span>
+                  </button>
+                  <div className="inactive-order-actions">
+                    <button type="button" className="secondary" disabled={inactiveOrderBusyId === order.id} onClick={() => void restoreArchivedOrder(order)}><RotateCcw aria-hidden="true" />Aktife al</button>
+                  </div>
+                </article>;
+              })}
+            </div> : <div className="inactive-orders-empty"><Archive aria-hidden="true" /><b>Henüz arşivlenen sipariş yok</b></div>}
+          </Modal>
+        )}
+        {deliveryWaitingOpen && (
+          <Modal title="Teslimat bekleyenler" subtitle="Faturalara göre bekleyen teslimatlar" onClose={() => setDeliveryWaitingOpen(false)} className="delivery-waiting-workspace-modal">
+            <DeliveryWaitingPage records={deliveryWaiting} onOpen={(record, groupId) => {
+              setActiveDeliveryWaiting(record);
+              setActiveDeliveryWaitingGroupId(groupId);
+            }} language={language} />
+          </Modal>
+        )}
         {inactiveOrdersOpen && (
-          <Modal title="İptal ve silinenler" subtitle={`${deletedOrders.length} kayıt`} onClose={() => setInactiveOrdersOpen(false)} className="inactive-orders-modal">
+          <Modal title="Silinen ve iptal edilenler" subtitle={`${deletedOrders.length} kayıt`} onClose={() => setInactiveOrdersOpen(false)} className="inactive-orders-modal">
             {deletedOrders.length ? <div className="inactive-orders-list modal-list">
               {deletedOrders.map((order) => {
                 const deleted = Boolean(order.deletedAt);
+                const kind = deleted ? "deleted" : "cancelled";
                 const reason = deleted ? order.deletionReason : order.cancellationReason;
                 const actor = deleted ? order.deletedBy : order.cancelledBy;
                 const at = deleted ? order.deletedAt : order.cancelledAt || order.updatedAt;
-                return <article className="inactive-order-row" key={`${deleted ? "deleted" : "cancelled"}-${order.id}`}>
-                  <button type="button" className="inactive-order-info" onClick={() => { if (!deleted) { setInactiveOrdersOpen(false); setActiveOrder(order); } }} disabled={deleted}>
-                    <span className={`inactive-order-icon ${deleted ? "deleted" : "cancelled"}`}><Trash2 aria-hidden="true" /></span>
+                return <article className="inactive-order-row" key={`${kind}-${order.id}`}>
+                  <button type="button" className="inactive-order-info" onClick={() => { setInactiveOrdersOpen(false); setInactiveDetailOrder(order); }}>
+                    <span className={`inactive-order-icon ${kind}`}><Trash2 aria-hidden="true" /></span>
                     <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün · {deleted ? "Silindi" : "İptal edildi"}</small></span>
                     <span className="inactive-order-detail"><span>{reason || "Sebep kaydedilmemiş"}</span><small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language, { dateStyle: "short", timeStyle: "short" })}` : ""}</small></span>
                   </button>
@@ -2559,10 +3242,41 @@ export default function App() {
                   </div>}
                 </article>;
               })}
-            </div> : <div className="inactive-orders-empty"><Trash2 aria-hidden="true" /><b>Henüz iptal veya silinen sipariş yok</b></div>}
+            </div> : <div className="inactive-orders-empty"><Trash2 aria-hidden="true" /><b>Henüz silinen veya iptal edilen sipariş yok</b></div>}
+          </Modal>
+        )}
+        {inactiveDetailOrder && (
+          <Modal
+            title={inactiveDetailOrder.customerName}
+            subtitle={`${inactiveDetailOrder.number} · ${inactiveDetailOrder.archivedAt ? "Arşivlendi" : inactiveDetailOrder.deletedAt ? "Silindi" : "İptal edildi"}`}
+            onClose={() => {
+              const wasArchived = Boolean(inactiveDetailOrder.archivedAt);
+              setInactiveDetailOrder(null);
+              if (wasArchived) setArchiveOrdersOpen(true);
+              else setInactiveOrdersOpen(true);
+            }}
+            className="inactive-order-detail-modal"
+          >
+            <InactiveOrderDetail order={inactiveDetailOrder} language={language} onOpenContextMenu={handleOpenContextMenu} />
+            {inactiveDetailOrder.archivedAt && <footer className="inactive-detail-actions"><button type="button" className="primary" disabled={inactiveOrderBusyId === inactiveDetailOrder.id} onClick={() => void restoreArchivedOrder(inactiveDetailOrder)}><RotateCcw aria-hidden="true" />Aktife al</button></footer>}
           </Modal>
         )}
       </div>
+
+      {activeDeliveryWaiting && (
+        <DeliveryWaitingDetail
+          record={activeDeliveryWaiting}
+          groupId={activeDeliveryWaitingGroupId}
+          language={language}
+          printSettings={printSettings}
+          onClose={() => { setActiveDeliveryWaiting(null); setActiveDeliveryWaitingGroupId(""); }}
+          onReleased={(waiting, order) => {
+            setDeliveryWaiting((current) => current.map((record) => record.id === waiting.id ? waiting : record));
+            setOrders((current) => current.some((entry) => entry.id === order.id) ? current : [order, ...current]);
+            setActiveDeliveryWaiting(waiting);
+          }}
+        />
+      )}
 
       {createOpen && (
         <CreateOrder
@@ -2582,10 +3296,12 @@ export default function App() {
       {mergeReadySelection && (
         <Modal title="Hazır siparişleri birleştir" subtitle={`${mergeReadySelection[0].customerName} · ${mergeReadySelection.length} hazır siparişten birleştirilecekleri seçin.`} onClose={() => {
           if (mergeReadyBusy) return;
+          setMergeReadyError("");
           setMergeReadySelection(null);
           setMergeReadyCheckedIds([]);
         }}>
           <div className="merge-ready-groups">
+              {(selectedMergeFormWarning || mergeReadyError) && <div className="error" role="alert">{selectedMergeFormWarning || mergeReadyError}</div>}
               <article className="merge-ready-summary">
                 <div className="merge-ready-summary-copy">
                   <span className="merge-ready-summary-icon"><Layers3 aria-hidden="true" /></span>
@@ -2594,7 +3310,7 @@ export default function App() {
                     <small>{mergeReadyCheckedIds.length < 2 ? "Birleştirmek için en az iki sipariş seçin." : "Seçilen siparişler tek teslimatta birleştirilecek."}</small>
                   </span>
                 </div>
-                <button type="button" className="primary" disabled={mergeReadyBusy || mergeReadyCheckedIds.length < 2} onClick={() => void mergeReadyOrders(mergeReadySelection.filter((order) => mergeReadyCheckedIds.includes(order.id)))}>Seçilenleri birleştir</button>
+                <button type="button" className="primary" disabled={mergeReadyBusy || mergeReadyCheckedIds.length < 2 || Boolean(selectedMergeFormWarning)} onClick={() => void mergeReadyOrders(mergeReadySelection.filter((order) => mergeReadyCheckedIds.includes(order.id)))}>Seçilenleri birleştir</button>
               </article>
               <div className="merge-ready-picker">
                 {mergeReadySelection.map((order) => {
@@ -2606,6 +3322,7 @@ export default function App() {
                       checked={selected}
                       onChange={(event) => {
                         const checked = event.target.checked;
+                        setMergeReadyError("");
                         setMergeReadyCheckedIds((current) => checked ? [...current, order.id] : current.filter((id) => id !== order.id));
                       }}
                     />
@@ -2615,7 +3332,7 @@ export default function App() {
                     </span>
                     <span className="merge-ready-order-meta">
                       <b>{order.items.map((item) => preparedQuantityLabel(item)).join(" · ")}</b>
-                      <small>{order.items.length} ürün satırı</small>
+                      <small>{order.items.length} ürün satırı{mergeFormWarning([order]) ? " · Önce formu iptal edin" : ""}</small>
                     </span>
                   </label>
                 );})}
@@ -2633,13 +3350,17 @@ export default function App() {
             </div>
             <div className="self-notification-groups">
               {notificationEventGroups.map((group) => {
-                const options = notificationEventOptions.filter(([key]) => group.keys.includes(key as never) && myNotificationSettings.permissions.events?.[key] !== false);
+                const options = notificationEventOptions.filter(([key]) => group.keys.includes(key as never));
                 if (!options.length) return null;
-                const selected = options.filter(([key]) => myNotificationSettings.preferences.events?.[key] !== false).length;
+                const allowedOptions = options.filter(([key]) => myNotificationSettings.permissions.events?.[key] !== false);
+                const selected = allowedOptions.filter(([key]) => myNotificationSettings.preferences.events?.[key] !== false).length;
                 return <details key={group.label}>
-                  <summary><span><b>{group.label}</b><small>{options.length} bildirim türü</small></span><strong>{selected}/{options.length}</strong></summary>
+                  <summary><span><b>{group.label}</b><small>{options.length} bildirim türü</small></span><strong>{selected}/{allowedOptions.length}</strong></summary>
                   <div className="self-notification-events">
-                    {options.map(([key, label]) => <label key={key}><span>{label}</span><input type="checkbox" checked={myNotificationSettings.preferences.events?.[key] !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, events: { ...current.preferences.events, [key]: event.target.checked } } } : current)} /></label>)}
+                    {options.map(([key, label]) => {
+                      const allowed = myNotificationSettings.permissions.events?.[key] !== false;
+                      return <label key={key} className={allowed ? "" : "is-admin-disabled"}><span>{label}{!allowed && <small>Yönetici tarafından kapalı</small>}</span><input type="checkbox" disabled={!allowed} checked={allowed && myNotificationSettings.preferences.events?.[key] !== false} onChange={(event) => setMyNotificationSettings((current) => current ? { ...current, preferences: { ...current.preferences, events: { ...current.preferences.events, [key]: event.target.checked } } } : current)} /></label>;
+                    })}
                   </div>
                 </details>;
               })}
@@ -2670,7 +3391,7 @@ export default function App() {
       {activeOrder && (
         <OrderDetail
           order={activeOrder}
-          allOrders={orders}
+          allOrders={[...orders, ...approvalOrders.filter((candidate) => !orders.some((current) => current.id === candidate.id))]}
           products={products}
           customers={customers}
           printSettings={printSettings}
@@ -2678,6 +3399,16 @@ export default function App() {
           session={session}
           workflowRole={currentWorkflowRole}
           language={language}
+          onOpenContextMenu={handleOpenContextMenu}
+          onOpenChat={(targetOrder) => {
+            setChatPresetOrder({
+              id: targetOrder.id,
+              number: targetOrder.number,
+              customerName: targetOrder.customerName,
+              status: targetOrder.status,
+            });
+            setIsChatOpenExternal(true);
+          }}
           onClose={() => {
             localStorage.removeItem(`arix-order-open:${session.id}`);
             setActiveOrder(null);
@@ -2685,7 +3416,7 @@ export default function App() {
           onChanged={(next) => {
             setActiveOrder(next);
             void load();
-            if (next.status === "cancelled") void loadSupportingData();
+            if (next.status === "cancelled" || next.deliveryWaitingSourceId || next.isDeferredDelivery) void loadSupportingData();
             void loadNotifications();
           }}
           onShowApprovalPdf={(order) => {
@@ -2702,6 +3433,7 @@ export default function App() {
       )}
       {activeApprovalOrder && (
         <ApprovalFormEditor
+          products={products}
           key={activeApprovalOrder.id}
           order={activeApprovalOrder}
           customers={customers}
@@ -2711,16 +3443,19 @@ export default function App() {
           initialAction={approvalEditorIntent}
           allowApproval={approvalEntrySource === "forms"}
           previewOnly={approvalPreviewOnly}
-          onPreviewPdf={approvalPreviewOnly ? (blob, nextOrder, filename) => {
+          singleDocument={approvalSingleDocument}
+          onPreviewPdf={(blob, nextOrder, filename) => {
             setPdfPreviewBlob(blob);
             setPdfPreviewFilename(filename);
             setPdfOrder(nextOrder);
             setActiveApprovalOrder(null);
             setApprovalPreviewOnly(false);
-          } : undefined}
+          }}
           onClose={() => {
             setActiveApprovalOrder(null);
             setApprovalPreviewOnly(false);
+            setApprovalSingleDocument(false);
+            setApprovalHistoricalPreview(false);
             setApprovalEditorIntent("view");
           }}
           onSaved={(next) => {
@@ -2731,49 +3466,15 @@ export default function App() {
           }}
         />
       )}
-      {exportPreviewOrder && (
-        <Modal
-          title="Belgeyi göster"
-          subtitle={`${exportPreviewOrder.customerName} · ${exportPreviewOrder.number}`}
-          onClose={() => setExportPreviewOrder(null)}
-          className="export-preview-picker"
-        >
-          <div className="export-preview-options">
-            {([
-              ["proforma", "Proforma Invoice", "Müşteriye gönderilen onay belgesi"],
-              ["commercial_invoice", "Commercial Invoice", "Sevkiyatın ticari faturası"],
-              ["packing_list", "Packing List", "Palet, ağırlık ve paket bilgileri"],
-            ] as const).map(([documentType, title, description]) => (
-              <button
-                type="button"
-                key={documentType}
-                onClick={() => {
-                  const approvalForm = exportPreviewOrder.approvalForm;
-                  if (!approvalForm) return;
-                  setActiveApprovalOrder({
-                    ...exportPreviewOrder,
-                    approvalForm: { ...approvalForm, documentType },
-                  });
-                  setApprovalPreviewOnly(true);
-                  setApprovalEditorIntent("view");
-                  setExportPreviewOrder(null);
-                }}
-              >
-                <FileText aria-hidden="true" />
-                <span><b>{title}</b><small>{description}</small></span>
-              </button>
-            ))}
-          </div>
-        </Modal>
-      )}
       {pdfOrder && (
         <ApprovalPdfViewer
           order={pdfOrder}
           session={session}
           allowApproval={approvalEntrySource === "forms"}
+          historical={approvalHistoricalPreview}
           previewPdfBlob={pdfPreviewBlob ?? undefined}
           previewFilename={pdfPreviewFilename || undefined}
-          onClose={() => { setPdfOrder(null); setPdfPreviewBlob(null); setPdfPreviewFilename(""); }}
+          onClose={() => { setPdfOrder(null); setPdfPreviewBlob(null); setPdfPreviewFilename(""); setApprovalHistoricalPreview(false); }}
           onEdit={() => {
             setPdfPreviewBlob(null);
             setPdfPreviewFilename("");
@@ -2795,9 +3496,601 @@ export default function App() {
             setApprovalEditorIntent("reject");
             setActiveApprovalOrder(pdfOrder);
           }}
+          onWithdraw={async () => {
+            if (!window.confirm("Bu formu onay bekleyenler listesinden geri çekip tekrar taslağa almak istiyor musunuz?")) return;
+            try {
+              const next = await api<Order>(`/api/orders/${pdfOrder.id}/approval-form/withdraw`, {
+                method: "POST",
+                body: JSON.stringify({ documentType: pdfOrder.approvalForm?.documentType }),
+              });
+              setPdfPreviewBlob(null);
+              setPdfPreviewFilename("");
+              setPdfOrder(null);
+              setActiveApprovalOrder(next);
+              setApprovalOrders((current) => current.map((item) => item.id === next.id ? next : item));
+              void load();
+            } catch (cause) {
+              alert(cause instanceof Error ? cause.message : "Onay geri çekilemedi.");
+            }
+          }}
+          onPrinted={(printedAt) => {
+            setApprovalOrders((current) => current.map((order) => order.id === pdfOrder.id && order.approvalForm ? {
+              ...order,
+              approvalForm: { ...order.approvalForm, printedByCurrentUser: true, printedAtForCurrentUser: printedAt },
+            } : order));
+          }}
+        />
+      )}
+      {contextMenuTarget && contextMenuPos && (
+        <AriXContextMenu
+          target={contextMenuTarget}
+          position={contextMenuPos}
+          onClose={() => {
+            setContextMenuTarget(null);
+            setContextMenuPos(null);
+          }}
+          onShareInChat={handleContextMenuShare}
+        />
+      )}
+      {session && (
+        <TeamChatWidget
+          currentUser={session}
+          activeOrder={activeOrder ? { id: activeOrder.id, number: activeOrder.number, customerName: activeOrder.customerName } : null}
+          orders={orders}
+          products={products}
+          pushEnabled={pushEnabled}
+          onEnablePush={enablePushNotifications}
+          onOpenOrder={(orderNumber) => {
+            const found = orders.find((o) => o.number === orderNumber || o.id === orderNumber);
+            if (found) {
+              setActiveOrder(found);
+            }
+          }}
+          api={api}
+          isOpenExternal={isChatOpenExternal}
+          onCloseExternal={() => setIsChatOpenExternal(false)}
+          presetOrder={chatPresetOrder}
+          presetProduct={chatPresetProduct}
+          onClearPreset={() => {
+            setChatPresetOrder(null);
+            setChatPresetProduct(null);
+          }}
         />
       )}
     </main>
+  );
+}
+
+function deliveryWaitingAmount(quantity: number, rolls: number) {
+  return [quantity > 0 ? `${quantity.toLocaleString("tr-TR", { maximumFractionDigits: 3 })} mt` : "", rolls > 0 ? `${rolls} rulo` : ""].filter(Boolean).join(" · ") || "—";
+}
+
+function deliveryWaitingGroups(items: DeliveryWaitingItem[]) {
+  const groups = new Map<string, { id: string; label: string; range: string; items: DeliveryWaitingItem[] }>();
+  for (const item of items) {
+    const id = item.sourceGroupId || "invoice";
+    const group = groups.get(id) || { id, label: item.sourceGroupLabel || "Fatura", range: item.sourceGroupRange || "", items: [] };
+    group.items.push(item);
+    groups.set(id, group);
+  }
+  return [...groups.values()];
+}
+
+function deliveryReleaseMatchesItems(item: DeliveryWaitingRelease["items"][number], items: DeliveryWaitingItem[]) {
+  if (item.waitingItemId && items.some((entry) => String(entry.id) === String(item.waitingItemId))) return true;
+  if (item.productId && items.some((entry) => Number(entry.productId) === Number(item.productId))) return true;
+  const code = String(item.productCode || "").trim().toLocaleLowerCase("tr");
+  return Boolean(code && items.some((entry) => String(entry.productCode || "").trim().toLocaleLowerCase("tr") === code));
+}
+
+function deliveryBalanceProgress(item: DeliveryWaitingItem) {
+  const total = item.quantity > 0 ? item.quantity : item.orderedRollCount;
+  const delivered = item.quantity > 0 ? item.deliveredQuantity : item.deliveredRollCount;
+  const active = item.quantity > 0 ? item.releasedQuantity : item.releasedRollCount;
+  if (!(total > 0)) return { delivered: 0, active: 0 };
+  const deliveredPercent = Math.min(100, Math.max(0, (delivered / total) * 100));
+  const activePercent = Math.min(100 - deliveredPercent, Math.max(0, (active / total) * 100));
+  return { delivered: deliveredPercent, active: activePercent };
+}
+
+function DeliveryWaitingPage({ records, onOpen, language }: { records: DeliveryWaiting[]; onOpen: (record: DeliveryWaiting, groupId: string) => void; language: Language }) {
+  const openRecords = records.filter((record) => record.status !== "completed");
+  const cards = openRecords.flatMap((record) => deliveryWaitingGroups(record.items).map((group) => ({ record, group })));
+  const customerGroups = [...cards.reduce((groups, card) => {
+    const customerKey = card.record.customerName.trim().toLocaleLowerCase("tr");
+    const current = groups.get(customerKey) || { customerName: card.record.customerName, cards: [] as typeof cards };
+    current.cards.push(card);
+    groups.set(customerKey, current);
+    return groups;
+  }, new Map<string, { customerName: string; cards: typeof cards }>()).values()];
+  return <section className="delivery-waiting-page delivery-waiting-panel-content">
+    <div className="delivery-waiting-panel-summary"><div><Truck aria-hidden="true" /><span><b>{cards.length}</b> bekleyen fatura</span><span><b>{openRecords.length}</b> müşteri</span></div><p>Bir kartı açarak kalan ürünleri ve teslimat geçmişini yönetin.</p></div>
+    {cards.length ? <div className="delivery-customer-groups">
+      {customerGroups.map((customerGroup) => <section className="delivery-customer-group" key={customerGroup.customerName}>
+        <header><span><Building2 aria-hidden="true" /></span><div><b>{customerGroup.customerName}</b><small>Bekleyen teslimat faturaları</small></div><strong>{customerGroup.cards.length} fatura</strong></header>
+        <div className="delivery-waiting-grid">{customerGroup.cards.map(({ record, group }) => {
+        const total = group.items.reduce((sum, item) => sum + item.quantity, 0);
+        const totalRolls = group.items.reduce((sum, item) => sum + item.orderedRollCount, 0);
+        const remaining = group.items.reduce((sum, item) => sum + item.remainingQuantity, 0);
+        const remainingRolls = group.items.reduce((sum, item) => sum + item.remainingRollCount, 0);
+        const activeQuantity = group.items.reduce((sum, item) => sum + item.releasedQuantity, 0);
+        const activeRolls = group.items.reduce((sum, item) => sum + item.releasedRollCount, 0);
+        const deliveredQuantity = group.items.reduce((sum, item) => sum + item.deliveredQuantity, 0);
+        const deliveredRolls = group.items.reduce((sum, item) => sum + item.deliveredRollCount, 0);
+        const related = record.releases.filter((release) => !release.cancelledAt && release.items.some((item) => deliveryReleaseMatchesItems(item, group.items)));
+        const progressTotal = total > 0 ? total : totalRolls;
+        const deliveredProgress = progressTotal > 0 ? ((total > 0 ? deliveredQuantity : deliveredRolls) / progressTotal) * 100 : 0;
+        const activeProgress = progressTotal > 0 ? ((total > 0 ? activeQuantity : activeRolls) / progressTotal) * 100 : 0;
+        const deliveredWidth = Math.min(100, Math.max(0, deliveredProgress));
+        const activeWidth = Math.min(100 - deliveredWidth, Math.max(0, activeProgress));
+        return <button type="button" className="delivery-waiting-card delivery-invoice-card" key={`${record.id}-${group.id}`} onClick={() => onOpen(record, group.id)}>
+          <div className="delivery-waiting-card-top"><span className="delivery-source-badge opening_balance"><FileText aria-hidden="true" />{group.label}</span><small>{group.range || "Tarih yok"}</small></div>
+          <div className="delivery-waiting-card-main"><span className="delivery-waiting-card-icon"><Truck aria-hidden="true" /></span><div><h3>{record.customerName}</h3><p>{record.number} · {group.items.length} ürün · {related.length} teslimat kaydı</p></div></div>
+          <div className="delivery-waiting-card-products">{group.items.slice(0, 3).map((item) => <span key={item.id}>{item.productName}</span>)}{group.items.length > 3 && <b>+{group.items.length - 3} ürün</b>}</div>
+          <div className="delivery-progress" aria-label="Teslimat ilerlemesi"><i className="delivered" style={{ width: `${deliveredWidth}%` }} /><i className="active" style={{ width: `${activeWidth}%` }} /></div>
+          <div className="delivery-waiting-card-stats"><span className="remaining"><small>Kalan</small><b>{deliveryWaitingAmount(remaining, remainingRolls)}</b></span><span className="active"><small>Aktif siparişte</small><b>{deliveryWaitingAmount(activeQuantity, activeRolls)}</b></span><span className="delivered"><small>Teslim edildi</small><b>{deliveryWaitingAmount(deliveredQuantity, deliveredRolls)}</b></span></div>
+          <footer><span><Eye aria-hidden="true" /> Bakiyeyi ve teslimatları gör</span><b>Detay</b></footer>
+        </button>;
+      })}</div></section>)}
+    </div> : <div className="delivery-waiting-empty"><Truck aria-hidden="true" /><b>Bekleyen teslimat yok</b><span>Teslimatı ertelenen satışlar burada görünecek.</span></div>}
+  </section>;
+}
+
+function buildDeliveryWaitingPrintHtml({
+  record,
+  group,
+  visibleItems,
+  relatedReleases,
+  totalQuantity,
+  totalRolls,
+  remainingQuantity,
+  remainingRolls,
+  activeQuantity,
+  activeRolls,
+  deliveredQuantity,
+  deliveredRolls,
+  printSettings,
+}: {
+  record: DeliveryWaiting;
+  group?: { id: string; label: string; range: string };
+  visibleItems: DeliveryWaitingItem[];
+  relatedReleases: DeliveryWaitingRelease[];
+  totalQuantity: number;
+  totalRolls: number;
+  remainingQuantity: number;
+  remainingRolls: number;
+  activeQuantity: number;
+  activeRolls: number;
+  deliveredQuantity: number;
+  deliveredRolls: number;
+  printSettings?: CompanyPrintSettings;
+}) {
+  const companyName = printSettings?.companyName || "ERSAFOLYO MİMARLIK DEKORASYON SAN. TİC. LTD. ŞTİ.";
+  const brandSubtitle = printSettings?.brandSubtitle || "MEHMET AKİF MH. BAHARİYE CD. NO:161";
+  const contactLine = [printSettings?.phone, printSettings?.email, printSettings?.website].filter(Boolean).join(" · ");
+  const dateStr = new Date().toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const timeStr = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  const refLabel = `${group?.label || "Fatura"} · ${group?.range || record.number}`;
+  const isCompleted = record.status === "completed" || (remainingQuantity <= 0.000001 && remainingRolls <= 0);
+
+  const productRows = visibleItems.map((item, index) => {
+    const itemDone = item.remainingQuantity <= 0.000001 && item.remainingRollCount <= 0;
+    return `<tr>
+      <td style="text-align: center; color: #64748b; font-weight: 600;">${index + 1}</td>
+      <td style="font-family: monospace; font-weight: 700; color: #334155;">${escapeHtml(item.productCode || "—")}</td>
+      <td>
+        <b style="color: #0f172a; font-size: 8.5pt;">${escapeHtml(item.productName)}</b>
+        ${item.sourceGroupRange ? `<small style="display: block; color: #64748b; font-size: 6.8pt; margin-top: 0.5mm;">${escapeHtml(item.sourceGroupLabel || "Fatura")}: ${escapeHtml(item.sourceGroupRange)}</small>` : ""}
+      </td>
+      <td class="num"><b>${deliveryWaitingAmount(item.quantity, item.orderedRollCount)}</b></td>
+      <td class="num" style="color: #15803d;">${deliveryWaitingAmount(item.deliveredQuantity, item.deliveredRollCount)}</td>
+      <td class="num" style="color: #4338ca;">${deliveryWaitingAmount(item.releasedQuantity, item.releasedRollCount)}</td>
+      <td class="num remaining-cell">${deliveryWaitingAmount(item.remainingQuantity, item.remainingRollCount)}</td>
+      <td style="text-align: center;">
+        <span class="dw-badge ${itemDone ? "dw-badge-done" : "dw-badge-waiting"}">
+          ${itemDone ? "Tamamlandı" : "Bekliyor"}
+        </span>
+      </td>
+    </tr>`;
+  }).join("");
+
+  const releasesHtml = relatedReleases.length > 0 ? `
+    <div class="dw-section-title">
+      <span>Bağlı Teslimat Partileri (${relatedReleases.length} kayıt)</span>
+      <small style="color: #64748b; font-weight: normal; font-size: 7.2pt;">Faturadan aktarılıp hazırlanan veya teslim edilen sevkiyatlar</small>
+    </div>
+    <table class="dw-history-table">
+      <thead>
+        <tr>
+          <th style="width: 14%;">Parti / Sipariş</th>
+          <th style="width: 12%;">İrsaliye</th>
+          <th style="width: 16%;">Tarih</th>
+          <th style="width: 12%;">Durum</th>
+          <th style="width: 18%;">Yetkili</th>
+          <th style="width: 28%;">Gönderilen Ürünler</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${relatedReleases.map((rel) => {
+          const isDelivered = Boolean(rel.deliveredAt);
+          const relItems = rel.items.filter((item) => deliveryReleaseMatchesItems(item, visibleItems));
+          return `<tr>
+            <td><b style="color: #1e293b;">${escapeHtml(rel.orderNumber)}</b></td>
+            <td><span style="font-family: monospace; font-weight: 600;">${escapeHtml(rel.despatchNumber || "—")}</span></td>
+            <td>${new Date(rel.deliveredAt || rel.createdAt).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" })}</td>
+            <td>
+              <span class="dw-badge ${isDelivered ? "dw-badge-done" : "dw-badge-waiting"}">
+                ${isDelivered ? "Teslim Edildi" : "Aktif Siparişte"}
+              </span>
+            </td>
+            <td>${escapeHtml(isDelivered ? `Teslim: ${rel.deliveredBy || "—"}` : `Gönderen: ${rel.createdBy}`)}</td>
+            <td>
+              ${relItems.map((item) => `<div>${escapeHtml(item.productName)}: <b>${deliveryWaitingAmount(Number(item.deliveredQuantity ?? item.preparedQuantity ?? item.quantity) || 0, Number(item.deliveredRollCount ?? item.preparedRollCount ?? item.orderedRollCount) || 0)}</b></div>`).join("")}
+              ${rel.deliveryNote ? `<div style="color: #64748b; font-style: italic; margin-top: 0.5mm;">Not: ${escapeHtml(rel.deliveryNote)}</div>` : ""}
+            </td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+  ` : "";
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(record.customerName)} - Teslimat Bekleyenler</title>
+  <style>
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #17233b; background: #fff; font-size: 8.5pt; line-height: 1.4; }
+    @page { size: A4 portrait; margin: 8mm 10mm; }
+    .dw-print-page { width: 100%; max-width: 210mm; margin: 0 auto; padding: 6mm 8mm; background: #fff; }
+    .dw-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 3.5mm; border-bottom: 2px solid #5545ef; margin-bottom: 4mm; }
+    .dw-brand { display: flex; align-items: center; gap: 3mm; }
+    .dw-brand-title b { font-size: 10.5pt; color: #182033; display: block; }
+    .dw-brand-title small { font-size: 7pt; color: #59667b; display: block; margin-top: 0.5mm; }
+    .dw-doc-info { text-align: right; }
+    .dw-doc-title { font-size: 11pt; font-weight: 800; color: #5545ef; margin: 0 0 1mm; text-transform: uppercase; }
+    .dw-doc-meta { font-size: 7.5pt; color: #59667b; line-height: 1.35; }
+    .dw-customer-box { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3.5px solid #5545ef; border-radius: 4px; padding: 2.5mm 3.5mm; margin-bottom: 3.5mm; }
+    .dw-customer-name { font-size: 10.5pt; font-weight: 800; color: #0f172a; }
+    .dw-customer-ref { font-size: 7.5pt; color: #64748b; margin-top: 0.5mm; }
+    .dw-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5mm; margin-bottom: 4mm; }
+    .dw-kpi { border: 1px solid #e2e8f0; border-radius: 4px; padding: 2mm 2.5mm; background: #fbfcfe; }
+    .dw-kpi small { display: block; font-size: 6.5pt; color: #64748b; font-weight: 600; text-transform: uppercase; }
+    .dw-kpi b { display: block; font-size: 9.5pt; font-weight: 800; color: #1e293b; margin-top: 0.8mm; }
+    .dw-kpi.remaining { border-color: #fed7aa; background: #fffaf0; border-left: 3px solid #f59e0b; }
+    .dw-kpi.remaining b { color: #b45309; }
+    .dw-kpi.active { border-color: #c7d2fe; background: #f5f7ff; border-left: 3px solid #6366f1; }
+    .dw-kpi.active b { color: #4338ca; }
+    .dw-kpi.delivered { border-color: #bbf7d0; background: #f0fdf4; border-left: 3px solid #22c55e; }
+    .dw-kpi.delivered b { color: #15803d; }
+    .dw-table { width: 100%; border-collapse: collapse; font-size: 7.8pt; margin-bottom: 4mm; }
+    .dw-table th { background: #f1f5f9; color: #334155; font-weight: 700; padding: 1.8mm 2mm; text-align: left; border: 1px solid #cbd5e1; font-size: 7.2pt; }
+    .dw-table td { padding: 1.8mm 2mm; border: 1px solid #e2e8f0; vertical-align: middle; }
+    .dw-table tbody tr:nth-child(even) { background: #f8fafc; }
+    .dw-table .num { text-align: right; }
+    .dw-table .remaining-cell { font-weight: 800; color: #b45309; background: #fffbeb; }
+    .dw-table tfoot th { background: #e2e8f0; color: #0f172a; font-weight: 800; padding: 2mm; }
+    .dw-badge { display: inline-block; padding: 0.5mm 1.8mm; border-radius: 3px; font-size: 6.5pt; font-weight: 700; }
+    .dw-badge-waiting { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .dw-badge-done { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .dw-section-title { font-size: 8.5pt; font-weight: 800; color: #1e293b; margin: 3.5mm 0 1.5mm; display: flex; align-items: center; justify-content: space-between; }
+    .dw-history-table { width: 100%; border-collapse: collapse; font-size: 7.2pt; margin-bottom: 4mm; }
+    .dw-history-table th { background: #f8fafc; color: #475569; font-weight: 700; padding: 1.5mm 2mm; text-align: left; border: 1px solid #e2e8f0; }
+    .dw-history-table td { padding: 1.5mm 2mm; border: 1px solid #e2e8f0; vertical-align: top; }
+    .dw-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 2.5mm; border-top: 1px solid #e2e8f0; font-size: 6.8pt; color: #94a3b8; margin-top: 3mm; }
+    @media print {
+      body { background: #fff !important; }
+      .dw-print-page { padding: 0 !important; max-width: 100% !important; }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; page-break-after: auto; }
+      thead { display: table-header-group; }
+      tfoot { display: table-footer-group; }
+    }
+  </style>
+</head>
+<body>
+  <div class="dw-print-page">
+    <header class="dw-header">
+      <div class="dw-brand">
+        <svg viewBox="20 12 70 76" width="30" height="30" aria-hidden="true" style="display: block;"><polygon points="30,80 46,20 70,20 54,80" fill="#34d399"/><path d="M62 40 L84 62" stroke="#4f7ddc" stroke-width="10" stroke-linecap="round"/><path d="M84 40 L62 62" stroke="#4f7ddc" stroke-width="10" stroke-linecap="round"/></svg>
+        <div class="dw-brand-title">
+          <b>${escapeHtml(companyName)}</b>
+          <small>${escapeHtml(brandSubtitle)}${contactLine ? ` · ${escapeHtml(contactLine)}` : ""}</small>
+        </div>
+      </div>
+      <div class="dw-doc-info">
+        <div class="dw-doc-title">Teslimat Bekleyenler Raporu</div>
+        <div class="dw-doc-meta">
+          <div>Tarih: <b>${dateStr} ${timeStr}</b></div>
+          <div>Ref: <b>${escapeHtml(refLabel)}</b></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="dw-customer-box">
+      <div>
+        <div class="dw-customer-name">${escapeHtml(record.customerName)}</div>
+        <div class="dw-customer-ref">Fatura / Belge Referansı: <b>${escapeHtml(refLabel)}</b></div>
+      </div>
+      <div>
+        <span class="dw-badge ${isCompleted ? "dw-badge-done" : "dw-badge-waiting"}" style="font-size: 7.5pt; padding: 1mm 2.5mm;">
+          ${isCompleted ? "Teslimat Tamamlandı" : "Teslimat Bekliyor"}
+        </span>
+      </div>
+    </div>
+
+    <div class="dw-kpi-grid">
+      <div class="dw-kpi">
+        <small>Fatura / Sipariş Toplamı</small>
+        <b>${deliveryWaitingAmount(totalQuantity, totalRolls)}</b>
+      </div>
+      <div class="dw-kpi remaining">
+        <small>Kalan Bakiye (Bekleyen)</small>
+        <b>${deliveryWaitingAmount(remainingQuantity, remainingRolls)}</b>
+      </div>
+      <div class="dw-kpi active">
+        <small>Aktif Siparişte</small>
+        <b>${deliveryWaitingAmount(activeQuantity, activeRolls)}</b>
+      </div>
+      <div class="dw-kpi delivered">
+        <small>Teslim Edildi</small>
+        <b>${deliveryWaitingAmount(deliveredQuantity, deliveredRolls)}</b>
+      </div>
+    </div>
+
+    <table class="dw-table">
+      <thead>
+        <tr>
+          <th style="width: 5%;">#</th>
+          <th style="width: 14%;">Ürün Kodu</th>
+          <th style="width: 33%;">Ürün Adı</th>
+          <th class="num" style="width: 12%;">Toplam</th>
+          <th class="num" style="width: 12%;">Teslim Edilen</th>
+          <th class="num" style="width: 12%;">Aktif</th>
+          <th class="num" style="width: 12%;">Kalan Bakiye</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${productRows}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="3">Genel Toplam (${visibleItems.length} ürün)</th>
+          <th class="num">${deliveryWaitingAmount(totalQuantity, totalRolls)}</th>
+          <th class="num" style="color: #15803d;">${deliveryWaitingAmount(deliveredQuantity, deliveredRolls)}</th>
+          <th class="num" style="color: #4338ca;">${deliveryWaitingAmount(activeQuantity, activeRolls)}</th>
+          <th class="num" style="color: #b45309; font-weight: 800;">${deliveryWaitingAmount(remainingQuantity, remainingRolls)}</th>
+        </tr>
+      </tfoot>
+    </table>
+
+    ${releasesHtml}
+
+    <footer class="dw-footer">
+      <span>Powered by <b>AriX</b> · www.arix.az</span>
+      <span>Müşteri: <b>${escapeHtml(record.customerName)}</b> · Tarih: ${dateStr} ${timeStr}</span>
+    </footer>
+  </div>
+</body>
+</html>`;
+}
+
+function DeliveryWaitingDetail({ record, groupId, language, printSettings, onClose, onReleased }: { record: DeliveryWaiting; groupId: string; language: Language; printSettings?: CompanyPrintSettings; onClose: () => void; onReleased: (waiting: DeliveryWaiting, order: Order) => void }) {
+  const group = deliveryWaitingGroups(record.items).find((entry) => entry.id === groupId) || deliveryWaitingGroups(record.items)[0];
+  const visibleItems = group?.items || record.items;
+  const relatedReleases = record.releases.filter((release) => !release.cancelledAt && release.items.some((item) => deliveryReleaseMatchesItems(item, visibleItems)));
+  const [detailView, setDetailView] = useState<"products" | "deliveries">("products");
+  const [preparing, setPreparing] = useState(false);
+  const [selection, setSelection] = useState(() => visibleItems.map((item) => ({ waitingItemId: item.id, selected: false, quantity: 0, orderedRollCount: 0 })));
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [pdfPreview, setPdfPreview] = useState<{ url: string; filename: string } | null>(null);
+
+  useEffect(() => () => {
+    if (pdfPreview?.url) URL.revokeObjectURL(pdfPreview.url);
+  }, [pdfPreview]);
+
+  useEffect(() => {
+    setPreparing(false);
+    setDetailView("products");
+    setSelection(visibleItems.map((item) => ({ waitingItemId: item.id, selected: false, quantity: 0, orderedRollCount: 0 })));
+    setNote("");
+  }, [record.id, record.updatedAt, groupId]);
+  const selected = selection.filter((item) => item.selected && (item.quantity > 0 || item.orderedRollCount > 0));
+  const selectableItems = visibleItems.filter((item) => item.remainingQuantity > 0.000001 || item.remainingRollCount > 0);
+  const totalQuantity = visibleItems.reduce((sum, item) => sum + item.quantity, 0);
+  const totalRolls = visibleItems.reduce((sum, item) => sum + item.orderedRollCount, 0);
+  const remainingQuantity = visibleItems.reduce((sum, item) => sum + item.remainingQuantity, 0);
+  const remainingRolls = visibleItems.reduce((sum, item) => sum + item.remainingRollCount, 0);
+  const activeQuantity = visibleItems.reduce((sum, item) => sum + item.releasedQuantity, 0);
+  const activeRolls = visibleItems.reduce((sum, item) => sum + item.releasedRollCount, 0);
+  const deliveredQuantity = visibleItems.reduce((sum, item) => sum + item.deliveredQuantity, 0);
+  const deliveredRolls = visibleItems.reduce((sum, item) => sum + item.deliveredRollCount, 0);
+  const release = async () => {
+    if (!selected.length || busy) return;
+    setBusy(true); setError("");
+    try {
+      const result = await api<{ waiting: DeliveryWaiting; order: Order }>(`/api/orders/delivery-waiting/${record.id}/release`, { method: "POST", body: JSON.stringify({ items: selected, note }) });
+      setPreparing(false);
+      onReleased(result.waiting, result.order);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Teslimat aktif siparişlere gönderilemedi."); }
+    finally { setBusy(false); }
+  };
+
+  const printDeliveryWaiting = async () => {
+    const html = buildDeliveryWaitingPrintHtml({
+      record,
+      group,
+      visibleItems,
+      relatedReleases,
+      totalQuantity,
+      totalRolls,
+      remainingQuantity,
+      remainingRolls,
+      activeQuantity,
+      activeRolls,
+      deliveredQuantity,
+      deliveredRolls,
+      printSettings,
+    });
+    const frame = document.createElement("iframe");
+    frame.style.position = "fixed";
+    frame.style.width = "1px";
+    frame.style.height = "1px";
+    frame.style.opacity = "0";
+    frame.style.pointerEvents = "none";
+    document.body.appendChild(frame);
+    const frameDocument = frame.contentDocument;
+    if (!frameDocument) return frame.remove();
+    frameDocument.open();
+    frameDocument.write(html);
+    frameDocument.close();
+    window.setTimeout(() => {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+      window.setTimeout(() => frame.remove(), 30_000);
+    }, 350);
+  };
+
+  const exportDeliveryWaitingPdf = async () => {
+    if (generatingPdf) return;
+    setGeneratingPdf(true);
+    setError("");
+    const stage = document.createElement("div");
+    stage.style.position = "fixed";
+    stage.style.top = "0";
+    stage.style.left = "-9999px";
+    stage.style.width = "210mm";
+    stage.style.background = "#fff";
+    stage.style.zIndex = "-1";
+    document.body.appendChild(stage);
+    try {
+      const html = buildDeliveryWaitingPrintHtml({
+        record,
+        group,
+        visibleItems,
+        relatedReleases,
+        totalQuantity,
+        totalRolls,
+        remainingQuantity,
+        remainingRolls,
+        activeQuantity,
+        activeRolls,
+        deliveredQuantity,
+        deliveredRolls,
+        printSettings,
+      });
+      stage.innerHTML = html;
+      await document.fonts.ready;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
+      const pageElement = stage.querySelector<HTMLElement>(".dw-print-page") || stage;
+      const canvas = await html2canvas(pageElement, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
+      const pageHeightPx = Math.floor((canvas.width * 297) / 210);
+      let renderedHeight = 0;
+      let pageIndex = 0;
+      while (renderedHeight < canvas.height) {
+        const sliceHeight = Math.min(pageHeightPx, canvas.height - renderedHeight);
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = pageHeightPx;
+        const ctx = pageCanvas.getContext("2d");
+        if (ctx) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          ctx.drawImage(canvas, 0, renderedHeight, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+        }
+        if (pageIndex > 0) pdf.addPage("a4", "portrait");
+        pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.96), "JPEG", 0, 0, 210, 297, undefined, "FAST");
+        renderedHeight += sliceHeight;
+        pageIndex += 1;
+      }
+      const blob = pdf.output("blob");
+      const safeCustomer = record.customerName.replace(/[\\/:*?"<>|]/g, "-").trim();
+      const filename = `${safeCustomer}-Teslimat-Bekleyenler.pdf`;
+      setPdfPreview({ url: URL.createObjectURL(blob), filename });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "PDF oluşturulamadı.");
+    } finally {
+      stage.remove();
+      setGeneratingPdf(false);
+    }
+  };
+
+  return (
+    <>
+      <Modal title={record.customerName} subtitle={`${group?.label || "Fatura"} · ${group?.range || record.number}`} onClose={onClose} className="delivery-waiting-modal">
+        <div className="delivery-waiting-detail">
+          {error && <div className="notice" role="alert">{error}<button type="button" onClick={() => setError("")}>×</button></div>}
+          <section className="delivery-detail-overview">
+            <article className="total"><small>Fatura toplamı</small><b>{deliveryWaitingAmount(totalQuantity, totalRolls)}</b><span>{visibleItems.length} ürün</span></article>
+            <article className="remaining"><small>Kalan bakiye</small><b>{deliveryWaitingAmount(remainingQuantity, remainingRolls)}</b><span>Teslimat bekliyor</span></article>
+            <article className="active"><small>Aktif siparişte</small><b>{deliveryWaitingAmount(activeQuantity, activeRolls)}</b><span>{relatedReleases.filter((entry) => !entry.deliveredAt).length} açık parti</span></article>
+            <article className="delivered"><small>Teslim edildi</small><b>{deliveryWaitingAmount(deliveredQuantity, deliveredRolls)}</b><span>{relatedReleases.filter((entry) => entry.deliveredAt).length} tamamlanan parti</span></article>
+          </section>
+          <div className="delivery-detail-toolbar">
+            <div className="delivery-detail-tabs" role="tablist">
+              <button type="button" className={detailView === "products" ? "active" : ""} onClick={() => setDetailView("products")}>
+                <Layers3 aria-hidden="true" />Ürün bakiyesi <b>{visibleItems.length}</b>
+              </button>
+              <button type="button" className={detailView === "deliveries" ? "active" : ""} onClick={() => setDetailView("deliveries")}>
+                <Truck aria-hidden="true" />Teslimatlar <b>{relatedReleases.length}</b>
+              </button>
+            </div>
+            <div className="delivery-detail-actions">
+              <button type="button" className="secondary" title="Yazdır" onClick={() => void printDeliveryWaiting()}>
+                <Printer aria-hidden="true" />
+                <span>Yazdır</span>
+              </button>
+              <button type="button" className="secondary" title="PDF Çıxarış" disabled={generatingPdf} onClick={() => void exportDeliveryWaitingPdf()}>
+                <FileText aria-hidden="true" />
+                <span>{generatingPdf ? "Hazırlanır…" : "PDF Çıxarış"}</span>
+              </button>
+            </div>
+          </div>
+          {detailView === "products" && !preparing && record.status !== "completed" && selectableItems.length > 0 && <div className="delivery-prepare-action"><div><b>Yeni teslimat partisi</b><span>Gönderilecek ürünleri tam veya kısmi miktarla seçin.</span></div><button type="button" className="primary" onClick={() => setPreparing(true)}><Truck aria-hidden="true" /> Teslime hazırla</button></div>}
+          {preparing && <section className="delivery-release-panel">
+            <header><div><b>Gönderilecek ürünleri seç</b><span>Metre ve rulo miktarını tam veya kısmi girebilirsiniz.</span></div><div className="delivery-release-actions"><button type="button" className="secondary" onClick={() => setPreparing(false)}>Vazgeç</button><button type="button" className="primary" disabled={!selected.length || busy} onClick={() => void release()}><Truck aria-hidden="true" />{busy ? "Gönderiliyor…" : "Aktif siparişlere gönder"}</button></div></header>
+            <div className="delivery-release-items">{selectableItems.map((item) => {
+              const row = selection.find((entry) => entry.waitingItemId === item.id)!;
+              return <article key={item.id} className={row.selected ? "selected" : ""}>
+                <label><input type="checkbox" checked={row.selected} onChange={(event) => setSelection((current) => current.map((entry) => entry.waitingItemId === item.id ? { ...entry, selected: event.target.checked } : entry))} /><span><b>{item.productName}</b><small>{item.productCode || "—"} · Kalan: {deliveryWaitingAmount(item.remainingQuantity, item.remainingRollCount)}</small></span></label>
+                <div><label><span>Gidecek metre</span><input type="number" min="0" max={item.remainingQuantity} step="0.01" disabled={!row.selected} value={row.quantity || ""} placeholder="0" onChange={(event) => setSelection((current) => current.map((entry) => entry.waitingItemId === item.id ? { ...entry, quantity: Math.min(item.remainingQuantity, Math.max(0, Number(event.target.value))) } : entry))} /></label><label><span>Gidecek rulo</span><input type="number" min="0" max={item.remainingRollCount} step="1" disabled={!row.selected} value={row.orderedRollCount || ""} placeholder="0" onChange={(event) => setSelection((current) => current.map((entry) => entry.waitingItemId === item.id ? { ...entry, orderedRollCount: Math.min(item.remainingRollCount, Math.max(0, Math.trunc(Number(event.target.value)))) } : entry))} /></label><button type="button" className="delivery-fill-all" onClick={() => setSelection((current) => current.map((entry) => entry.waitingItemId === item.id ? { ...entry, selected: true, quantity: item.remainingQuantity, orderedRollCount: item.remainingRollCount } : entry))}>Tamamı</button></div>
+              </article>;
+            })}</div>
+            <label className="delivery-release-note"><span>Depoya not</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Bu teslimat partisi için not" /></label>
+          </section>}
+          {detailView === "products" && !preparing && <section className="delivery-balance-table"><header><div><b>Ürün bakiyesi</b><span>Her ürünün güncel teslimat durumu</span></div><strong>{visibleItems.length} ürün</strong></header><section className="delivery-balance-group">
+            {visibleItems.map((item) => { const progress = deliveryBalanceProgress(item); return <article className="delivery-balance-row" key={item.id}><header><span><b>{item.productName}</b><small>{item.productCode || "—"}</small></span><em>{item.remainingQuantity > 0 || item.remainingRollCount > 0 ? "Bekliyor" : "Tamamlandı"}</em></header><div className="delivery-product-progress"><i className="delivered" style={{ width: `${progress.delivered}%` }} /><i className="active" style={{ width: `${progress.active}%` }} /></div><div className="delivery-product-metrics"><span className="total"><small>Toplam</small><b>{deliveryWaitingAmount(item.quantity, item.orderedRollCount)}</b></span><span className="active"><small>Aktif siparişte</small><b>{deliveryWaitingAmount(item.releasedQuantity, item.releasedRollCount)}</b></span><span className="delivered"><small>Teslim edildi</small><b>{deliveryWaitingAmount(item.deliveredQuantity, item.deliveredRollCount)}</b></span><span className="remaining"><small>Kalan</small><b>{deliveryWaitingAmount(item.remainingQuantity, item.remainingRollCount)}</b></span></div></article>; })}
+          </section></section>}
+          {detailView === "deliveries" && <section className="delivery-release-history"><header><div><b>Bağlı teslimatlar</b><span>Aktife gönderilen ve tamamlanan partiler</span></div><strong>{relatedReleases.length} kayıt</strong></header>{relatedReleases.length ? relatedReleases.map((delivery) => {
+            const items = delivery.items.filter((item) => deliveryReleaseMatchesItems(item, visibleItems));
+            const delivered = Boolean(delivery.deliveredAt);
+            return <article className={delivered ? "delivered" : "active"} key={delivery.id}><div className="delivery-release-head"><span className="delivery-release-status">{delivered ? <Check aria-hidden="true" /> : <Truck aria-hidden="true" />}</span><div><b>{delivery.orderNumber}</b><span>{delivered ? "Teslim edildi" : "Aktif siparişte"}</span></div><time>{new Date(delivery.deliveredAt || delivery.createdAt).toLocaleString(language, { dateStyle: "short", timeStyle: "short" })}</time></div><div className="delivery-release-meta"><span>{delivered ? `Teslim eden: ${delivery.deliveredBy || "—"}` : `Aktife gönderen: ${delivery.createdBy}`}</span>{delivery.despatchNumber && <span>İrsaliye: {delivery.despatchNumber}</span>}</div><ul>{items.map((item, itemIndex) => <li key={`${delivery.id}-${itemIndex}`}><span>{item.productName}<small>{item.productCode || "—"}</small></span><b>{deliveryWaitingAmount(Number(item.deliveredQuantity ?? item.preparedQuantity ?? item.quantity) || 0, Number(item.deliveredRollCount ?? item.preparedRollCount ?? item.orderedRollCount) || 0)}</b></li>)}</ul>{delivery.deliveryNote && <p><NotepadText aria-hidden="true" />{delivery.deliveryNote}</p>}</article>;
+          }) : <div className="delivery-history-empty"><Truck aria-hidden="true" /><b>Henüz teslimat oluşturulmadı</b><span>Ürün bakiyesinden yeni bir teslimat partisi hazırlayabilirsiniz.</span></div>}</section>}
+        </div>
+      </Modal>
+      {pdfPreview && (
+        <DailyReportPreview
+          url={pdfPreview.url}
+          filename={pdfPreview.filename}
+          title={`${record.customerName} · Teslimat Bekleyenler`}
+          onClose={() => setPdfPreview(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -2807,13 +4100,17 @@ function BoardColumn({
   onOpen,
   language,
   onMerge,
+  onOpenContextMenu,
 }: {
   status: BoardStatus;
   orders: Order[];
   onOpen: (order: Order) => void;
   language: Language;
   onMerge?: (orders: Order[]) => void;
+  onOpenContextMenu?: (target: ContextMenuTarget, pos: { x: number; y: number }) => void;
 }) {
+  const colTouchTimerRef = useRef<any>(null);
+  const colTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const meta = statusMeta[status];
   const text = copy[language];
   return (
@@ -2834,6 +4131,59 @@ function BoardColumn({
             <button
               className="order-card"
               onClick={() => onOpen(order)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenContextMenu?.({
+                  type: "order",
+                  order: {
+                    id: order.id,
+                    number: order.number,
+                    customerName: order.customerName,
+                    status: order.status,
+                    itemsCount: order.items?.length,
+                  },
+                }, { x: e.clientX, y: e.clientY });
+              }}
+              onPointerDown={(e) => {
+                if (e.pointerType === "mouse" && e.button !== 0) return;
+                colTouchPosRef.current = { x: e.clientX, y: e.clientY };
+                if (colTouchTimerRef.current) clearTimeout(colTouchTimerRef.current);
+                colTouchTimerRef.current = setTimeout(() => {
+                  try { if ("vibrate" in navigator) navigator.vibrate(40); } catch {}
+                  onOpenContextMenu?.({
+                    type: "order",
+                    order: {
+                      id: order.id,
+                      number: order.number,
+                      customerName: order.customerName,
+                      status: order.status,
+                      itemsCount: order.items?.length,
+                    },
+                  }, { x: colTouchPosRef.current.x, y: colTouchPosRef.current.y });
+                }, 450);
+              }}
+              onPointerMove={(e) => {
+                if (!colTouchTimerRef.current) return;
+                const dx = Math.abs(e.clientX - colTouchPosRef.current.x);
+                const dy = Math.abs(e.clientY - colTouchPosRef.current.y);
+                if (dx > 10 || dy > 10) {
+                  clearTimeout(colTouchTimerRef.current);
+                  colTouchTimerRef.current = null;
+                }
+              }}
+              onPointerUp={() => {
+                if (colTouchTimerRef.current) {
+                  clearTimeout(colTouchTimerRef.current);
+                  colTouchTimerRef.current = null;
+                }
+              }}
+              onPointerCancel={() => {
+                if (colTouchTimerRef.current) {
+                  clearTimeout(colTouchTimerRef.current);
+                  colTouchTimerRef.current = null;
+                }
+              }}
             >
               <div className="order-creator">
                 <span>{text.createdBy}</span>
@@ -2886,6 +4236,11 @@ function BoardColumn({
               {order.isLoanReturn && (
                 <div className="order-kind-badge loan-return">
                   <b>Borç iadesi</b>
+                </div>
+              )}
+              {order.isDeferredDelivery && (
+                <div className="order-kind-badge deferred-delivery">
+                  <b>Bekleyen teslimattan aktarıldı</b>
                 </div>
               )}
               <h3>{order.customerName}</h3>
@@ -3461,7 +4816,17 @@ function DailyArchive({
   );
 }
 
-function DailyReportPreview({ url, filename, onClose }: { url: string; filename: string; onClose: () => void }) {
+function DailyReportPreview({
+  url,
+  filename,
+  title = "Günlük operasyon raporu",
+  onClose,
+}: {
+  url: string;
+  filename: string;
+  title?: string;
+  onClose: () => void;
+}) {
   useBrowserBackLayer(true, onClose);
   const printReport = () => {
     const frame = document.createElement("iframe");
@@ -3477,13 +4842,35 @@ function DailyReportPreview({ url, filename, onClose }: { url: string; filename:
     }, 500);
     document.body.appendChild(frame);
   };
+  const handleShare = async () => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const file = new File([blob], filename, { type: "application/pdf" });
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename });
+        return;
+      }
+    } catch {
+      // fallback to download
+    }
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+  };
+  const canNativeShare = typeof navigator !== "undefined" && Boolean(navigator.share);
+
   return (
-    <section className="approval-pdf-viewer" role="dialog" aria-modal="true" aria-label="Günlük rapor önizleme">
+    <section className="approval-pdf-viewer" role="dialog" aria-modal="true" aria-label={`${title} önizleme`}>
       <header>
         <button type="button" onClick={onClose}><ArrowLeft aria-hidden="true" /><span>Geri</span></button>
-        <div><b>Günlük operasyon raporu</b><small>{filename}</small></div>
+        <div><b>{title}</b><small>{filename}</small></div>
         <nav>
           <button type="button" onClick={printReport}><Printer aria-hidden="true" /><span>Yazdır</span></button>
+          {canNativeShare && (
+            <button type="button" onClick={() => void handleShare()}><Share2 aria-hidden="true" /><span>Paylaş</span></button>
+          )}
           <a className="daily-report-download-action" href={url} download={filename}><Download aria-hidden="true" /><span>İndir</span></a>
         </nav>
       </header>
@@ -3764,7 +5151,7 @@ function CreateOrder({
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={
-                "30 mt FS Beyaz\n2 rulo Parlak Beyaz\nST Gri 3 top\nSedef Metal 25m\n010 - 4 rl"
+                "30 mt FS Beyaz\n2 rulo Parlak Beyaz\n6 kova kontak tutkalı\n2 rulo silikon\nST Gri 3 top"
               }
               rows={6}
             />
@@ -3805,16 +5192,77 @@ function CreateOrder({
           >
             {busy ? "…" : ui.match}
           </button>
+          <button
+            type="button"
+            className="secondary full"
+            style={{ marginTop: 8 }}
+            disabled={busy || ocrBusy}
+            onClick={() => setMatches([{
+              source: "Harici / özel birimli ürün",
+              productId: null,
+              productName: "",
+              productCode: "",
+              quantity: 1,
+              unit: "BUCKET",
+              innerUnit: "KG",
+              manual: true,
+              confidence: 1,
+              needsReview: false,
+              alternatives: [],
+            }])}
+          >
+            + Harici / Özel Birimli Ürün Ekle (Tutkal, Silikon, Kova, Kg, Lt...)
+          </button>
         </>
       ) : (
         <div className="match-list">
-          <div className="match-head">
+          <div className="match-head" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <b>{ui.matched}</b>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setMatches((current) => [...current, {
+                  source: "Manuel katalog satırı",
+                  productId: null,
+                  productName: "",
+                  productCode: "",
+                  quantity: null,
+                  unit: "mt",
+                  manual: false,
+                  confidence: 1,
+                  needsReview: true,
+                  alternatives: [],
+                }])}
+              >
+                + Katalog Ürünü Ekle
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setMatches((current) => [...current, {
+                  source: "Harici / özel birimli ürün",
+                  productId: null,
+                  productName: "",
+                  productCode: "",
+                  quantity: 1,
+                  unit: "BUCKET",
+                  innerUnit: "KG",
+                  manual: true,
+                  confidence: 1,
+                  needsReview: false,
+                  alternatives: [],
+                }])}
+              >
+                + Harici / Özel Birimli Ürün Ekle (Kova, Kg, Lt, Rulo...)
+              </button>
+            </div>
           </div>
           {matches.map((item, index) => {
-            const selectedProduct = availableProducts.find(
+            const isManual = isCustomUnitItem(item);
+            const selectedProduct = !isManual ? availableProducts.find(
               (product) => product.id === item.productId,
-            );
+            ) : undefined;
             const available = Number(selectedProduct?.availableQuantity ?? 0);
             const stockConsumption = Number(item.quantity || 0);
             const exceedsStock = Boolean(
@@ -3827,7 +5275,7 @@ function CreateOrder({
               >
                 <div className="source-line">
                   “{item.source}”
-                  {item.confidence > 0 && (
+                  {!isManual && item.confidence > 0 && (
                     <span
                       style={{
                         fontSize: "11px",
@@ -3838,61 +5286,201 @@ function CreateOrder({
                       (%{Math.round(item.confidence * 100)})
                     </span>
                   )}
-                  <button type="button" className="create-missing-product" onClick={() => openNewProduct(item, index)}>
-                    + Yeni ürün oluştur ve bu satıra bağla
-                  </button>
+                  {isManual ? (
+                    <>
+                      <span className="external-item-badge" style={{ marginLeft: 8 }}>Harici / Özel Birimli Ürün</span>
+                      <button
+                        type="button"
+                        className="create-missing-product"
+                        onClick={() => update(index, {
+                          manual: false,
+                          unit: "mt",
+                          innerQuantity: undefined,
+                          innerUnit: undefined,
+                          needsReview: !item.productId,
+                        })}
+                      >
+                        Katalog ürününe çevir
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" className="create-missing-product" onClick={() => openNewProduct(item, index)}>
+                        + Yeni ürün oluştur ve bu satıra bağla
+                      </button>
+                      <button
+                        type="button"
+                        className="create-missing-product"
+                        onClick={() => update(index, {
+                          manual: true,
+                          productId: null,
+                          productName: item.productName || item.source,
+                          unit: item.orderedRollCount && !item.quantity ? "ROLL" : "BUCKET",
+                          innerUnit: item.orderedRollCount && !item.quantity ? undefined : "KG",
+                          quantity: Number(item.quantity || item.orderedRollCount || 1),
+                          needsReview: false,
+                        })}
+                      >
+                        Harici / Özel Birimli Ürün Yap (Tutkal, Silikon, Kova, Kg, Lt)
+                      </button>
+                    </>
+                  )}
                 </div>
-                <select
-                  value={item.productId ?? ""}
-                  onChange={(e) => {
-                    const product = availableProducts.find(
-                      (p) => p.id === Number(e.target.value),
-                    );
-                    if (product) {
-                      update(index, {
-                        productId: product.id,
-                        productName: product.name,
-                        productCode: product.code || product.sku || "",
-                      });
-                    }
-                  }}
-                >
-                  <option value="">{ui.choose}</option>
-                  {availableProducts.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.code || product.sku} · {product.name} ·{" "}
-                      {Number(product.availableQuantity ?? 0).toLocaleString(
-                        language,
-                      )}{" "}
-                      mt
-                    </option>
-                  ))}
-                </select>
-                <div className="order-quantity-editor">
-                  <div className="meter-input">
-                    <EditableNumberInput
-                      min={0}
-                      step={0.01}
-                      value={Number(item.quantity ?? 0)}
-                      onValueChange={(value) => update(index, { quantity: value, unit: "mt" })}
-                    />
-                    <span>mt</span>
+                {isManual ? (
+                  <div className="external-item-grid">
+                    <label>
+                      <span>Ürün adı (Tutkal, Silikon vb.)</span>
+                      <input
+                        value={item.productName ?? ""}
+                        onChange={(e) => update(index, { productName: e.target.value, needsReview: !e.target.value.trim() })}
+                        placeholder="Örn. Kontak Tutkalı, Silikon"
+                      />
+                    </label>
+                    <label>
+                      <span>Ürün kodu (isteğe bağlı)</span>
+                      <input
+                        value={item.productCode ?? ""}
+                        onChange={(e) => update(index, { productCode: e.target.value })}
+                        placeholder="Örn. ALT-01"
+                      />
+                    </label>
+                    <label>
+                      <span>Miktar</span>
+                      <EditableNumberInput
+                        min={0.01}
+                        step={0.01}
+                        value={Number(item.quantity ?? item.orderedRollCount ?? 1)}
+                        onValueChange={(value) => update(index, {
+                          quantity: value,
+                          orderedRollCount: item.unit === "ROLL" || item.unit === "rulo" ? Math.max(0, Math.trunc(value)) : 0,
+                          needsReview: !(value > 0 && Boolean(item.productName?.trim())),
+                        })}
+                      />
+                    </label>
+                    <label>
+                      <span>Ana Birim</span>
+                      <select
+                        value={item.unit && item.unit !== "mt" && item.unit !== "rulo" ? item.unit : (item.unit === "rulo" ? "ROLL" : "BUCKET")}
+                        onChange={(e) => {
+                          const nextUnit = e.target.value as OrderCustomUnit;
+                          update(index, {
+                            unit: nextUnit,
+                            orderedRollCount: nextUnit === "ROLL" ? Math.max(0, Math.trunc(Number(item.quantity || 1))) : 0,
+                          });
+                        }}
+                      >
+                        <option value="BUCKET">Kova / Kap</option>
+                        <option value="KG">Kilogram (kg)</option>
+                        <option value="LT">Litre (lt)</option>
+                        <option value="ROLL">Rulo</option>
+                        <option value="PCS">Adet</option>
+                        <option value="BOX">Kutu / Koli</option>
+                        <option value="M">Metre (mt)</option>
+                        <option value="M2">Metrekare (m²)</option>
+                        <option value="SET">Set</option>
+                        <option value="BUNDLE">Paket</option>
+                        <option value="BAG">Çuval</option>
+                        <option value="CRATE">Kasa</option>
+                        <option value="PALLET">Palet</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Alt birim (kg, lt, adet...)</span>
+                      <select
+                        value={item.innerUnit ?? ""}
+                        onChange={(e) => {
+                          const val = e.target.value as OrderCustomUnit | "";
+                          update(index, { innerUnit: val ? (val as OrderCustomUnit) : undefined });
+                        }}
+                      >
+                        <option value="">Yok / Seçilmedi</option>
+                        <option value="KG">Kilogram (kg)</option>
+                        <option value="LT">Litre (lt)</option>
+                        <option value="ML">Mililitre (ml)</option>
+                        <option value="GR">Gram (gr)</option>
+                        <option value="PCS">Adet</option>
+                        <option value="M">Metre (mt)</option>
+                        <option value="M2">Metrekare (m²)</option>
+                        <option value="ROLL">Rulo</option>
+                        <option value="BOX">Kutu / Koli</option>
+                        <option value="BUCKET">Kova / Kap</option>
+                        <option value="SET">Set</option>
+                        <option value="BUNDLE">Paket</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>1 paketteki miktar (opsiyonel)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.innerQuantity ?? ""}
+                        placeholder="Örn. 15 (1 kova = 15 kg/lt)"
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          update(index, {
+                            innerQuantity: val > 0 ? val : undefined,
+                            innerUnit: val > 0 ? (item.innerUnit || "KG") : item.innerUnit,
+                          });
+                        }}
+                      />
+                    </label>
                   </div>
-                  <div className="meter-input">
-                    <EditableNumberInput
-                      min={0}
-                      step={1}
-                      value={Number(item.orderedRollCount ?? 0)}
-                      onValueChange={(value) => update(index, { orderedRollCount: Math.max(0, Math.trunc(value)) })}
-                    />
-                    <span>rulo</span>
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <select
+                      value={item.productId ?? ""}
+                      onChange={(e) => {
+                        const product = availableProducts.find(
+                          (p) => p.id === Number(e.target.value),
+                        );
+                        if (product) {
+                          update(index, {
+                            productId: product.id,
+                            productName: product.name,
+                            productCode: product.code || product.sku || "",
+                          });
+                        }
+                      }}
+                    >
+                      <option value="">{ui.choose}</option>
+                      {availableProducts.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.code || product.sku} · {product.name} ·{" "}
+                          {Number(product.availableQuantity ?? 0).toLocaleString(
+                            language,
+                          )}{" "}
+                          mt
+                        </option>
+                      ))}
+                    </select>
+                    <div className="order-quantity-editor">
+                      <div className="meter-input">
+                        <EditableNumberInput
+                          min={0}
+                          step={0.01}
+                          value={Number(item.quantity ?? 0)}
+                          onValueChange={(value) => update(index, { quantity: value, unit: "mt" })}
+                        />
+                        <span>mt</span>
+                      </div>
+                      <div className="meter-input">
+                        <EditableNumberInput
+                          min={0}
+                          step={1}
+                          value={Number(item.orderedRollCount ?? 0)}
+                          onValueChange={(value) => update(index, { orderedRollCount: Math.max(0, Math.trunc(value)) })}
+                        />
+                        <span>rulo</span>
+                      </div>
+                    </div>
+                  </>
+                )}
                 <input
                   className="line-note-input"
                   value={item.lineNote ?? ""}
                   onChange={(e) => update(index, { lineNote: e.target.value })}
-                  placeholder={ui.lineNote}
+                  placeholder={isManual ? "Tedarik / ürün notu (Örn. Altıntur'dan alınacak)" : ui.lineNote}
                   aria-label={ui.lineNote}
                 />
                 <button
@@ -3905,7 +5493,7 @@ function CreateOrder({
                   <Trash2 aria-hidden="true" />
                   <span>Satırı kaldır</span>
                 </button>
-                {newProductIndex === index && (
+                {!isManual && newProductIndex === index && (
                   <div className="inline-product-create">
                     <label><span>Ürün kodu</span><input value={newProductCode} onChange={(event) => setNewProductCode(event.target.value)} placeholder="ERSA 000" /></label>
                     <label><span>Ürün adı</span><input autoFocus value={newProductName} onChange={(event) => setNewProductName(event.target.value)} /></label>
@@ -3959,7 +5547,11 @@ function CreateOrder({
             className="primary full"
             disabled={
               !customerName.trim() ||
-              matches.some((item) => !item.productId || (!(Number(item.quantity) > 0) && !(Number(item.orderedRollCount) > 0))) ||
+              matches.some((item) => {
+                const hasAmount = Number(item.quantity) > 0 || Number(item.orderedRollCount) > 0;
+                if (!hasAmount) return true;
+                return isCustomUnitItem(item) ? !item.productName?.trim() : !item.productId;
+              }) ||
               busy
             }
             onClick={save}
@@ -3973,15 +5565,93 @@ function CreateOrder({
   );
 }
 
+const approvalWaitMinutes = (submittedAt: string, now: number) => Math.max(0, Math.floor((now - new Date(submittedAt).getTime()) / 60000));
+const formatApprovalWait = (submittedAt: string, now: number) => {
+  const minutes = approvalWaitMinutes(submittedAt, now);
+  if (!Number.isFinite(minutes)) return "";
+  if (minutes < 60) return `${minutes} dk`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} sa ${minutes % 60} dk`;
+  return `${Math.floor(hours / 24)} gün ${hours % 24} sa`;
+};
+const approvalWaitLevel = (submittedAt: string, now: number) => {
+  const hours = approvalWaitMinutes(submittedAt, now) / 60;
+  return hours >= 24 ? "critical" : hours >= 4 ? "warn" : "ok";
+};
+const approvalSubmittedAt = (form: any): string | undefined => {
+  if (!form) return undefined;
+  const submitted: string[] = [];
+  if (form.status === "draft" && form.submittedForApproval === true && form.submittedAt) submitted.push(String(form.submittedAt));
+  if (form.exportDocuments && typeof form.exportDocuments === "object") {
+    for (const document of Object.values(form.exportDocuments) as any[]) {
+      if (document?.status === "draft" && document?.submittedForApproval === true && document?.submittedAt) submitted.push(String(document.submittedAt));
+    }
+  }
+  return submitted.sort()[0];
+};
+
 function ApprovalFormsPage({
   orders,
+  session,
   onOpen,
   onShowPdf,
+  onPrintStatusChanged,
+  onRevisionDeleted,
 }: {
   orders: Order[];
+  session: Session;
   onOpen: (order: Order) => void;
-  onShowPdf: (order: Order) => void;
+  onShowPdf: (order: Order, revision: ApprovalFormVersionEntry) => void;
+  onPrintStatusChanged: (orderId: string, printedAt: string | null) => void;
+  onRevisionDeleted: (order: Order) => void;
 }) {
+  const isUlkuPrintView = session.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim() === "ulku altun";
+  const canDeleteRevisions = workflowRole(session.role) === "owner" || Boolean(session.permissions?.includes("order_forms.delete_revision"));
+  const [printStatusBusyId, setPrintStatusBusyId] = useState("");
+  const [revisionDeleteBusyId, setRevisionDeleteBusyId] = useState("");
+  const [search, setSearch] = useState("");
+  const [openVersionsId, setOpenVersionsId] = useState("");
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const deleteRevision = async (order: Order, revision: ApprovalFormVersionEntry) => {
+    if (revision.isCurrent || revision.isMissing || !canDeleteRevisions) return;
+    const number = approvalFormRevisionNumber(revision);
+    if (!window.confirm(`${number} eski sürümü kalıcı olarak silinsin mi? Bu işlem geri alınamaz.`)) return;
+    setRevisionDeleteBusyId(revision.id);
+    try {
+      const response = await api<{ data: Order }>(`/api/orders/${order.id}/approval-form/revisions/${revision.id}`, { method: "DELETE" });
+      setOpenVersionsId("");
+      onRevisionDeleted(response.data);
+    } catch (cause) {
+      window.alert(cause instanceof Error ? cause.message : "Eski sürüm silinemedi.");
+    } finally {
+      setRevisionDeleteBusyId("");
+    }
+  };
+  useEffect(() => {
+    if (!openVersionsId) return;
+    const close = () => setOpenVersionsId("");
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [openVersionsId]);
+  const togglePrinted = async (order: Order) => {
+    if (!order.approvalForm || printStatusBusyId) return;
+    setPrintStatusBusyId(order.id);
+    try {
+      const result = await api<{ printedAt: string | null }>(`/api/orders/${order.id}/approval-form/printed`, {
+        method: "POST",
+        body: JSON.stringify({ formNumber: order.approvalForm.number, printed: !order.approvalForm.printedByCurrentUser }),
+      });
+      onPrintStatusChanged(order.id, result.printedAt);
+    } catch (cause) {
+      window.alert(cause instanceof Error ? cause.message : "Yazdırma durumu kaydedilemedi.");
+    } finally {
+      setPrintStatusBusyId("");
+    }
+  };
   if (!orders.length) {
     return (
       <div className="approval-forms-empty">
@@ -3991,29 +5661,45 @@ function ApprovalFormsPage({
       </div>
     );
   }
-  const groups = orders.reduce<Array<{ date: string; orders: Order[] }>>((result, order) => {
+  const searchKey = search.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
+  const filteredOrders = searchKey ? orders.filter((order) => {
+    const form = order.approvalForm;
+    const status = form?.status === "approved" ? "onaylandı" : form?.status === "rejected" ? "reddedildi" : "onay bekliyor";
+    return [
+      form?.number, order.number, form?.customerName, order.customerName, form?.customerContact,
+      form?.salesRepresentative, form?.approvedBy, form?.updatedBy, order.despatchNumber, status,
+    ].filter(Boolean).join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("tr").includes(searchKey);
+  }) : orders;
+  const groups = filteredOrders.reduce<Array<{ date: string; orders: Order[] }>>((result, order) => {
     const key = order.approvalForm?.date || "Tarihsiz";
     const current = result.find((group) => group.date === key);
     if (current) current.orders.push(order);
     else result.push({ date: key, orders: [order] });
     return result;
   }, []);
+  const pendingWaits = filteredOrders
+    .map((order) => approvalSubmittedAt(order.approvalForm))
+    .filter((submittedAt): submittedAt is string => Boolean(submittedAt));
+  const oldestPendingAt = pendingWaits.reduce<string | null>((oldest, submittedAt) => (!oldest || submittedAt < oldest ? submittedAt : oldest), null);
   return (
     <section className="approval-forms-page">
       <header>
-        <div>
+        <div className="approval-forms-title">
           <b>Sipariş formları</b>
-          <span>{orders.length} belge</span>
+          <span>{searchKey ? `${filteredOrders.length} / ${orders.length}` : orders.length} belge</span>
         </div>
-        <span>Onaya gönderilen ve onaylanan formlar</span>
+        <label className="approval-forms-search"><Search aria-hidden="true" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Form, müşteri veya temsilci ara" aria-label="Sipariş formlarında ara" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Aramayı temizle"><X aria-hidden="true" /></button>}</label>
+        <span>{pendingWaits.length && oldestPendingAt ? `${pendingWaits.length} onay bekliyor · en eskisi ${formatApprovalWait(oldestPendingAt, nowTick)}` : "Onaya gönderilen ve onaylanan formlar"}</span>
       </header>
-      <div className="approval-forms-table">
+      <div className={`approval-forms-table ${isUlkuPrintView ? "with-despatch-column" : ""}`}>
         <div className="approval-forms-table-head">
           <span>PDF</span>
           <span>Durum</span>
           <span>Form / sipariş</span>
           <span>Müşteri</span>
           <span>Satış temsilcisi</span>
+          <span className="approval-approver-heading">Onaylayan</span>
+          {isUlkuPrintView && <span className="approval-despatch-heading">İrsaliye no</span>}
           <span>Belge tarihi</span>
         </div>
         {groups.map((group) => (
@@ -4025,22 +5711,67 @@ function ApprovalFormsPage({
             </div>
             {group.orders.map((order) => {
               const form = order.approvalForm!;
+              const versions = approvalFormRevisionEntries(form);
+              const versionDisplayNumbers = approvalFormVersionDisplayNumbers(versions);
+              const submittedAt = approvalSubmittedAt(form);
+              const waitLevel = submittedAt ? approvalWaitLevel(submittedAt, nowTick) : "";
               return (
                 <div className="approval-form-row" key={order.id}>
-                  {form.archive?.path ? (
-                    <button className="approval-form-pdf" type="button" onClick={() => onShowPdf(order)} aria-label={`${form.number} PDF göster`}>
+                  <span className="approval-form-show-control" onClick={(event) => event.stopPropagation()}>
+                    <button className="approval-form-pdf" type="button" onClick={() => {
+                      if (versions.length === 1) {
+                        onShowPdf(order, versions[0]);
+                        return;
+                      }
+                      setOpenVersionsId((current) => current === order.id ? "" : order.id);
+                    }} aria-label={versions.length > 1 ? `${form.number} sürümlerini göster` : `${form.number} belgesini göster`}>
                       <Eye aria-hidden="true" />
                       <span>Göster</span>
                     </button>
-                  ) : <span className="approval-form-pdf-missing">PDF yok</span>}
-                  <span className={`approval-form-state ${form.status}`} title={form.status === "approved" ? "Onaylandı" : form.status === "rejected" ? `Reddedildi: ${form.rejectionReason || "Sebep belirtilmedi"}` : "Onay bekliyor"}>
-                    <i>{form.status === "approved" && <Check />}</i>
-                    <b>{form.status === "approved" ? "Onaylandı" : form.status === "rejected" ? "Reddedildi" : "Onay bekliyor"}</b>
+                    {openVersionsId === order.id && versions.length > 1 && (
+                      <span className="approval-version-menu" role="menu">
+                        {versions.map((revision) => {
+                          const documentName = revision.documentType === "commercial_invoice" ? "Commercial" : revision.documentType === "packing_list" ? "Packing List" : revision.documentType === "proforma" ? "Proforma" : "Sipariş formu";
+                          const documentNumber = versionDisplayNumbers.get(revision.id) || approvalFormRevisionNumber(revision);
+                          return (
+                            <span className="approval-version-menu-item" key={revision.id}>
+                              <button className="approval-version-open" type="button" role="menuitem" onClick={() => { setOpenVersionsId(""); onShowPdf(order, revision); }}>
+                                <span className={`approval-version-state ${revision.status} ${revision.isMissing ? "missing" : ""}`}>
+                                  {revision.isMissing ? <FileText aria-hidden="true" /> : revision.status === "approved" ? <Check aria-hidden="true" /> : revision.status === "rejected" ? <X aria-hidden="true" /> : <span />}
+                                </span>
+                                <span><b>{documentNumber}</b><small>{revision.sourceOrderId ? `Birleştirme öncesi · ${revision.sourceOrderNumber}` : `${documentName}${revision.isCurrent ? " · Güncel" : " · Geçmiş sürüm"}`} · {new Date(revision.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</small></span>
+                                <em className={revision.isMissing ? "missing" : revision.status}>{revision.isMissing ? "Hazırlanmadı" : revision.status === "approved" ? (revision.isCurrent ? "Onaylı" : "Eski onay") : revision.status === "rejected" ? "Ret" : "Bekliyor"}</em>
+                              </button>
+                              {canDeleteRevisions && !revision.isCurrent && !revision.isMissing && !revision.sourceOrderId && <button
+                                type="button"
+                                className="approval-version-delete"
+                                disabled={revisionDeleteBusyId === revision.id}
+                                title="Eski sürümü sil"
+                                aria-label={`${documentNumber} eski sürümünü sil`}
+                                onClick={() => void deleteRevision(order, revision)}
+                              ><Trash2 aria-hidden="true" /></button>}
+                            </span>
+                          );
+                        })}
+                      </span>
+                    )}
+                  </span>
+                  <span className={`approval-form-state ${form.status}`} title={form.status === "approved" ? "Onaylandı" : form.status === "rejected" ? `Reddedildi: ${form.rejectionReason || "Sebep belirtilmedi"}` : (form.submittedForApproval ? "Onay bekliyor" : "Taslak")}>
+                    <i>{form.status === "approved" ? <Check /> : null}</i>
+                    <b>{form.status === "approved" ? "Onaylandı" : form.status === "rejected" ? "Reddedildi" : (form.submittedForApproval ? "Onay bekliyor" : "Taslak")}</b>
+                    {submittedAt && (
+                      <em style={{ display: "block", fontStyle: "normal", fontSize: 11, fontWeight: 600, color: waitLevel === "critical" ? "#dc2626" : waitLevel === "warn" ? "#d97706" : "#64748b" }}>
+                        {formatApprovalWait(submittedAt, nowTick)}
+                      </em>
+                    )}
+                    {isUlkuPrintView && form.status === "approved" && <button type="button" disabled={printStatusBusyId === order.id} className={`approval-form-print-marker ${form.printedByCurrentUser ? "is-printed" : ""}`} title={form.printedByCurrentUser ? `Yazdırıldı${form.printedAtForCurrentUser ? ` · ${new Date(form.printedAtForCurrentUser).toLocaleString("tr-TR")}` : ""}. İşareti kaldırmak için tıklayın.` : "Yazdırılmadı. Yazdırıldı olarak işaretlemek için tıklayın."} aria-label={form.printedByCurrentUser ? "Yazdırıldı işaretini kaldır" : "Yazdırıldı olarak işaretle"} onClick={() => void togglePrinted(order)}><Printer aria-hidden="true" /></button>}
                   </span>
                   <button className="approval-form-open" type="button" onClick={() => onOpen(order)}>
-                    <span><b>{form.number}</b><small>{order.number}</small></span>
+                    <span><b>{form.number}</b><small>{order.number}{order.mergedIntoOrderNumber ? ` · Birleştirme öncesi → ${order.mergedIntoOrderNumber}` : order.mergeUndoneAt ? " · Birleştirme geri alındı · Geçmiş belge" : ""}</small></span>
                     <span><b>{form.customerName || order.customerName}</b><small>{form.customerContact || "Müşteri yetkilisi belirtilmedi"}</small></span>
                     <span><b>{form.salesRepresentative || "Atanmadı"}</b><small>{form.updatedBy ? `Son işlem: ${form.updatedBy}` : ""}</small></span>
+                    <span className="approval-approver-cell"><b>{form.approvedBy || (form.status === "approved" ? form.updatedBy : "") || "—"}</b><small>{form.approvedAt ? new Date(form.approvedAt).toLocaleString("tr-TR") : ""}</small></span>
+                    {isUlkuPrintView && <span className="approval-despatch-cell"><b>{order.withoutDespatch ? "İrsaliyesiz" : order.despatchNumber || "Bekleniyor"}</b><small>{order.despatchReadyAt ? new Date(order.despatchReadyAt).toLocaleString("tr-TR") : ""}</small></span>}
                     <span><b>{new Date(`${form.date}T00:00:00`).toLocaleDateString("tr-TR")}</b><small>{form.updatedAt ? new Date(form.updatedAt).toLocaleString("tr-TR") : ""}</small></span>
                   </button>
                 </div>
@@ -4048,21 +5779,25 @@ function ApprovalFormsPage({
             })}
           </div>
         ))}
+        {!groups.length && <div className="approval-forms-search-empty"><Search aria-hidden="true" /><b>Sonuç bulunamadı</b><span>“{search}” ile eşleşen sipariş formu yok.</span><button type="button" onClick={() => setSearch("")}>Aramayı temizle</button></div>}
       </div>
     </section>
   );
 }
 
-function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, previewFilename, onClose, onEdit, onApprove, onReject }: {
+function ApprovalPdfViewer({ order, session, allowApproval, historical = false, previewPdfBlob, previewFilename, onClose, onEdit, onApprove, onReject, onWithdraw, onPrinted }: {
   order: Order;
   session: Session;
   allowApproval: boolean;
+  historical?: boolean;
   previewPdfBlob?: Blob;
   previewFilename?: string;
   onClose: () => void;
   onEdit: () => void;
   onApprove: () => void;
   onReject: () => void;
+  onWithdraw?: () => void;
+  onPrinted?: (printedAt: string) => void;
 }) {
   const [pdfUrl, setPdfUrl] = useState("");
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(previewPdfBlob ?? null);
@@ -4082,12 +5817,18 @@ function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, prev
   const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy.trim().toLocaleLowerCase("tr") === sessionName;
   const isAssignedRepresentative = order.approvalForm?.salesRepresentativeUserId
     === session.id || Boolean(representativeName && representativeName === sessionName);
+  const canManageExportForm = Boolean(session.permissions?.includes("order_forms.export_manage")) &&
+    order.approvalForm?.documentType !== "domestic" && isAssignedRepresentative;
   const canEditRejectedOwn = order.approvalForm?.status === "rejected" &&
     workflowRole(session.role) === "sales" && (ownsOrder || isAssignedRepresentative);
-  const canEdit = isOwner || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn;
-  const canApprove = allowApproval && (isOwner ||
+  const isHistoricalMerge = Boolean(order.mergedIntoOrderId || order.mergeUndoneAt);
+  const canEdit = !historical && !isHistoricalMerge && (isOwner || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn || canManageExportForm);
+  const canApprove = !historical && !isHistoricalMerge && (isOwner ||
     Boolean(session.permissions?.includes("order_forms.approve")) ||
-    ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") && (ownsOrder || isAssignedRepresentative)));
+    ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") && (ownsOrder || isAssignedRepresentative)) || canManageExportForm);
+  const canRejectApproved = isOwner || Boolean(session.permissions?.includes("order_forms.reject_approved")) || canManageExportForm;
+  const canRejectCurrentForm = !historical && !isHistoricalMerge && (order.approvalForm?.status === "approved" ? canRejectApproved : canApprove);
+  const isUlkuPrintTracking = session.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim() === "ulku altun";
 
   useEffect(() => {
     let objectUrl = "";
@@ -4098,7 +5839,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, prev
       setPdfUrl(objectUrl);
       return () => URL.revokeObjectURL(objectUrl);
     }
-    fetch(`/api/orders/${order.id}/approval-form/pdf`, { credentials: "include" })
+    fetch(`/api/orders/${order.id}/approval-form/pdf${order.approvalForm?.documentType !== "domestic" ? `?documentType=${encodeURIComponent(order.approvalForm?.documentType || "")}&expectedUpdatedAt=${encodeURIComponent(order.approvalForm?.updatedAt || "")}` : ""}`, { credentials: "include" })
       .then(async (response) => {
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
@@ -4165,6 +5906,16 @@ function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, prev
     return Math.hypot(x, y);
   };
 
+  const downloadPdf = () => {
+    if (!pdfBlob) return;
+    const link = document.createElement("a");
+    link.href = pdfUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const share = async () => {
     if (!pdfBlob) return;
     const file = new File([pdfBlob], filename, { type: "application/pdf" });
@@ -4179,17 +5930,27 @@ function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, prev
       setError(cause instanceof Error ? `PDF paylaşılamadı: ${cause.message}` : "PDF paylaşılamadı.");
       return;
     }
-    const link = document.createElement("a");
-    link.href = pdfUrl;
-    link.download = filename;
-    link.click();
+    downloadPdf();
   };
 
   const printPdf = async () => {
     if (!pdfBlob || !pdfRendered) return;
+    const markAsPrinted = async () => {
+      if (!isUlkuPrintTracking || order.approvalForm?.status !== "approved") return;
+      try {
+        const result = await api<{ printedAt: string }>(`/api/orders/${order.id}/approval-form/printed`, {
+          method: "POST",
+          body: JSON.stringify({ formNumber: order.approvalForm.number }),
+        });
+        onPrinted?.(result.printedAt);
+      } catch (cause) {
+        setError(cause instanceof Error ? `Yazdırma kaydı tutulamadı: ${cause.message}` : "Yazdırma kaydı tutulamadı.");
+      }
+    };
     if (useNativeWindowsViewer && nativePdfRef.current?.contentWindow) {
       nativePdfRef.current.contentWindow.focus();
       nativePdfRef.current.contentWindow.print();
+      await markAsPrinted();
       return;
     }
     const isAppleMobile = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
@@ -4199,6 +5960,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, prev
       try {
         if (!nativeCanShare || nativeCanShare.call(navigator, { files: [file] })) {
           await nativeShare.call(navigator, { title: `Yazdır: ${filename}`, files: [file] });
+          await markAsPrinted();
           return;
         }
       } catch (cause) {
@@ -4213,6 +5975,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, prev
     void document.body.offsetHeight;
     try {
       window.print();
+      await markAsPrinted();
     } finally {
       window.setTimeout(cleanup, 2_000);
     }
@@ -4225,10 +5988,19 @@ function ApprovalPdfViewer({ order, session, allowApproval, previewPdfBlob, prev
         <div><b>{order.approvalForm?.number || order.number}</b><small>{filename}</small></div>
         <nav>
           {canEdit && <button type="button" onClick={onEdit}><Pencil aria-hidden="true" /><span>Düzenle</span></button>}
-          {canApprove && order.approvalForm?.status !== "approved" && <button type="button" className="approval-viewer-reject" onClick={onReject}><X aria-hidden="true" /><span>Reddet</span></button>}
+          {canEdit && order.approvalForm?.status !== "approved" && !order.approvalForm?.submittedForApproval && (
+            <button type="button" className="approval-viewer-submit" onClick={onApprove}><Send aria-hidden="true" /><span>Onaya gönder</span></button>
+          )}
+          {!historical && !isHistoricalMerge && canWithdrawApproval(order.approvalForm, session, isOwner) && onWithdraw && (
+            <button type="button" className="approval-viewer-withdraw" onClick={onWithdraw}><RotateCcw aria-hidden="true" /><span>Onayı geri çek</span></button>
+          )}
           {canApprove && order.approvalForm?.status !== "approved" && <button type="button" className="approval-viewer-approve" onClick={onApprove}><Check aria-hidden="true" /><span>Onayla</span></button>}
+          {canRejectCurrentForm && <button type="button" className="approval-viewer-reject" onClick={onReject}><X aria-hidden="true" /><span>Reddet</span></button>}
           <button className="mobile-hide-print" type="button" disabled={!pdfRendered} onClick={() => void printPdf()}><Printer aria-hidden="true" /><span>Yazdır</span></button>
-          <button type="button" disabled={!pdfBlob} onClick={() => void share()}>{nativeShare ? <Share2 aria-hidden="true" /> : <Download aria-hidden="true" />}<span>{nativeShare ? "Paylaş" : "İndir"}</span></button>
+          <button type="button" className="approval-viewer-save mobile-hide-print" disabled={!pdfBlob} onClick={downloadPdf} title="PDF indir ve bilgisayara kaydet"><Download aria-hidden="true" /><span>Kaydet</span></button>
+          {nativeShare && (
+            <button type="button" disabled={!pdfBlob} onClick={() => void share()} title="Paylaş"><Share2 aria-hidden="true" /><span>Paylaş</span></button>
+          )}
         </nav>
       </header>
       <main
@@ -4583,6 +6355,9 @@ function SettingsModal({
 
   // Customer form state
   const [newCustomerName, setNewCustomerName] = useState("");
+  const [showCustomerCreate, setShowCustomerCreate] = useState(false);
+  const [newCustomerType, setNewCustomerType] = useState<"domestic" | "foreign">("domestic");
+  const [newCustomerCountry, setNewCustomerCountry] = useState("");
   const [newCustomerContact, setNewCustomerContact] = useState("");
   const [newCustomerSalesRepresentative, setNewCustomerSalesRepresentative] = useState("");
   const [newCustomerFolderName, setNewCustomerFolderName] = useState("");
@@ -4598,6 +6373,7 @@ function SettingsModal({
   const [customerContactDraft, setCustomerContactDraft] = useState("");
   const [customerSalesRepresentativeDraft, setCustomerSalesRepresentativeDraft] = useState("");
   const [customerFolderNameDraft, setCustomerFolderNameDraft] = useState("");
+  const [customerCountryDraft, setCustomerCountryDraft] = useState("");
   const [customerAddressLine1Draft, setCustomerAddressLine1Draft] = useState("");
   const [customerAddressLine2Draft, setCustomerAddressLine2Draft] = useState("");
   const customerImportInputRef = useRef<HTMLInputElement>(null);
@@ -4862,6 +6638,9 @@ function SettingsModal({
     "order_forms.view_all": "Tüm temsilcilerin formlarını gör",
     "order_forms.edit": "Sipariş formu düzenle",
     "order_forms.approve": "Sipariş formunu onayla ve PDF'yi arşivle",
+    "order_forms.reject_approved": "Onaylanmış sipariş formunu reddet",
+    "order_forms.delete_revision": "Sipariş formu eski sürümlerini sil",
+    "order_forms.export_manage": "Atandığı yurtdışı belgelerini yönet",
     "money.view": "Finansı gör",
     "money.manage": "Finansı yönet",
     "counterparties.view": "Müşterileri gör",
@@ -4997,6 +6776,8 @@ function SettingsModal({
         method: "POST",
         body: JSON.stringify({
           name: newCustomerName,
+          customerType: newCustomerType,
+          country: newCustomerType === "foreign" ? newCustomerCountry : "Türkiye",
           contact: newCustomerContact,
           salesRepresentative: newCustomerSalesRepresentative,
           folderName: newCustomerFolderName,
@@ -5008,6 +6789,8 @@ function SettingsModal({
         }),
       });
       setNewCustomerName("");
+      setNewCustomerType("domestic");
+      setNewCustomerCountry("");
       setNewCustomerContact("");
       setNewCustomerSalesRepresentative("");
       setNewCustomerFolderName("");
@@ -5015,6 +6798,7 @@ function SettingsModal({
       setNewCustomerNote("");
       setNewCustomerAddressLine1("");
       setNewCustomerAddressLine2("");
+      setShowCustomerCreate(false);
       setSuccess("Müştəri əlavə edildi.");
       onReload();
     } catch (err) {
@@ -5208,6 +6992,7 @@ function SettingsModal({
         c.name.toLowerCase().includes(q) ||
         (c.contact || "").toLowerCase().includes(q) ||
         (c.salesRepresentative || "").toLowerCase().includes(q) ||
+        (c.country || "").toLowerCase().includes(q) ||
         (c.folderName || "").toLowerCase().includes(q) ||
         (c.phone || "").toLowerCase().includes(q),
     );
@@ -5226,6 +7011,7 @@ function SettingsModal({
     setCustomerContactDraft(selectedCustomer.contact ?? "");
     setCustomerSalesRepresentativeDraft(selectedCustomer.salesRepresentative ?? "");
     setCustomerFolderNameDraft(selectedCustomer.folderName ?? "");
+    setCustomerCountryDraft(selectedCustomer.country ?? "");
     setCustomerAddressLine1Draft(selectedCustomer.addressLine1 ?? selectedCustomer.address ?? "");
     setCustomerAddressLine2Draft(selectedCustomer.addressLine2 ?? "");
   }, [selectedCustomer]);
@@ -5254,6 +7040,7 @@ function SettingsModal({
           contact: customerContactDraft,
           salesRepresentative: customerSalesRepresentativeDraft,
           folderName: customerFolderNameDraft,
+          ...(selectedCustomer.customerType === "foreign" ? { country: customerCountryDraft } : {}),
           addressLine1: customerAddressLine1Draft,
           addressLine2: customerAddressLine2Draft,
         }),
@@ -6005,6 +7792,10 @@ function SettingsModal({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <button type="button" className="primary customer-create-trigger" onClick={() => setShowCustomerCreate(true)}>
+              <Plus aria-hidden="true" />
+              Yeni müşteri
+            </button>
             <label className="customer-excel-import">
               <span>{customerImportFileName || "Excel dosyası seç"}</span>
               <input
@@ -6032,49 +7823,35 @@ function SettingsModal({
             </button>
           </div>
 
-          <form onSubmit={handleAddCustomer} className="customer-create-form">
-            <input
-              list="new-customer-sales-representatives"
-              placeholder="Satış temsilcisi"
-              value={newCustomerSalesRepresentative}
-              onChange={(e) => setNewCustomerSalesRepresentative(e.target.value)}
-            />
-            <datalist id="new-customer-sales-representatives"><option value="Serkan Şeremet" /><option value="Mustafa Yazman" /><option value="Ekrem Tiryaki" /></datalist>
-            <input
-              placeholder="Klasör adı"
-              value={newCustomerFolderName}
-              onChange={(e) => setNewCustomerFolderName(e.target.value)}
-            />
-            <input
-              required
-              placeholder="Müşteri adı"
-              value={newCustomerName}
-              onChange={(e) => setNewCustomerName(e.target.value)}
-            />
-            <input
-              placeholder="Şirket temsilcisi"
-              value={newCustomerContact}
-              onChange={(e) => setNewCustomerContact(e.target.value)}
-            />
-            <input
-              placeholder="Adres 1"
-              value={newCustomerAddressLine1}
-              onChange={(e) => setNewCustomerAddressLine1(e.target.value)}
-            />
-            <input
-              placeholder="Adres 2"
-              value={newCustomerAddressLine2}
-              onChange={(e) => setNewCustomerAddressLine2(e.target.value)}
-            />
-            <input placeholder={ui.phone} value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} />
-            <input placeholder={ui.note} value={newCustomerNote} onChange={(e) => setNewCustomerNote(e.target.value)} />
-            <button
-              className="primary"
-              disabled={busy || !newCustomerName.trim()}
-            >
-              ＋ {ui.addCustomer}
-            </button>
-          </form>
+          {showCustomerCreate && <form onSubmit={handleAddCustomer} className="customer-create-form">
+            <header>
+              <div><b>Yeni müşteri</b><span>{newCustomerType === "foreign" ? "Yurtdışı müşteri kartı" : "Yurtiçi müşteri kartı"}</span></div>
+              <button type="button" className="icon-button" onClick={() => setShowCustomerCreate(false)} aria-label="Müşteri formunu kapat"><X aria-hidden="true" /></button>
+            </header>
+            <div className="customer-create-type" role="tablist" aria-label="Yeni müşteri türü">
+              <button type="button" role="tab" aria-selected={newCustomerType === "domestic"} className={newCustomerType === "domestic" ? "active" : ""} onClick={() => setNewCustomerType("domestic")}>Yurtiçi</button>
+              <button type="button" role="tab" aria-selected={newCustomerType === "foreign"} className={newCustomerType === "foreign" ? "active" : ""} onClick={() => { setNewCustomerType("foreign"); setNewCustomerSalesRepresentative("Ekrem Tiryaki"); }}>Yurtdışı</button>
+            </div>
+            <div className="customer-create-fields">
+              <label><span>Müşteri adı</span><input required value={newCustomerName} onChange={(e) => setNewCustomerName(e.target.value)} /></label>
+              {newCustomerType === "foreign" ? (
+                <label><span>Ülke klasörü</span><input required list="customer-country-folders" placeholder="Örn. IRAQ" value={newCustomerCountry} onChange={(e) => setNewCustomerCountry(e.target.value)} /><datalist id="customer-country-folders"><option value="IRAQ" /><option value="AZERBAIJAN" /><option value="GEORGIA" /><option value="GERMANY" /><option value="LIBYA" /><option value="SYRIA" /></datalist></label>
+              ) : (
+                <label><span>Müşteri klasörü</span><input value={newCustomerFolderName} onChange={(e) => setNewCustomerFolderName(e.target.value)} /></label>
+              )}
+              <label><span>Satış temsilcisi</span><input list="new-customer-sales-representatives" value={newCustomerType === "foreign" ? "Ekrem Tiryaki" : newCustomerSalesRepresentative} disabled={newCustomerType === "foreign"} onChange={(e) => setNewCustomerSalesRepresentative(e.target.value)} /></label>
+              <datalist id="new-customer-sales-representatives"><option value="Serkan Şeremet" /><option value="Mustafa Yazman" /><option value="Ekrem Tiryaki" /></datalist>
+              <label><span>Şirket temsilcisi</span><input value={newCustomerContact} onChange={(e) => setNewCustomerContact(e.target.value)} /></label>
+              <label><span>Telefon</span><input value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} /></label>
+              <label><span>Adres 1</span><input value={newCustomerAddressLine1} onChange={(e) => setNewCustomerAddressLine1(e.target.value)} /></label>
+              <label><span>Adres 2</span><input value={newCustomerAddressLine2} onChange={(e) => setNewCustomerAddressLine2(e.target.value)} /></label>
+              <label className="customer-create-note"><span>Not</span><input value={newCustomerNote} onChange={(e) => setNewCustomerNote(e.target.value)} /></label>
+            </div>
+            <footer>
+              <button type="button" className="secondary" onClick={() => setShowCustomerCreate(false)}>Vazgeç</button>
+              <button className="primary" disabled={busy || !newCustomerName.trim() || (newCustomerType === "foreign" && !newCustomerCountry.trim())}>Müşteriyi kaydet</button>
+            </footer>
+          </form>}
 
           <div className="customer-manager-grid">
             <section className="customer-list-panel">
@@ -6118,6 +7895,7 @@ function SettingsModal({
                     <datalist id="customer-sales-representatives"><option value="Serkan Şeremet" /><option value="Mustafa Yazman" /><option value="Ekrem Tiryaki" /></datalist>
                   </label>
                   <div className="customer-detail-fields">
+                    {selectedCustomer.customerType === "foreign" && <label><span>Ülke klasörü</span><input list="customer-country-folders" value={customerCountryDraft} onChange={(event) => setCustomerCountryDraft(event.target.value)} /></label>}
                     <label><span>Klasör adı</span><input value={customerFolderNameDraft} onChange={(event) => setCustomerFolderNameDraft(event.target.value)} /></label>
                     <label><span>Şirket temsilcisi</span><input value={customerContactDraft} onChange={(event) => setCustomerContactDraft(event.target.value)} /></label>
                     <label><span>Adres 1</span><input value={customerAddressLine1Draft} onChange={(event) => setCustomerAddressLine1Draft(event.target.value)} /></label>
@@ -6360,6 +8138,101 @@ function SettingsModal({
   );
 }
 
+function InactiveOrderDetail({ order, language, onOpenContextMenu }: { order: Order; language: Language; onOpenContextMenu?: (target: ContextMenuTarget, pos: { x: number; y: number }) => void }) {
+  const inactiveTouchTimerRef = useRef<any>(null);
+  const inactiveTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const reason = order.archivedAt ? order.archiveReason : order.deletedAt ? order.deletionReason : order.cancellationReason;
+  const actor = order.archivedAt ? order.archivedBy : order.deletedAt ? order.deletedBy : order.cancelledBy;
+  const at = order.archivedAt || order.deletedAt || order.cancelledAt || order.updatedAt;
+  return (
+    <div className="inactive-detail-content">
+      <section className="inactive-detail-summary">
+        <span><small>İşlem nedeni</small><b>{reason || "Sebep kaydedilmemiş"}</b></span>
+        <span><small>İşlemi yapan</small><b>{actor || "-"}</b></span>
+        <span><small>İşlem tarihi</small><b>{at ? new Date(at).toLocaleString(language, { dateStyle: "medium", timeStyle: "short" }) : "-"}</b></span>
+        <span><small>Siparişi oluşturan</small><b>{order.createdBy || "-"}</b></span>
+      </section>
+      <section className="inactive-detail-products">
+        <header><div><b>Sipariş içeriği</b><small>{order.items.length} ürün satırı</small></div></header>
+        <div>
+          {order.items.map((item, index) => (
+            <article
+              key={`${item.productId || item.productCode}-${index}`}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenContextMenu?.({
+                  type: "product",
+                  product: {
+                    id: item.productId,
+                    name: item.productName,
+                    code: item.productCode,
+                    unit: item.unit,
+                    quantity: item.preparedQuantity || item.quantity,
+                    rollCount: item.preparedRollCount || item.orderedRollCount,
+                  },
+                  order: { id: order.id, number: order.number, customerName: order.customerName, status: order.status },
+                }, { x: e.clientX, y: e.clientY });
+              }}
+              onPointerDown={(e) => {
+                if (e.pointerType === "mouse" && e.button !== 0) return;
+                inactiveTouchPosRef.current = { x: e.clientX, y: e.clientY };
+                if (inactiveTouchTimerRef.current) clearTimeout(inactiveTouchTimerRef.current);
+                inactiveTouchTimerRef.current = setTimeout(() => {
+                  try { if ("vibrate" in navigator) navigator.vibrate(40); } catch {}
+                  onOpenContextMenu?.({
+                    type: "product",
+                    product: {
+                      id: item.productId,
+                      name: item.productName,
+                      code: item.productCode,
+                      unit: item.unit,
+                      quantity: item.preparedQuantity || item.quantity,
+                      rollCount: item.preparedRollCount || item.orderedRollCount,
+                    },
+                    order: { id: order.id, number: order.number, customerName: order.customerName, status: order.status },
+                  }, { x: inactiveTouchPosRef.current.x, y: inactiveTouchPosRef.current.y });
+                }, 450);
+              }}
+              onPointerMove={(e) => {
+                if (!inactiveTouchTimerRef.current) return;
+                const dx = Math.abs(e.clientX - inactiveTouchPosRef.current.x);
+                const dy = Math.abs(e.clientY - inactiveTouchPosRef.current.y);
+                if (dx > 10 || dy > 10) {
+                  clearTimeout(inactiveTouchTimerRef.current);
+                  inactiveTouchTimerRef.current = null;
+                }
+              }}
+              onPointerUp={() => {
+                if (inactiveTouchTimerRef.current) {
+                  clearTimeout(inactiveTouchTimerRef.current);
+                  inactiveTouchTimerRef.current = null;
+                }
+              }}
+              onPointerCancel={() => {
+                if (inactiveTouchTimerRef.current) {
+                  clearTimeout(inactiveTouchTimerRef.current);
+                  inactiveTouchTimerRef.current = null;
+                }
+              }}
+            >
+              <span className="inactive-detail-product-index">{index + 1}</span>
+              <span><small>{item.productCode || "Kodsuz"}</small><b>{item.productName}</b>{item.lineNote && <em>{item.lineNote}</em>}</span>
+              <span><small>Sipariş</small><b>{Number(item.quantity) > 0 ? `${Number(item.quantity).toLocaleString("tr-TR")} mt` : ""}{Number(item.orderedRollCount) > 0 ? `${Number(item.quantity) > 0 ? " · " : ""}${item.orderedRollCount} rulo` : ""}</b></span>
+              <span><small>Hazırlanan</small><b>{Number(item.preparedQuantity) > 0 || Number(item.preparedRollCount) > 0 ? preparedQuantityLabel(item) : "Henüz yok"}</b></span>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="inactive-detail-notes">
+        <span><small>Sipariş notu</small><p>{order.note || "Not bulunmuyor."}</p></span>
+        {order.originalText && <span><small>İlk sipariş metni</small><p>{order.originalText}</p></span>}
+      </section>
+      {Boolean(order.audit?.length) && <details className="inactive-detail-history"><summary>İşlem geçmişi · {order.audit?.length}</summary><div>{order.audit?.slice().reverse().map((entry) => <p key={entry.id}><b>{entry.by}</b><span>{new Date(entry.at).toLocaleString(language)} · {entry.reason || entry.newValue || entry.action}</span></p>)}</div></details>}
+    </div>
+  );
+}
+
 function OrderDetail({
   order,
   allOrders,
@@ -6374,6 +8247,8 @@ function OrderDetail({
   onShowApprovalPdf,
   onDeleted,
   language,
+  onOpenChat,
+  onOpenContextMenu,
 }: {
   order: Order;
   allOrders: Order[];
@@ -6388,14 +8263,83 @@ function OrderDetail({
   onShowApprovalPdf: (order: Order) => void;
   onDeleted: () => void;
   language: Language;
+  onOpenChat?: (order: Order) => void;
+  onOpenContextMenu?: (target: ContextMenuTarget, pos: { x: number; y: number }) => void;
 }) {
+  const detailTouchTimerRef = useRef<any>(null);
+  const detailTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const handleProductContextMenu = (e: React.MouseEvent, item: OrderItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onOpenContextMenu?.({
+      type: "product",
+      product: {
+        id: item.productId,
+        name: item.productName,
+        code: item.productCode,
+        unit: item.unit,
+        quantity: item.preparedQuantity || item.quantity,
+        rollCount: item.preparedRollCount || item.orderedRollCount,
+      },
+      order: {
+        id: order.id,
+        number: order.number,
+        customerName: order.customerName,
+        status: order.status,
+      },
+    }, { x: e.clientX, y: e.clientY });
+  };
+
+  const handleProductTouchStart = (e: React.PointerEvent, item: OrderItem) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    detailTouchPosRef.current = { x: e.clientX, y: e.clientY };
+    if (detailTouchTimerRef.current) clearTimeout(detailTouchTimerRef.current);
+    detailTouchTimerRef.current = setTimeout(() => {
+      try { if ("vibrate" in navigator) navigator.vibrate(40); } catch {}
+      onOpenContextMenu?.({
+        type: "product",
+        product: {
+          id: item.productId,
+          name: item.productName,
+          code: item.productCode,
+          unit: item.unit,
+          quantity: item.preparedQuantity || item.quantity,
+          rollCount: item.preparedRollCount || item.orderedRollCount,
+        },
+        order: {
+          id: order.id,
+          number: order.number,
+          customerName: order.customerName,
+          status: order.status,
+        },
+      }, { x: detailTouchPosRef.current.x, y: detailTouchPosRef.current.y });
+    }, 450);
+  };
+
+  const handleProductTouchMove = (e: React.PointerEvent) => {
+    if (!detailTouchTimerRef.current) return;
+    const dx = Math.abs(e.clientX - detailTouchPosRef.current.x);
+    const dy = Math.abs(e.clientY - detailTouchPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      clearTimeout(detailTouchTimerRef.current);
+      detailTouchTimerRef.current = null;
+    }
+  };
+
+  const handleProductTouchEnd = () => {
+    if (detailTouchTimerRef.current) {
+      clearTimeout(detailTouchTimerRef.current);
+      detailTouchTimerRef.current = null;
+    }
+  };
   const ui = copy[language];
   const workDraftKey = `arix-order-work:${session.id}:${order.id}`;
   const prepareItems = (source: Order) => source.items.map((item) => {
     if (source.status !== "preparing") return item;
     const preparedQuantity = Number(item.preparedQuantity) > 0
       ? Number(item.preparedQuantity)
-      : Number(item.quantity) || 0;
+      : 0;
     return {
       ...item,
       preparedQuantity,
@@ -6419,14 +8363,21 @@ function OrderDetail({
   const [removedItems, setRemovedItems] = useState<Array<{ productId?: number; productCode?: string; productName: string; reason: string }>>([]);
   const [rollbackTarget, setRollbackTarget] = useState<Status | null>(null);
   const [rollbackReason, setRollbackReason] = useState("");
+  const [deferDeliveryOpen, setDeferDeliveryOpen] = useState(false);
+  const [deferDeliveryOptions, setDeferDeliveryOptions] = useState<DeferredDeliveryInvoiceOption[]>([]);
+  const [deferDeliveryDocumentId, setDeferDeliveryDocumentId] = useState("");
+  const [deferDeliveryReason, setDeferDeliveryReason] = useState("Müşteri talebiyle teslimat daha sonra yapılacak");
+  const [deferDeliveryLoading, setDeferDeliveryLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [preparationEditing, setPreparationEditing] = useState(false);
   const [correctingPrepared, setCorrectingPrepared] = useState(false);
   const [preparedCorrectionReason, setPreparedCorrectionReason] = useState("");
   const [activeEditors, setActiveEditors] = useState(order.activeEditors ?? []);
   const draftTimers = useRef<Record<string, number>>({});
+  const draftRequests = useRef<Promise<unknown>>(Promise.resolve());
   const [busy, setBusy] = useState(false);
   const [attachmentUploadStatus, setAttachmentUploadStatus] = useState("");
+  const deliveryFormRef = useRef<HTMLElement | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deliveryNote, setDeliveryNote] = useState(savedWork.deliveryNote ?? order.deliveryNote ?? "");
@@ -6448,9 +8399,25 @@ function OrderDetail({
   const [expandedProductKey, setExpandedProductKey] = useState("");
   const [previewAttachment, setPreviewAttachment] =
     useState<OrderAttachment | null>(null);
+  const openLegacyDeliveryPhoto = (url: string, sourceOrder: Order = order) => {
+    setPreviewAttachment({
+      id: `legacy-delivery-photo-${sourceOrder.id}`,
+      kind: "deliveryProof",
+      name: `${sourceOrder.number} teslim fotoğrafı`,
+      mimeType: "image/jpeg",
+      size: 0,
+      url,
+      uploadedAt: sourceOrder.deliveredAt || sourceOrder.updatedAt || sourceOrder.createdAt,
+      uploadedBy: sourceOrder.deliveredBy || sourceOrder.preparedBy || sourceOrder.createdBy,
+    });
+  };
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalMode, setApprovalMode] = useState<"documents" | "packing">("documents");
   const preserveRestoredWork = useRef(Boolean(savedWork.items?.length || savedWork.deliveryNote || savedWork.despatchNumber || savedWork.withoutDespatch));
+  const applyOrderUpdatePreservingDraft = (next: Order) => {
+    preserveRestoredWork.current = true;
+    onChanged(next);
+  };
   const canPrepare = workflowRole === "owner" || workflowRole === "warehouse" || Boolean(session.permissions?.includes("orders.prepare"));
   const canRollback = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.rollback"));
   const canSell = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.create")) || Boolean(session.permissions?.includes("order_forms.edit"));
@@ -6471,6 +8438,7 @@ function OrderDetail({
   const canViewAudit = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.audit.view"));
   const canEditOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.edit"));
   const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy === session.name;
+  const canDeferDelivery = canEditOrder || Boolean(session.permissions?.includes("orders.create")) || ownsOrder;
   const canDeleteOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.delete")) || ownsOrder;
   const canLockOrder = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.lock"));
   const toggleOrderLock = async () => {
@@ -6532,6 +8500,9 @@ function OrderDetail({
           : []),
       ]
     : [rootOrder];
+  const deliveredParts = preparedParts
+    .filter((batch) => batch.status === "delivered" && batch.deliveredAt)
+    .sort((left, right) => String(left.deliveredAt).localeCompare(String(right.deliveredAt)));
   const requestedItems = useMemo(
     () =>
       Array.isArray(rootOrder.originalItems) && rootOrder.originalItems.length
@@ -6599,8 +8570,8 @@ function OrderDetail({
     const keepLocalWork = preserveRestoredWork.current;
     preserveRestoredWork.current = false;
     if (!keepLocalWork) setItems(prepareItems(order));
-    setCustomerName(order.customerName);
-    setNote(order.note ?? "");
+    if (!keepLocalWork) setCustomerName(order.customerName);
+    if (!keepLocalWork) setNote(order.note ?? "");
     setActiveEditors(order.activeEditors ?? []);
     if (!keepLocalWork) setDeliveryNote(order.deliveryNote ?? "");
     if (!keepLocalWork) setDeliverySelection(order.items.map((item, itemIndex) => {
@@ -6616,7 +8587,7 @@ function OrderDetail({
     setDeliveryPhoto(order.deliveryPhoto ?? "");
     if (!keepLocalWork) setDespatchNumber(order.despatchNumber ?? "");
     if (!keepLocalWork) setWithoutDespatch(order.withoutDespatch ?? false);
-    setDespatchScope(order.despatchScope ?? "full");
+    if (!keepLocalWork) setDespatchScope(order.despatchScope ?? "full");
   }, [order]);
 
   useEffect(() => {
@@ -6646,12 +8617,12 @@ function OrderDetail({
 
   const saveDraftItem = async (
     itemIndex: number,
-    changes: { preparedQuantity?: number; preparedRollCount?: number; cutAllowanceApplied?: boolean; cutPieceCount?: number; cutAllowancePerPiece?: number },
+    changes: { innerQuantity?: number; innerUnit?: OrderCustomUnit | ""; preparedQuantity?: number; preparedRollCount?: number; cutAllowanceApplied?: boolean; cutPieceCount?: number; cutAllowancePerPiece?: number },
   ) => {
     if (order.status !== "preparing") return;
     if (
       changes.preparedQuantity !== undefined &&
-      !(changes.preparedQuantity > 0)
+      !(changes.preparedQuantity >= 0)
     )
       return;
     if (
@@ -6660,10 +8631,12 @@ function OrderDetail({
     )
       return;
     try {
-      const next = await api<Order>(`/api/orders/${order.id}/draft`, {
+      const request = draftRequests.current.catch(() => {}).then(() => api<Order>(`/api/orders/${order.id}/draft`, {
         method: "PATCH",
         body: JSON.stringify({ itemIndex, ...changes }),
-      });
+      }));
+      draftRequests.current = request;
+      const next = await request;
       setActiveEditors(next.activeEditors ?? []);
     } catch (cause) {
       setError(
@@ -6674,8 +8647,8 @@ function OrderDetail({
 
   const queueDraftItem = (
     itemIndex: number,
-    field: "meter" | "roll" | "cut",
-    changes: { preparedQuantity?: number; preparedRollCount?: number; cutAllowanceApplied?: boolean; cutPieceCount?: number; cutAllowancePerPiece?: number },
+    field: "meter" | "roll" | "cut" | "content",
+    changes: { innerQuantity?: number; innerUnit?: OrderCustomUnit | ""; preparedQuantity?: number; preparedRollCount?: number; cutAllowanceApplied?: boolean; cutPieceCount?: number; cutAllowancePerPiece?: number },
   ) => {
     const key = `${itemIndex}:${field}`;
     window.clearTimeout(draftTimers.current[key]);
@@ -6686,7 +8659,7 @@ function OrderDetail({
   };
 
   const savePreparedCorrection = async () => {
-    const missingRoll = items.find((item) => Number(item.preparedQuantity) > 0 && !(Number.isInteger(Number(item.preparedRollCount)) && Number(item.preparedRollCount) > 0));
+    const missingRoll = items.find((item) => !isCustomUnitItem(item) && Number(item.preparedQuantity) > 0 && !(Number.isInteger(Number(item.preparedRollCount)) && Number(item.preparedRollCount) > 0));
     if (missingRoll) {
       setError(`${missingRoll.productName}: hazırlanan rulo sayısı en az 1 olmalıdır.`);
       return;
@@ -6700,7 +8673,7 @@ function OrderDetail({
       return;
     }
     setPreparedCorrectionReason(correctionReason);
-    const missingAllowance = items.find((item) => Number(item.preparedQuantity) > 0 && !hasRequiredCutAllowance(item));
+    const missingAllowance = items.find((item) => !isCustomUnitItem(item) && Number(item.preparedQuantity) > 0 && !hasRequiredCutAllowance(item));
     if (missingAllowance) {
       setError(`${missingAllowance.productName}: 70 mt'den küçük hazırlamalarda kesim payı zorunludur.`);
       return;
@@ -6725,12 +8698,12 @@ function OrderDetail({
 
   const changeStatus = async (status: Status, reason = "") => {
     if (status === "ready") {
-      const missingRoll = items.find((item) => Number(item.preparedQuantity) > 0 && !(Number.isInteger(Number(item.preparedRollCount)) && Number(item.preparedRollCount) > 0));
+      const missingRoll = items.find((item) => !isCustomUnitItem(item) && Number(item.preparedQuantity) > 0 && !(Number.isInteger(Number(item.preparedRollCount)) && Number(item.preparedRollCount) > 0));
       if (missingRoll) {
         setError(`${missingRoll.productName}: hazırlanan rulo sayısı en az 1 olmalıdır.`);
         return;
       }
-      const missingAllowance = items.find((item) => Number(item.preparedQuantity) > 0 && !hasRequiredCutAllowance(item));
+      const missingAllowance = items.find((item) => !isCustomUnitItem(item) && Number(item.preparedQuantity) > 0 && !hasRequiredCutAllowance(item));
       if (missingAllowance) {
         setError(`${missingAllowance.productName}: 70 mt'den küçük hazırlamalarda kesim payı zorunludur.`);
         return;
@@ -6841,26 +8814,14 @@ function OrderDetail({
       window.clearTimeout(timer),
     );
     try {
-      for (const [itemIndex, item] of items.entries()) {
-        if (!(Number(item.preparedQuantity) > 0)) continue;
-        await api<Order>(`/api/orders/${order.id}/draft`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            itemIndex,
-            preparedQuantity: Number(item.preparedQuantity),
-            preparedRollCount: Number(item.preparedRollCount) || 0,
-            cutAllowanceApplied: item.cutAllowanceApplied === true,
-            cutPieceCount: item.cutAllowanceApplied ? Math.max(1, Number(item.cutPieceCount) || 1) : 0,
-            cutAllowancePerPiece: item.cutAllowanceApplied ? cutAllowancePerPieceValue(item) : 0,
-          }),
-        });
-      }
-      const next = await api<Order>(`/api/orders/${order.id}`, {
+      await draftRequests.current;
+      const next = await api<Order>(`/api/orders/${order.id}/draft`, {
         method: "PATCH",
-        body: JSON.stringify({ saveDraft: true }),
+        body: JSON.stringify({ items }),
       });
       setItems(next.items);
-      setNotice(ui.draftSaved);
+      setPreparationEditing(false);
+      setNotice("Taslak kaydedildi. Sipariş hazırlanıyor aşamasında; daha sonra devam edebilirsiniz.");
       onChanged(next);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Taslaq saxlanmadı.");
@@ -6874,14 +8835,14 @@ function OrderDetail({
       setError("Müşteri adı zorunludur.");
       return;
     }
-    const incompleteProduct = items.find((item) => !item.productId);
+    const incompleteProduct = items.find((item) => isCustomUnitItem(item) ? !item.productName?.trim() : !item.productId);
     if (incompleteProduct) {
-      setError("Ürün kodu veya adından listeden geçerli bir ürün seçin.");
+      setError("Katalog ürünlerini listeden seçin veya harici ürünün adını yazın.");
       return;
     }
     const missingAmount = items.find((item) => !(Number(item.quantity) > 0) && !(Number(item.orderedRollCount) > 0));
     if (missingAmount) {
-      setError(`${missingAmount.productName || "Ürün"}: metre veya rulo sayısından en az birini yazın.`);
+      setError(`${missingAmount.productName || "Ürün"}: miktar veya rulo sayısından en az birini yazın.`);
       return;
     }
     let reason = editReason.trim();
@@ -6922,6 +8883,54 @@ function OrderDetail({
       onDeleted();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sifariş silinmədi.");
+      setBusy(false);
+    }
+  };
+  const archiveOrder = async () => {
+    const reason = window.prompt(`${order.number} neden arşivleniyor?`, "Kalan ürünler bekleniyor")?.trim();
+    if (!reason) { setError("Arşivleme nedeni zorunludur."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/orders/${order.id}/archive`, { method: "POST", body: JSON.stringify({ reason }) });
+      onDeleted();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Sipariş arşivlenemedi.");
+      setBusy(false);
+    }
+  };
+  const openDeferDelivery = async () => {
+    setDeferDeliveryOpen(true);
+    setDeferDeliveryOptions([]);
+    setDeferDeliveryDocumentId("");
+    setDeferDeliveryReason("Müşteri talebiyle teslimat daha sonra yapılacak");
+    setDeferDeliveryLoading(true);
+    setError("");
+    try {
+      const options = await api<DeferredDeliveryInvoiceOption[]>(`/api/orders/${order.id}/defer-delivery-options`);
+      setDeferDeliveryOptions(options);
+      if (options.length === 1) setDeferDeliveryDocumentId(options[0].id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Uygun faturalar yüklenemedi.");
+      setDeferDeliveryOpen(false);
+    } finally {
+      setDeferDeliveryLoading(false);
+    }
+  };
+  const deferOrderDelivery = async () => {
+    if (!deferDeliveryDocumentId || !deferDeliveryReason.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/orders/${order.id}/defer-delivery`, {
+        method: "POST",
+        body: JSON.stringify({ documentId: deferDeliveryDocumentId, reason: deferDeliveryReason.trim() }),
+      });
+      setDeferDeliveryOpen(false);
+      onDeleted();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Sipariş sonraki teslimata alınamadı.");
+    } finally {
       setBusy(false);
     }
   };
@@ -6968,6 +8977,8 @@ function OrderDetail({
     files: File[],
   ) => {
     if (!files.length) return;
+    const modalBody = deliveryFormRef.current?.closest(".modal-body") as HTMLElement | null;
+    const previousScrollTop = modalBody?.scrollTop ?? 0;
     setBusy(true);
     setAttachmentUploadStatus("Resim hazırlanıyor…");
     setError("");
@@ -6995,7 +9006,16 @@ function OrderDetail({
           body: JSON.stringify({ kind, name, mimeType, data }),
         });
       }
-      if (next) onChanged(next);
+      if (next) {
+        applyOrderUpdatePreservingDraft(next);
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+          const currentModalBody = deliveryFormRef.current?.closest(".modal-body") as HTMLElement | null;
+          if (!currentModalBody) return;
+          const maximumScrollTop = Math.max(0, currentModalBody.scrollHeight - currentModalBody.clientHeight);
+          currentModalBody.scrollTop = Math.min(previousScrollTop, maximumScrollTop);
+          deliveryFormRef.current?.scrollIntoView({ block: "nearest" });
+        }));
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Fayl yüklənmədi.");
     } finally {
@@ -7018,7 +9038,7 @@ function OrderDetail({
         `/api/orders/${order.id}/attachments/${attachment.id}`,
         { method: "DELETE" },
       );
-      onChanged(next);
+      applyOrderUpdatePreservingDraft(next);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Fayl silinmədi.");
     } finally {
@@ -7034,7 +9054,7 @@ function OrderDetail({
         `/api/orders/${order.id}/attachments/${attachment.id}`,
         { method: "PATCH" },
       );
-      onChanged(next);
+      applyOrderUpdatePreservingDraft(next);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Fayl geri qaytarılmadı.",
@@ -7051,7 +9071,7 @@ function OrderDetail({
     try {
       const next = await api<Order>(`/api/orders/${order.id}/delivery-photo`, { method: "DELETE" });
       setDeliveryPhoto("");
-      onChanged(next);
+      applyOrderUpdatePreservingDraft(next);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Teslim fotoğrafı silinemedi.");
     } finally {
@@ -7074,6 +9094,23 @@ function OrderDetail({
         window.setTimeout(() => frame.remove(), 30_000);
       }, 250);
     document.body.appendChild(frame);
+  };
+
+  const recoverOrder = async (action: "loan-return" | "undo-merge") => {
+    const label = action === "undo-merge" ? "Birleştirmeyi geri al" : "Borç iadesini kaldır";
+    const reason = window.prompt(`${label}: nedenini yazın. Teslim edilmiş siparişler değiştirilmez.`)?.trim();
+    if (!reason) return;
+    setBusy(true);
+    setError("");
+    try {
+      const next = await api<Order>(`/api/orders/${order.id}/${action}`, {
+        method: action === "undo-merge" ? "POST" : "PATCH", body: JSON.stringify({ reason }),
+      });
+      onChanged(next);
+      if (action === "undo-merge") onDeleted();
+      else setNotice("Borç iadesi kaldırıldı. Sipariş normal satış olarak devam eder.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "İşlem tamamlanamadı."); }
+    finally { setBusy(false); }
   };
 
   const setOrderTestMode = async (enabled: boolean) => {
@@ -7106,6 +9143,16 @@ function OrderDetail({
         <div className="order-audit">
           <span>{ui.createdBy}</span>
           <b>{order.createdBy}</b>
+          {onOpenChat && (
+            <button
+              className="arix-chat-order-trigger-btn"
+              type="button"
+              onClick={() => onOpenChat(order)}
+              title="Bu siparişi ekip sohbetine bağlayıp görüşün"
+            >
+              💬 Ekiple Konuş
+            </button>
+          )}
           {canLockOrder && <button className="order-lock-top-action" type="button" disabled={busy} onClick={() => void toggleOrderLock()}>{order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}<span>{order.lockedAt ? "Kilidi aç" : "Kilitle"}</span></button>}
         </div>
         {isOwner && <div className={`order-test-mode-banner ${order.isTest ? "active" : ""}`}>
@@ -7120,6 +9167,7 @@ function OrderDetail({
             <b>BORÇ İADESİ</b>
             <span>Teslim edildiğinde fiziksel stok ve bu müşteriye ait borç alış bakiyesi azalır; gün sonu teslimat ve satış toplamına dahil edilir.</span>
           </div>
+          {canEditOrder && ["new", "preparing", "ready"].includes(order.status) && !order.mergedOrderIds?.length && <button type="button" className="secondary" disabled={busy} onClick={() => void recoverOrder("loan-return")}><RotateCcw aria-hidden="true" />Borç iadesini kaldır</button>}
         </div>}
         {order.parentOrderNumber && (
           <div className="parent-order-link detail">
@@ -7127,7 +9175,12 @@ function OrderDetail({
           </div>
         )}
         {order.mergedOrderNumbers?.length ? (
-          <div className="parent-order-link merged-order-link detail">Birleşen hazır siparişler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
+          <div className="order-test-mode-banner">
+            <div><b>Birleşen siparişler: {order.mergedOrderNumbers.join(" · ")}</b>
+              {allOrders.filter((source) => order.mergedOrderIds?.includes(source.id) && source.approvalForm).map((source) => <button key={source.id} type="button" className="secondary" onClick={() => onShowApprovalPdf(source)}><FileText aria-hidden="true" />Birleştirme öncesi: {source.approvalForm?.number}</button>)}
+            </div>
+            {(isOwner || session.permissions?.includes("orders.merge_ready")) && order.status === "ready" && <button type="button" className="secondary" disabled={busy} onClick={() => void recoverOrder("undo-merge")}><RotateCcw aria-hidden="true" />Birleştirmeyi geri al</button>}
+          </div>
         ) : null}
         {activeEditors.length > 0 && (
           <div className="active-editors">
@@ -7216,13 +9269,23 @@ function OrderDetail({
                   Number(candidate.productId) === Number(item.productId),
               ),
             );
+            const isManual = isCustomUnitItem(item);
+            const itemUnitLabel = orderUnitShortLabel(item.unit, "tr");
             return (
               <div
                 className={`prep-row ${order.status === "delivered" ? "is-expandable" : ""}`}
                 key={`order-line-${index}`}
+                onContextMenu={(e) => handleProductContextMenu(e, item)}
+                onPointerDown={(e) => handleProductTouchStart(e, item)}
+                onPointerMove={handleProductTouchMove}
+                onPointerUp={handleProductTouchEnd}
+                onPointerCancel={handleProductTouchEnd}
               >
                 <div>
-                  <small>{item.productCode}</small>
+                  <small>
+                    {item.productCode}
+                    {isManual && <span className="external-item-badge" style={{ marginLeft: item.productCode ? 6 : 0 }}>Harici / Özel Birim</span>}
+                  </small>
                   <strong>{item.productName}</strong>
                   {item.lineNote && (
                     <em className="line-note">{item.lineNote}</em>
@@ -7258,75 +9321,193 @@ function OrderDetail({
                 </div>
                 {editing ? (
                   <div className="owner-line-edit">
-                    <label className="order-product-lookup">
-                      <span>Ürün kodu</span>
-                      <input
-                      list={`order-product-codes-${order.id}`}
-                      value={item.productCode || ""}
-                      placeholder="Kod yazın"
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        const product = products.find(
-                          (candidate) => String(candidate.code || candidate.sku || "").toLocaleLowerCase("tr") === value.trim().toLocaleLowerCase("tr"),
-                        );
-                        setItems((current) =>
-                          current.map((row, rowIndex) =>
-                            rowIndex === index
-                              ? product ? {
-                                  ...row,
-                                  productId: product.id,
-                                  productName: product.name,
-                                  productCode: product.code || product.sku || "",
-                                } : { ...row, productId: null, productCode: value }
-                              : row,
-                          ),
-                        );
-                      }}
-                    />
-                    </label>
-                    <label className="order-product-lookup">
-                      <span>Ürün adı</span>
-                      <input
-                        list={`order-product-names-${order.id}`}
-                        value={item.productName || ""}
-                        placeholder="Ürün adı yazın"
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          const product = products.find((candidate) => candidate.name.toLocaleLowerCase("tr") === value.trim().toLocaleLowerCase("tr"));
-                          setItems((current) => current.map((row, rowIndex) => rowIndex === index
-                            ? product ? { ...row, productId: product.id, productName: product.name, productCode: product.code || product.sku || "" } : { ...row, productId: null, productName: value }
-                            : row));
-                        }}
-                      />
-                    </label>
-                    <div className="order-amount-choice"><small>Metre veya rulo sayısından en az birini yazın</small><div>
-                    <label className="order-product-lookup"><span>Metre</span><input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={Number(item.quantity) > 0 ? item.quantity ?? "" : ""}
-                      placeholder="Metre"
-                      onChange={(event) =>
-                        setItems((current) =>
-                          current.map((row, rowIndex) =>
-                            rowIndex === index
-                              ? { ...row, quantity: event.target.value === "" ? null : Number(event.target.value) }
-                              : row,
-                          ),
-                        )
-                      }
-                    /></label>
-                    <label className="order-product-lookup"><span>Rulo sayısı</span><input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={Number(item.orderedRollCount) > 0 ? item.orderedRollCount ?? "" : ""}
-                      placeholder="Rulo sayısı"
-                      onChange={(event) => setItems((current) => current.map((row, rowIndex) => rowIndex === index
-                        ? { ...row, orderedRollCount: event.target.value === "" ? undefined : Math.max(0, Math.trunc(Number(event.target.value) || 0)) }
-                        : row))}
-                    /></label>
-                    </div></div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+                      <button
+                        type="button"
+                        className="create-missing-product"
+                        onClick={() => setItems((current) => current.map((row, rowIndex) => rowIndex === index
+                          ? isManual
+                            ? { ...row, manual: false, unit: "mt", innerQuantity: undefined, innerUnit: undefined }
+                            : { ...row, manual: true, productId: null, unit: row.orderedRollCount && !row.quantity ? "ROLL" : "BUCKET", innerUnit: row.orderedRollCount && !row.quantity ? undefined : "KG", quantity: Number(row.quantity || row.orderedRollCount || 1) }
+                          : row))}
+                      >
+                        {isManual ? "Katalog ürününe çevir" : "Harici / Özel Birimli Ürün Yap (Tutkal, Silikon, Kova, Kg, Lt)"}
+                      </button>
+                    </div>
+                    {isManual ? (
+                      <div className="external-item-grid">
+                        <label className="order-product-lookup">
+                          <span>Ürün adı (Tutkal, Silikon vb.)</span>
+                          <input
+                            value={item.productName || ""}
+                            placeholder="Örn. Kontak Tutkalı, Silikon"
+                            onChange={(event) => setItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, productName: event.target.value } : row))}
+                          />
+                        </label>
+                        <label className="order-product-lookup">
+                          <span>Ürün kodu (opsiyonel)</span>
+                          <input
+                            value={item.productCode || ""}
+                            placeholder="Kod (isteğe bağlı)"
+                            onChange={(event) => setItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, productCode: event.target.value } : row))}
+                          />
+                        </label>
+                        <label className="order-product-lookup">
+                          <span>Miktar</span>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={Number(item.quantity ?? item.orderedRollCount ?? 0) > 0 ? (item.quantity ?? item.orderedRollCount ?? "") : ""}
+                            placeholder="Miktar"
+                            onChange={(event) => {
+                              const qty = event.target.value === "" ? null : Number(event.target.value);
+                              setItems((current) => current.map((row, rowIndex) => rowIndex === index
+                                ? { ...row, quantity: qty, orderedRollCount: row.unit === "ROLL" ? (qty ? Math.max(0, Math.trunc(qty)) : undefined) : undefined }
+                                : row));
+                            }}
+                          />
+                        </label>
+                        <label className="order-product-lookup">
+                          <span>Ana Birim</span>
+                          <select
+                            value={item.unit && item.unit !== "mt" && item.unit !== "rulo" ? item.unit : (item.unit === "rulo" ? "ROLL" : "BUCKET")}
+                            onChange={(event) => {
+                              const nextUnit = event.target.value as OrderCustomUnit;
+                              setItems((current) => current.map((row, rowIndex) => rowIndex === index
+                                ? { ...row, unit: nextUnit, orderedRollCount: nextUnit === "ROLL" && Number(row.quantity) > 0 ? Math.max(0, Math.trunc(Number(row.quantity))) : undefined }
+                                : row));
+                            }}
+                          >
+                            <option value="BUCKET">Kova / Kap</option>
+                            <option value="KG">Kilogram (kg)</option>
+                            <option value="LT">Litre (lt)</option>
+                            <option value="ROLL">Rulo</option>
+                            <option value="PCS">Adet</option>
+                            <option value="BOX">Kutu / Koli</option>
+                            <option value="M">Metre (mt)</option>
+                            <option value="M2">Metrekare (m²)</option>
+                            <option value="SET">Set</option>
+                            <option value="BUNDLE">Paket</option>
+                            <option value="BAG">Çuval</option>
+                            <option value="CRATE">Kasa</option>
+                            <option value="PALLET">Palet</option>
+                          </select>
+                        </label>
+                        <label className="order-product-lookup">
+                          <span>Alt birim (kg, lt, adet...)</span>
+                          <select
+                            value={item.innerUnit ?? ""}
+                            onChange={(event) => {
+                              const val = event.target.value as OrderCustomUnit | "";
+                              setItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, innerUnit: val ? (val as OrderCustomUnit) : undefined } : row));
+                            }}
+                          >
+                            <option value="">Yok / Seçilmedi</option>
+                            <option value="KG">Kilogram (kg)</option>
+                            <option value="LT">Litre (lt)</option>
+                            <option value="ML">Mililitre (ml)</option>
+                            <option value="GR">Gram (gr)</option>
+                            <option value="PCS">Adet</option>
+                            <option value="M">Metre (mt)</option>
+                            <option value="M2">Metrekare (m²)</option>
+                            <option value="ROLL">Rulo</option>
+                            <option value="BOX">Kutu / Koli</option>
+                            <option value="BUCKET">Kova / Kap</option>
+                            <option value="SET">Set</option>
+                            <option value="BUNDLE">Paket</option>
+                          </select>
+                        </label>
+                        <label className="order-product-lookup">
+                          <span>1 paketteki miktar (opsiyonel)</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.innerQuantity ?? ""}
+                            placeholder="Örn. 15 (1 kova = 15 kg/lt)"
+                            onChange={(event) => {
+                              const val = Number(event.target.value);
+                              setItems((current) => current.map((row, rowIndex) => rowIndex === index
+                                ? { ...row, innerQuantity: val > 0 ? val : undefined, innerUnit: val > 0 ? (row.innerUnit || "KG") : row.innerUnit }
+                                : row));
+                            }}
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <>
+                        <label className="order-product-lookup">
+                          <span>Ürün kodu</span>
+                          <input
+                          list={`order-product-codes-${order.id}`}
+                          value={item.productCode || ""}
+                          placeholder="Kod yazın"
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            const product = products.find(
+                              (candidate) => String(candidate.code || candidate.sku || "").toLocaleLowerCase("tr") === value.trim().toLocaleLowerCase("tr"),
+                            );
+                            setItems((current) =>
+                              current.map((row, rowIndex) =>
+                                rowIndex === index
+                                  ? product ? {
+                                      ...row,
+                                      productId: product.id,
+                                      productName: product.name,
+                                      productCode: product.code || product.sku || "",
+                                    } : { ...row, productId: null, productCode: value }
+                                  : row,
+                              ),
+                            );
+                          }}
+                        />
+                        </label>
+                        <label className="order-product-lookup">
+                          <span>Ürün adı</span>
+                          <input
+                            list={`order-product-names-${order.id}`}
+                            value={item.productName || ""}
+                            placeholder="Ürün adı yazın"
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              const product = products.find((candidate) => candidate.name.toLocaleLowerCase("tr") === value.trim().toLocaleLowerCase("tr"));
+                              setItems((current) => current.map((row, rowIndex) => rowIndex === index
+                                ? product ? { ...row, productId: product.id, productName: product.name, productCode: product.code || product.sku || "" } : { ...row, productId: null, productName: value }
+                                : row));
+                            }}
+                          />
+                        </label>
+                        <div className="order-amount-choice"><small>Metre veya rulo sayısından en az birini yazın</small><div>
+                        <label className="order-product-lookup"><span>Metre</span><input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={Number(item.quantity) > 0 ? item.quantity ?? "" : ""}
+                          placeholder="Metre"
+                          onChange={(event) =>
+                            setItems((current) =>
+                              current.map((row, rowIndex) =>
+                                rowIndex === index
+                                  ? { ...row, quantity: event.target.value === "" ? null : Number(event.target.value) }
+                                  : row,
+                              ),
+                            )
+                          }
+                        /></label>
+                        <label className="order-product-lookup"><span>Rulo sayısı</span><input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={Number(item.orderedRollCount) > 0 ? item.orderedRollCount ?? "" : ""}
+                          placeholder="Rulo sayısı"
+                          onChange={(event) => setItems((current) => current.map((row, rowIndex) => rowIndex === index
+                            ? { ...row, orderedRollCount: event.target.value === "" ? undefined : Math.max(0, Math.trunc(Number(event.target.value) || 0)) }
+                            : row))}
+                        /></label>
+                        </div></div>
+                      </>
+                    )}
                     <input
                       value={item.lineNote ?? ""}
                       placeholder={ui.lineNote}
@@ -7362,6 +9543,71 @@ function OrderDetail({
                     </button>
                   </div>
                 ) : (order.status === "preparing" && canPrepare && preparationEditing) || (["ready", "delivered"].includes(order.status) && correctingPrepared) ? (
+                  isManual ? (
+                    <div className="prep-inputs prepared-quantity-fields">
+                      {order.status === "preparing" && <>
+                        <label className="actual">
+                          <small>Alt birim / içerik</small>
+                          <select aria-label={`${item.productName} alt birimi`} value={item.innerUnit || ""} onChange={(event) => {
+                            const innerUnit = event.target.value as OrderCustomUnit;
+                            setItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, innerUnit } : row));
+                            void saveDraftItem(index, { innerUnit, innerQuantity: Number(item.innerQuantity) || 0 });
+                          }}>
+                            <option value="" disabled>Birim seçin</option>
+                            {(["KG", "LT", "ML", "GR", "PCS", "M", "M2", "ROLL", "BOX", "BUCKET", "SET", "PALLET", "BAG", "CRATE", "BUNDLE"] as OrderCustomUnit[]).map((unit) => <option key={unit} value={unit}>{orderUnitShortLabel(unit, "tr")}</option>)}
+                          </select>
+                        </label>
+                        <label className="actual">
+                          <small>1 {itemUnitLabel} içindeki miktar</small>
+                          <EditableNumberInput min={0} step={0.001} value={Number(item.innerQuantity) || 0}
+                            onValueChange={(innerQuantity) => {
+                              const innerUnit = item.innerUnit || "KG";
+                              setItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, innerQuantity, innerUnit } : row));
+                            }}
+                            onValueCommit={(innerQuantity) => { void saveDraftItem(index, { innerQuantity, ...(!item.innerUnit ? { innerUnit: "KG" as OrderCustomUnit } : {}) }); }} />
+                          <span>{orderUnitShortLabel(item.innerUnit || "KG", "tr")}</span>
+                        </label>
+                      </>}
+                      <label className="actual">
+                        <small>Hazırlanan ({itemUnitLabel})</small>
+                        <EditableNumberInput
+                          min={0}
+                          step={0.01}
+                          value={Number(item.preparedQuantity ?? item.quantity ?? item.orderedRollCount ?? 0)}
+                          onValueChange={(preparedQuantity) => {
+                            const rollPatch = item.unit === "ROLL" || item.unit === "rulo" ? { preparedRollCount: Math.max(0, Math.trunc(preparedQuantity)) } : {};
+                            queueDraftItem(index, "meter", { preparedQuantity, ...rollPatch });
+                            setItems((current) =>
+                              current.map((row, rowIndex) =>
+                                rowIndex === index
+                                  ? { ...row, preparedQuantity, ...rollPatch }
+                                  : row,
+                              ),
+                            );
+                          }}
+                          onValueCommit={(preparedQuantity) => {
+                            const rollPatch = item.unit === "ROLL" || item.unit === "rulo" ? { preparedRollCount: Math.max(0, Math.trunc(preparedQuantity)) } : {};
+                            void saveDraftItem(index, { preparedQuantity, ...rollPatch });
+                          }}
+                        />
+                        <span>{itemUnitLabel}</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="secondary"
+                        style={{ alignSelf: "flex-end", minHeight: 36, padding: "0 10px", fontSize: 12 }}
+                        onClick={() => {
+                          const targetQty = Number(item.quantity ?? item.orderedRollCount ?? 1);
+                          const rollPatch = item.unit === "ROLL" || item.unit === "rulo" ? { preparedRollCount: Math.max(0, Math.trunc(targetQty)) } : {};
+                          setItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, preparedQuantity: targetQty, ...rollPatch } : row));
+                          void saveDraftItem(index, { preparedQuantity: targetQty, ...rollPatch });
+                        }}
+                      >
+                        <Check size={14} style={{ marginRight: 4 }} />
+                        Tamamlandı ({Number(item.quantity ?? item.orderedRollCount ?? 1)} {itemUnitLabel})
+                      </button>
+                    </div>
+                  ) : (
                   <div className="prep-inputs prepared-quantity-fields">
                     <label className="actual">
                       <small>Hazırlanan mt</small>
@@ -7444,7 +9690,14 @@ function OrderDetail({
                       <strong>Stoktan {(Number(item.preparedQuantity || item.quantity || 0) + cutAllowanceTotal(item)).toLocaleString(language)} mt</strong>
                     </div>
                   </div>
+                  )
                 ) : ["preparing", "ready", "delivered"].includes(order.status) ? (
+                  isManual ? (
+                    <div className="prepared-values">
+                      <b>{preparedQuantityLabel(item)}</b>
+                      <span>Harici / Özel Birim</span>
+                    </div>
+                  ) : (
                   <div className="prepared-values">
                     <b>{Number(item.preparedQuantity ?? item.quantity).toLocaleString(language)} mt</b>
                     <span>
@@ -7454,6 +9707,7 @@ function OrderDetail({
                     <span>{item.cutAllowanceApplied ? `${cutAllowanceTotal(item).toLocaleString(language)} mt kesim payı` : "Kesim payı yok"}</span>
                     <strong>Stok: {(Number(item.preparedQuantity ?? item.quantity) + cutAllowanceTotal(item)).toLocaleString(language)} mt</strong>
                   </div>
+                  )
                 ) : null}
                 {order.status === "delivered" &&
                   expandedProductKey === productKey && (
@@ -7537,17 +9791,42 @@ function OrderDetail({
               </div>
             );
           })}
-          {editing && <button type="button" className="add-order-line" onClick={() => {
-            setItems((current) => [...current, {
-              source: "Manuel eklenen satır", productId: null, productCode: "", productName: "", quantity: null,
-              preparedQuantity: null, preparedRollCount: null, orderedRollCount: undefined, confidence: 1, needsReview: false, alternatives: [],
-            }]);
-          }}><Plus aria-hidden="true" /><span>Ürün satırı ekle</span></button>}
+          {editing && <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="add-order-line" onClick={() => {
+              setItems((current) => [...current, {
+                source: "Manuel eklenen satır", productId: null, productCode: "", productName: "", quantity: null,
+                preparedQuantity: null, preparedRollCount: null, orderedRollCount: undefined, confidence: 1, needsReview: false, alternatives: [],
+              }]);
+            }}><Plus aria-hidden="true" /><span>Katalog ürün satırı ekle</span></button>
+            <button type="button" className="add-order-line" onClick={() => {
+              setItems((current) => [...current, {
+                source: "Harici / özel birimli ürün", productId: null, productCode: "", productName: "", quantity: 1, unit: "BUCKET", innerUnit: "KG", manual: true,
+                preparedQuantity: null, preparedRollCount: null, orderedRollCount: undefined, confidence: 1, needsReview: false, alternatives: [],
+              }]);
+            }}><Plus aria-hidden="true" /><span>Harici / Özel Birimli Ürün Ekle (Tutkal, Silikon, Kova, Kg, Lt)</span></button>
+          </div>}
         </div>}
         {order.preparedBy && (
           <p className="worker">
             {ui.preparedBy}: <b>{order.preparedBy}</b>
           </p>
+        )}
+        {deliveredParts.length > 0 && (
+          <section className="order-delivery-history">
+            <header><div><h3>Teslimatlar</h3><p>Bu sipariş için tamamlanan teslimatlar ayrı ayrı gösterilir.</p></div><b>{deliveredParts.length}</b></header>
+            <div>{deliveredParts.map((delivery, index) => {
+              const proofs = (delivery.attachments || []).filter((attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt);
+              return <article key={delivery.id}>
+                <div className="order-delivery-history-head"><span>{index + 1}</span><div><b>{delivery.number}</b><small>{new Date(delivery.deliveredAt!).toLocaleString(language)} · Teslim eden: {delivery.deliveredBy || "—"}</small></div><em>{delivery.isPartialDelivery || deliveredParts.length > 1 ? "Kısmi teslim" : "Tam teslim"}</em></div>
+                <ul>{safeItems(delivery).map((item, itemIndex) => <li key={`${delivery.id}-${item.productId}-${itemIndex}`}><span><b>{item.productName}</b><small>{item.productCode || "—"} · Hazırlayan: {item.preparedBy || delivery.preparedBy || "—"}</small></span><strong>{deliveryWaitingAmount(Number(item.preparedQuantity ?? item.quantity) || 0, Number(item.preparedRollCount ?? item.orderedRollCount) || 0)}</strong></li>)}</ul>
+                {(delivery.deliveryPhoto || proofs.length > 0) && <div className="delivery-history-proofs">
+                  {delivery.deliveryPhoto && <button type="button" onClick={() => openLegacyDeliveryPhoto(delivery.deliveryPhoto!, delivery)} aria-label="Teslim fotoğrafını tam önizle"><img src={delivery.deliveryPhoto} alt={`${delivery.number} teslim fotoğrafı`} /><span><Maximize2 aria-hidden="true" />Tam önizle</span></button>}
+                  {proofs.map((attachment) => attachment.mimeType.startsWith("image/") ? <button type="button" key={attachment.id} onClick={() => setPreviewAttachment(attachment)} aria-label={`${attachment.name} tam önizleme`}><img src={attachment.url} alt={attachment.name} /><span><Maximize2 aria-hidden="true" />Tam önizle</span></button> : <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" /><span>{attachment.name}</span></a>)}
+                </div>}
+                <footer><span>{delivery.withoutDespatch ? "İrsaliyesiz teslim" : delivery.despatchNumber ? `İrsaliye: ${delivery.despatchNumber}` : "İrsaliye bekleniyor"}</span><span>{delivery.deliveryNote || "Teslim notu yok"}</span>{proofs.length > 0 && <span>{proofs.length} teslim belgesi</span>}</footer>
+              </article>;
+            })}</div>
+          </section>
         )}
         {(order.status === "ready" || order.status === "delivered") && (
           <section className="order-documents">
@@ -7793,7 +10072,7 @@ function OrderDetail({
           </section>
         )}
         {order.status === "ready" && canDeliver && order.despatchReady && (
-          <section className="delivery-form">
+          <section className="delivery-form" ref={deliveryFormRef}>
             <h3>{ui.deliveryProof}</h3>
             <div className="partial-delivery-picker">
               <header><div><b>Teslim edilecek ürünler</b><small>Ürünün tamamını veya bir kısmını seçebilirsiniz.</small></div><span>{deliverySelection.filter((entry) => entry.selected).length}/{order.items.length}</span></header>
@@ -7823,9 +10102,17 @@ function OrderDetail({
                 multiple
                 disabled={busy}
                 onChange={(event) => {
+                  const input = event.currentTarget;
                   const files = Array.from(event.target.files || []);
-                  if (files.length) void uploadAttachments("deliveryProof", files);
-                  event.currentTarget.value = "";
+                  if (!files.length) {
+                    input.value = "";
+                    return;
+                  }
+                  void uploadAttachments("deliveryProof", files).finally(() => {
+                    input.value = "";
+                    input.blur();
+                    window.focus();
+                  });
                 }}
               />
             </label>
@@ -7837,9 +10124,17 @@ function OrderDetail({
                 capture="environment"
                 disabled={busy}
                 onChange={(event) => {
+                  const input = event.currentTarget;
                   const files = Array.from(event.target.files || []);
-                  if (files.length) void uploadAttachments("deliveryProof", files);
-                  event.currentTarget.value = "";
+                  if (!files.length) {
+                    input.value = "";
+                    return;
+                  }
+                  void uploadAttachments("deliveryProof", files).finally(() => {
+                    input.value = "";
+                    input.blur();
+                    window.focus();
+                  });
                 }}
               />
             </label>
@@ -7850,7 +10145,7 @@ function OrderDetail({
                 {(order.attachments || []).filter((attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt).map((attachment) => (
                   <div className="delivery-proof-file" key={attachment.id}>
                     {attachment.mimeType.startsWith("image/") ?
-                      <img src={attachment.url} alt={attachment.name} /> :
+                      <button type="button" className="delivery-proof-preview" onClick={() => setPreviewAttachment(attachment)} aria-label={`${attachment.name} tam önizleme`}><img src={attachment.url} alt={attachment.name} /><span><Maximize2 aria-hidden="true" />Tam önizle</span></button> :
                       <a href={attachment.url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" />{attachment.name}</a>}
                     {canDeliver && <button type="button" className="delivery-proof-delete" disabled={busy} title="Teslim kanıtını sil" onClick={() => void deleteAttachment(attachment)}><Trash2 aria-hidden="true" /></button>}
                   </div>
@@ -7859,7 +10154,7 @@ function OrderDetail({
             )}
             {deliveryPhoto && (
               <div className="delivery-proof-file legacy">
-                <img className="delivery-photo-preview" src={deliveryPhoto} alt={ui.deliveryPhoto} />
+                <button type="button" className="delivery-proof-preview" onClick={() => openLegacyDeliveryPhoto(deliveryPhoto)} aria-label="Teslim fotoğrafını tam önizle"><img className="delivery-photo-preview" src={deliveryPhoto} alt={ui.deliveryPhoto} /><span><Maximize2 aria-hidden="true" />Tam önizle</span></button>
                 {canDeliver && <button type="button" className="delivery-proof-delete" disabled={busy} title="Teslim fotoğrafını sil" onClick={() => void deleteDeliveryPhoto()}><Trash2 aria-hidden="true" /></button>}
               </div>
             )}
@@ -7872,7 +10167,7 @@ function OrderDetail({
               <p>{order.deliveryNote}</p>
               {order.deliveryPhoto && (
                 <div className="delivery-proof-file legacy">
-                  <img className="delivery-photo-preview" src={order.deliveryPhoto} alt={ui.deliveryPhoto} />
+                  <button type="button" className="delivery-proof-preview" onClick={() => openLegacyDeliveryPhoto(order.deliveryPhoto!)} aria-label="Teslim fotoğrafını tam önizle"><img className="delivery-photo-preview" src={order.deliveryPhoto} alt={ui.deliveryPhoto} /><span><Maximize2 aria-hidden="true" />Tam önizle</span></button>
                   {canDeliver && <button type="button" className="delivery-proof-delete" disabled={busy} title="Teslim fotoğrafını sil" onClick={() => void deleteDeliveryPhoto()}><Trash2 aria-hidden="true" /></button>}
                 </div>
               )}
@@ -7880,7 +10175,7 @@ function OrderDetail({
                 <div className="delivery-proof-files">
                   {deliveryProofFiles.map((attachment) => <div className="delivery-proof-file" key={attachment.id}>
                     {attachment.mimeType.startsWith("image/") ?
-                      <img src={attachment.url} alt={attachment.name} /> :
+                      <button type="button" className="delivery-proof-preview" onClick={() => setPreviewAttachment(attachment)} aria-label={`${attachment.name} tam önizleme`}><img src={attachment.url} alt={attachment.name} /><span><Maximize2 aria-hidden="true" />Tam önizle</span></button> :
                       <a href={attachment.url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" />{attachment.name}</a>}
                     {canDeliver && <button type="button" className="delivery-proof-delete" disabled={busy} title="Teslim kanıtını sil" onClick={() => void deleteAttachment(attachment)}><Trash2 aria-hidden="true" /></button>}
                   </div>)}
@@ -8150,6 +10445,24 @@ function OrderDetail({
               {ui.saveChanges}
             </button>
           )}
+          {order.status === "ready" && canDeferDelivery && !order.deliveryWaitingSourceId && (
+            <button
+              className="secondary defer-delivery-action"
+              disabled={busy}
+              onClick={() => void openDeferDelivery()}
+            >
+              <Truck aria-hidden="true" />Teslimatı ertele
+            </button>
+          )}
+          {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
+            <button
+              className="secondary archive-order-action"
+              disabled={busy}
+              onClick={() => void archiveOrder()}
+            >
+              <Archive aria-hidden="true" />Arşivle
+            </button>
+          )}
           {canDeleteOrder && (
             <button
               className="danger-button"
@@ -8176,9 +10489,9 @@ function OrderDetail({
           {order.status === "preparing" && !order.exportPackingRequired && (canPrepare || canRollback) && (
             <>
               {canRollback && <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("new"); }}>{ui.back}</button>}
-              {canPrepare && !preparationEditing && <button className="primary" disabled={busy} onClick={() => setPreparationEditing(true)}>Hazırlamayı düzenle</button>}
+              {canPrepare && !preparationEditing && <button className="primary" disabled={busy} onClick={() => setPreparationEditing(true)}>Hazırlamaya devam et</button>}
               {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={() => { setItems(prepareItems(order)); setPreparationEditing(false); }}>Vazgeç</button>}
-              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={saveDraft}>{ui.saveDraft}</button>}
+              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={saveDraft}>Taslağı kaydet · Ara ver</button>}
               {canPrepare && preparationEditing && <button className="primary" disabled={busy || items.every((item) => !(Number(item.preparedQuantity) > 0))} onClick={() => changeStatus("ready")}>{ui.done}</button>}
             </>
           )}
@@ -8227,6 +10540,41 @@ function OrderDetail({
           </div>
         </Modal>
       )}
+      {deferDeliveryOpen && (
+        <Modal
+          title="Teslimatı daha sonraya al"
+          subtitle={`${order.customerName} · ${order.number}`}
+          onClose={() => { if (!busy) setDeferDeliveryOpen(false); }}
+          className="defer-delivery-modal"
+        >
+          <div className="defer-delivery-content">
+            <div className="defer-delivery-info">
+              <Truck aria-hidden="true" />
+              <span><b>Hazır sipariş aktif panodan kaldırılacak</b><small>Satış ve müşteri borcu korunur. Seçilen faturanın stok düşümü teslimat yapılana kadar geri alınır.</small></span>
+            </div>
+            {deferDeliveryLoading ? <div className="center-state">Faturalar yükleniyor…</div> : deferDeliveryOptions.length ? (
+              <div className="defer-delivery-options">
+                {deferDeliveryOptions.map((option) => (
+                  <label key={option.id} className={deferDeliveryDocumentId === option.id ? "selected" : ""}>
+                    <input type="radio" name="defer-delivery-document" value={option.id} checked={deferDeliveryDocumentId === option.id} onChange={() => setDeferDeliveryDocumentId(option.id)} />
+                    <span><b>{option.number}</b><small>{option.date ? new Date(option.date).toLocaleDateString(language) : "Tarih yok"} · {option.itemCount} ürün</small></span>
+                    <span><b>{option.sourceKind === "document" ? `${option.total.toLocaleString(language, { maximumFractionDigits: 2 })} ${option.currency}` : `${option.remainingQuantity.toLocaleString(language, { maximumFractionDigits: 3 })} mt bakiye`}</b><small>{option.sourceKind === "waiting" ? `${option.waitingNumber || "Teslimat bakiyesi"} · Mevcut fatura` : option.sourceKind === "order" ? "Bu siparişten yeni bakiye oluşturulacak" : option.deferred ? "Teslimat bakiyesi mevcut" : `${option.remainingQuantity.toLocaleString(language, { maximumFractionDigits: 3 })} mt`}</small></span>
+                  </label>
+                ))}
+              </div>
+            ) : <div className="defer-delivery-empty"><FileText aria-hidden="true" /><b>Bu müşteriye ait uygun satış faturası bulunamadı</b><span>Önce aynı müşteri ve ürünlerle satış faturası oluşturulmalıdır.</span></div>}
+            <label className="field full defer-delivery-reason">
+              <span>Erteleme nedeni</span>
+              <textarea rows={3} maxLength={500} value={deferDeliveryReason} onChange={(event) => setDeferDeliveryReason(event.target.value)} />
+            </label>
+            {error && <p className="form-error">{error}</p>}
+            <div className="modal-actions">
+              <button type="button" className="secondary" disabled={busy} onClick={() => setDeferDeliveryOpen(false)}>Vazgeç</button>
+              <button type="button" className="primary" disabled={busy || !deferDeliveryDocumentId || !deferDeliveryReason.trim()} onClick={() => void deferOrderDelivery()}>{busy ? "Aktarılıyor…" : "Teslimat bekleyenlere aktar"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {previewAttachment && (
         <DocumentPreview
           attachment={previewAttachment}
@@ -8237,6 +10585,7 @@ function OrderDetail({
       )}
       {approvalOpen && (
         <ApprovalFormEditor
+          products={products}
           key={order.id}
           order={order}
           customers={customers}
@@ -8258,6 +10607,7 @@ function OrderDetail({
 
 function ApprovalFormEditor({
   order,
+  products,
   customers,
   printSettings,
   session,
@@ -8265,12 +10615,14 @@ function ApprovalFormEditor({
   initialAction = "view",
   allowApproval = false,
   previewOnly = false,
+  singleDocument = false,
   packingMode = false,
   onPreviewPdf,
   onClose,
   onSaved,
 }: {
   order: Order;
+  products: Product[];
   customers: Customer[];
   printSettings: CompanyPrintSettings;
   session: Session;
@@ -8278,6 +10630,7 @@ function ApprovalFormEditor({
   initialAction?: "view" | "edit" | "approve" | "reject";
   allowApproval?: boolean;
   previewOnly?: boolean;
+  singleDocument?: boolean;
   packingMode?: boolean;
   onPreviewPdf?: (blob: Blob, order: Order, filename: string) => void;
   onClose: () => void;
@@ -8293,53 +10646,63 @@ function ApprovalFormEditor({
       );
       const customerPrice = (productCode: string) =>
         Number(customer?.prices?.[productCode.trim().toLocaleUpperCase("tr")]);
+      const requestedDocumentType = (["proforma", "commercial_invoice", "packing_list"].includes(String(order.approvalForm?.documentType))
+        ? order.approvalForm?.documentType
+        : null) as ExportDocumentType | null;
+      const storedApprovalForm = order.approvalForm && requestedDocumentType
+        ? approvalDocumentVariant(order.approvalForm, requestedDocumentType)
+        : order.approvalForm;
       return (
-      order.approvalForm
+      storedApprovalForm
         ? {
-            ...order.approvalForm,
-            lines: order.approvalForm.lines.map((line) => {
-              const sourceItem = safeItems(order).find((item) => Number(item.productId) === Number(line.productId));
+            ...storedApprovalForm,
+            number: requestedDocumentType
+              ? exportDocumentNumber(requestedDocumentType, storedApprovalForm.number || order.number)
+              : storedApprovalForm.number,
+            lines: storedApprovalForm.lines.map((line, index) => {
+              if (previewOnly && (storedApprovalForm.documentType ?? "domestic") === "domestic") return line;
+              const sourceItem = safeItems(order)[matchOrderFormItems(storedApprovalForm.lines, safeItems(order))[index]];
               const sourceRollCount = Number(sourceItem?.preparedRollCount) > 0
                 ? Number(sourceItem?.preparedRollCount)
                 : Number(sourceItem?.orderedRollCount) || 0;
               return Number(line.rollCount) > 0 ? line : { ...line, rollCount: sourceRollCount };
             }),
-            documentType: order.approvalForm.documentType ?? "domestic",
+            documentType: storedApprovalForm.documentType ?? "domestic",
             proformaNumber:
-              order.approvalForm.proformaNumber ?? `PRF-${order.number.replace(/\D/g, "")}`,
-            invoiceNumber: order.approvalForm.invoiceNumber ?? "",
-            shipmentDate: order.approvalForm.shipmentDate ?? order.approvalForm.date,
-            revisionDate: localDateTimeInput(order.approvalForm.revisionDate ?? order.approvalForm.date),
+              storedApprovalForm.proformaNumber ?? documentNumberFromSource("PRF", order.number),
+            invoiceNumber: storedApprovalForm.invoiceNumber ?? "",
+            shipmentDate: storedApprovalForm.shipmentDate ?? storedApprovalForm.date,
+            revisionDate: localDateTimeInput(storedApprovalForm.revisionDate ?? storedApprovalForm.date),
             salesRepresentative:
-              order.approvalForm.salesRepresentative ?? customer?.salesRepresentative ?? "",
+              storedApprovalForm.salesRepresentative ?? customer?.salesRepresentative ?? "",
             salesRepresentativeUserId:
-              order.approvalForm.salesRepresentativeUserId ?? customer?.salesRepresentativeUserId ?? "",
-            overallDiscountRate: order.approvalForm.overallDiscountRate ?? 0,
-            priceSource: order.approvalForm.priceSource ?? "DEPO",
+              storedApprovalForm.salesRepresentativeUserId ?? customer?.salesRepresentativeUserId ?? "",
+            overallDiscountRate: storedApprovalForm.overallDiscountRate ?? 0,
+            priceSource: storedApprovalForm.priceSource ?? "DEPO",
             priceFactor: 1,
-            packageType: order.approvalForm.packageType ?? "STANDARD EXPORT PACKAGING",
-            productDescription: order.approvalForm.productDescription ?? "PVC FOIL",
-            incoterm: order.approvalForm.incoterm ?? "FCA Istanbul, Türkiye - Incoterms® 2020",
-            shipmentPort: order.approvalForm.shipmentPort ?? "Istanbul / Türkiye",
-            destination: order.approvalForm.destination ?? customer?.address ?? "",
-            countryOfOrigin: order.approvalForm.countryOfOrigin ?? "CHINA",
-            bankName: order.approvalForm.bankName ?? "ALBARAKA TÜRK PARTICIPATION BANK",
-            swiftCode: order.approvalForm.swiftCode ?? "BTFHTRISXXX",
-            iban: order.approvalForm.iban ?? "TR56 0020 3000 0998 7324 0000 02",
-            buyerOrderNumber: order.approvalForm.buyerOrderNumber ?? "",
-            transportMode: order.approvalForm.transportMode ?? "ROAD",
-            vehicleContainerNumber: order.approvalForm.vehicleContainerNumber ?? "",
-            transportDocumentNumber: order.approvalForm.transportDocumentNumber ?? "",
-            loadingPlace: order.approvalForm.loadingPlace ?? "Istanbul / Türkiye",
-            marksAndNumbers: order.approvalForm.marksAndNumbers ?? "",
-            freightAmount: order.approvalForm.freightAmount ?? 0,
-            insuranceAmount: order.approvalForm.insuranceAmount ?? 0,
-            exporterDeclaration: order.approvalForm.exporterDeclaration ?? "We hereby certify that the information contained in this invoice is true and correct.",
+            packageType: storedApprovalForm.packageType ?? "STANDARD EXPORT PACKAGING",
+            productDescription: storedApprovalForm.productDescription ?? "PVC FOIL",
+            incoterm: storedApprovalForm.incoterm ?? "FCA Istanbul, Türkiye - Incoterms® 2020",
+            shipmentPort: storedApprovalForm.shipmentPort ?? "Istanbul / Türkiye",
+            destination: storedApprovalForm.destination ?? customer?.address ?? "",
+            countryOfOrigin: storedApprovalForm.countryOfOrigin ?? "CHINA",
+            bankName: storedApprovalForm.bankName ?? "ALBARAKA TÜRK PARTICIPATION BANK",
+            swiftCode: storedApprovalForm.swiftCode ?? "BTFHTRISXXX",
+            iban: storedApprovalForm.iban ?? "TR56 0020 3000 0998 7324 0000 02",
+            buyerOrderNumber: storedApprovalForm.buyerOrderNumber ?? "",
+            transportMode: storedApprovalForm.transportMode ?? "ROAD",
+            vehicleContainerNumber: storedApprovalForm.vehicleContainerNumber ?? "",
+            transportDocumentNumber: storedApprovalForm.transportDocumentNumber ?? "",
+            loadingPlace: storedApprovalForm.loadingPlace ?? "Istanbul / Türkiye",
+            marksAndNumbers: storedApprovalForm.marksAndNumbers ?? "",
+            freightAmount: storedApprovalForm.freightAmount ?? 0,
+            insuranceAmount: storedApprovalForm.insuranceAmount ?? 0,
+            exporterDeclaration: storedApprovalForm.exporterDeclaration ?? "We hereby certify that the information contained in this invoice is true and correct.",
           }
         : {
-        number: `SOF-${order.number.replace(/\D/g, "")}`,
+        number: documentNumberFromSource("SOF", order.number),
         documentType: order.isExport || customer?.customerType === "foreign" ? "proforma" : "domestic",
-        proformaNumber: `PRF-${order.number.replace(/\D/g, "")}`,
+        proformaNumber: documentNumberFromSource("PRF", order.number),
         invoiceNumber: "",
         shipmentDate: new Date().toISOString().slice(0, 10),
         date: new Date().toISOString().slice(0, 10),
@@ -8351,18 +10714,28 @@ function ApprovalFormEditor({
         priceSource: "DEPO",
         priceFactor: 1,
         vatIncluded: false,
-        lines: safeItems(order).map((item) => ({
-          productId: item.productId,
-          productCode: item.productCode,
-          productName: item.productName,
-          quantity: Number(item.preparedQuantity ?? item.quantity) || 0,
-          rollCount: Number(item.preparedRollCount) > 0 ? Number(item.preparedRollCount) : (Number(item.orderedRollCount) || 0),
-          unitPrice: Number.isFinite(customerPrice(item.productCode))
-            ? customerPrice(item.productCode)
-            : 0,
-          discountRate: 0,
-          vatRate: order.isExport || customer?.customerType === "foreign" ? 0 : 20,
-        })),
+        lines: safeItems(order).map((item) => {
+          const isManual = isCustomUnitItem(item);
+          const innerQty = Number(item.innerQuantity) > 0 ? Number(item.innerQuantity) : undefined;
+          return {
+            productId: isManual ? null : item.productId,
+            productCode: item.productCode,
+            productName: item.productName,
+            quantity: Number(item.preparedQuantity ?? item.quantity ?? item.orderedRollCount) || 0,
+            rollCount: isManual && item.unit !== "ROLL" && item.unit !== "rulo" ? 0 : (Number(item.preparedRollCount) > 0 ? Number(item.preparedRollCount) : (Number(item.orderedRollCount) || 0)),
+            unitPrice: Number.isFinite(customerPrice(item.productCode))
+              ? customerPrice(item.productCode)
+              : 0,
+            discountRate: 0,
+            vatRate: order.isExport || customer?.customerType === "foreign" ? 0 : 20,
+            ...(isManual ? {
+              manual: true,
+              unit: mapOrderUnitToApprovalUnit(item.unit, true),
+              ...(item.innerUnit ? { innerUnit: mapOrderUnitToApprovalUnit(item.innerUnit, true) } : {}),
+              ...(innerQty ? { innerQuantity: innerQty, innerUnit: mapOrderUnitToApprovalUnit(item.innerUnit || "KG", true) } : {}),
+            } : {}),
+          };
+        }),
         overallDiscountRate: customer?.customerType === "foreign" ? defaultExportDiscount(customer.name) : 0,
         extraCharge: 0,
         extraChargeLabel: "Nakliye / ek ücret",
@@ -8399,21 +10772,45 @@ function ApprovalFormEditor({
     },
     [order, customers],
   );
-  const [form, setForm] = useState<ApprovalForm>(() => packingMode && order.exportPackingRequired ? {
-    ...initial,
-    documentType: "packing_list",
-    shipmentDate: new Date().toISOString().slice(0, 10),
-    status: "draft",
-    approvedAt: undefined,
-    approvedBy: undefined,
-    archive: undefined,
-    palletDistribution: balancedPalletDistribution(initial.lines.reduce((sum, line) => sum + Math.max(0, Math.trunc(Number(line.rollCount) || 0)), 0)),
-    palletDetails: [],
-  } : initial);
+  const [form, setForm] = useState<ApprovalForm>(() => {
+    const existingPacking = initial.exportDocuments?.packing_list || (initial.documentType === "packing_list" ? initial : undefined);
+    const raw = packingMode && order.exportPackingRequired ? (existingPacking ? {
+      ...existingPacking,
+      exportDocuments: initial.exportDocuments,
+    } : {
+      ...initial,
+      documentType: "packing_list" as const,
+      shipmentDate: new Date().toISOString().slice(0, 10),
+      status: "draft" as const,
+      approvedAt: undefined,
+      approvedBy: undefined,
+      archive: undefined,
+      palletDistribution: balancedPalletDistribution(initial.lines.reduce((sum, line) => sum + Math.max(0, Math.trunc(Number(line.rollCount) || 0)), 0)),
+      palletDetails: [],
+    }) : initial;
+    if (raw.documentType === "packing_list") {
+      const restoredLines = raw.lines.map((line, index) => {
+        if (Math.max(0, Math.trunc(Number(line.rollCount) || 0)) > 0) return line;
+        const sourceIndex = matchOrderFormItems(raw.lines, safeItems(order))[index];
+        const sourceItem = sourceIndex >= 0 ? safeItems(order)[sourceIndex] : undefined;
+        const sourceRollCount = Number(sourceItem?.preparedRollCount) > 0
+          ? Number(sourceItem?.preparedRollCount)
+          : Number(sourceItem?.orderedRollCount) || 0;
+        return sourceRollCount > 0 ? { ...line, rollCount: sourceRollCount } : line;
+      });
+      const totalR = restoredLines.reduce((sum, line) => sum + Math.max(0, Math.trunc(Number(line.rollCount) || 0)), 0);
+      return {
+        ...raw,
+        lines: restoredLines,
+        palletDistribution: raw.palletDistribution?.length ? raw.palletDistribution : balancedPalletDistribution(totalR),
+      };
+    }
+    return raw;
+  });
   const [printPriceFactor, setPrintPriceFactor] = useState<1 | 0.5>(1);
   const editableSnapshot = (value: ApprovalForm, displayFactor: 1 | 0.5 = 1) => {
     const content: Partial<ApprovalForm> = { ...value };
-    content.lines = value.lines.map((line) => ({ ...line, unitPrice: Number((line.unitPrice / displayFactor).toFixed(4)) }));
+    content.lines = value.lines.map((line) => ({ ...line, unitPrice: (line.unitPrice / displayFactor) }));
     delete content.priceFactor;
     delete content.status;
     delete content.approvedAt;
@@ -8421,76 +10818,195 @@ function ApprovalFormEditor({
     delete content.updatedAt;
     delete content.updatedBy;
     delete content.archive;
+    delete content.exportDocuments;
     return JSON.stringify(content);
   };
   const approvedContentSnapshot = useRef(editableSnapshot(form));
   const hasFormChanges = editableSnapshot(form, printPriceFactor) !== approvedContentSnapshot.current;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [proxyApprovalDialogOpen, setProxyApprovalDialogOpen] = useState(false);
+  const [proxyApprovalNote, setProxyApprovalNote] = useState("");
   const [archivePath, setArchivePath] = useState(initial.archive?.windowsPath ?? initial.archive?.path ?? "");
   const [archiveActionNotice, setArchiveActionNotice] = useState("");
+  const [detailPageBreak, setDetailPageBreak] = useState(false);
   const [palletMoveTargets, setPalletMoveTargets] = useState<Record<string, number>>({});
   const [palletMoveCounts, setPalletMoveCounts] = useState<Record<string, number>>({});
   const [palletMoveQuantities, setPalletMoveQuantities] = useState<Record<string, number>>({});
   const [activePalletMoveKey, setActivePalletMoveKey] = useState("");
-  const [packingStep, setPackingStep] = useState<1 | 2>(initial.palletAllocations?.length ? 2 : 1);
+  const [packingStep, setPackingStep] = useState<1 | 2>(() => {
+    const existingPacking = initial.exportDocuments?.packing_list || (initial.documentType === "packing_list" ? initial : undefined);
+    return (existingPacking?.palletAllocations?.length || initial.palletAllocations?.length) ? 2 : 1;
+  });
   const actorOwnsOrder = order.createdByUserId ? order.createdByUserId === session.id : representativeIdentity(order.createdBy) === representativeIdentity(session.name);
   const actorIsAssignedRepresentative = order.approvalForm?.salesRepresentativeUserId === session.id || Boolean(representativeIdentity(order.approvalForm?.salesRepresentative) && representativeIdentity(order.approvalForm?.salesRepresentative) === representativeIdentity(session.name));
+  const canManageExportForm = Boolean(session.permissions?.includes("order_forms.export_manage")) && form.documentType !== "domestic" && actorIsAssignedRepresentative;
   const canEditRejectedOwn = order.approvalForm?.status === "rejected" && workflowRole(session.role) === "sales" && (actorOwnsOrder || actorIsAssignedRepresentative);
-  const canEdit = workflowRole(session.role) === "owner" || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn || (order.exportPackingRequired && (workflowRole(session.role) === "warehouse" || Boolean(session.permissions?.includes("orders.prepare"))));
+  const isHistoricalMerge = Boolean(order.mergedIntoOrderId || order.mergeUndoneAt);
+  const canEdit = !isHistoricalMerge && (workflowRole(session.role) === "owner" || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn || canManageExportForm || (order.exportPackingRequired && (workflowRole(session.role) === "warehouse" || Boolean(session.permissions?.includes("orders.prepare")))));
   const [editing, setEditing] = useState(
-    (packingMode && order.exportPackingRequired) ||
+    canEdit && ((packingMode && order.exportPackingRequired) ||
     initialAction === "edit" ||
     (!order.approvalForm && canEdit) ||
-    (initial.status === "rejected" && canEdit),
+    (initial.status === "rejected" && canEdit)),
   );
   const automaticApprovalStarted = useRef(false);
   const [ratePublicationDate, setRatePublicationDate] = useState("");
   const totals = useMemo(() => approvalTotals(form), [form]);
-  const packingTotalRolls = useMemo(() => form.lines.reduce((sum, line) => sum + Math.max(0, Math.trunc(Number(line.rollCount) || 0)), 0), [form.lines]);
-  const packingDistribution = useMemo(() => form.palletDistribution?.length ? form.palletDistribution : balancedPalletDistribution(packingTotalRolls), [form.palletDistribution, packingTotalRolls]);
+  const effectiveLines = useMemo(() => {
+    if (form.documentType !== "packing_list") return form.lines;
+    return form.lines.map((line, index) => {
+      const currentR = Math.max(0, Math.trunc(Number(line.rollCount) || 0));
+      const sourceIndex = matchOrderFormItems(form.lines, safeItems(order))[index];
+      const sourceItem = sourceIndex >= 0 ? safeItems(order)[sourceIndex] : undefined;
+      const sourceRollCount = Number(sourceItem?.preparedRollCount) > 0
+        ? Number(sourceItem?.preparedRollCount)
+        : Number(sourceItem?.orderedRollCount) || 0;
+      const nextLine = { ...line };
+      if (currentR <= 0 && sourceRollCount > 0) {
+        nextLine.rollCount = sourceRollCount;
+      }
+      if (sourceItem) {
+        if (!nextLine.innerQuantity && Number(sourceItem.innerQuantity) > 0) {
+          nextLine.innerQuantity = Number(sourceItem.innerQuantity);
+        }
+        if (!nextLine.innerUnit && sourceItem.innerUnit) {
+          nextLine.innerUnit = mapOrderUnitToApprovalUnit(sourceItem.innerUnit, true);
+        }
+      }
+      return nextLine;
+    });
+  }, [form.documentType, form.lines, order]);
+  const packingTotalRolls = useMemo(() => effectiveLines.reduce((sum, line) => sum + Math.max(0, Math.trunc(Number(line.rollCount) || 0)), 0), [effectiveLines]);
+  const hasManualPackingItems = useMemo(() => effectiveLines.some((line) => line.manual === true), [effectiveLines]);
+  const packingDistribution = useMemo(() => form.palletDistribution?.length ? form.palletDistribution : (balancedPalletDistribution(packingTotalRolls).length ? balancedPalletDistribution(packingTotalRolls) : (hasManualPackingItems ? [0] : [])), [form.palletDistribution, packingTotalRolls, hasManualPackingItems]);
   const packingAllocations = useMemo(() => form.palletAllocations?.length === packingDistribution.length
     ? form.palletAllocations
-    : packingAllocationsFromPlan(form.lines, packingDistribution), [form.lines, form.palletAllocations, packingDistribution]);
+    : packingAllocationsFromPlan(effectiveLines, packingDistribution), [effectiveLines, form.palletAllocations, packingDistribution]);
   const packingPlan = useMemo(() => packingAllocations.map((items, index) => ({
     number: index + 1,
     rollCount: items.reduce((sum, item) => sum + item.rolls, 0),
     remaining: 0,
     items: items.map((item) => {
-      const line = form.lines[item.lineIndex];
+      const line = effectiveLines[item.lineIndex];
       const totalRolls = Math.max(1, Number(line?.rollCount) || 0);
-      return { line, lineIndex: item.lineIndex, rolls: item.rolls, quantity: Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : Number(line?.quantity || 0) * item.rolls / totalRolls };
+      return {
+        line,
+        lineIndex: item.lineIndex,
+        rolls: item.rolls,
+        quantity: Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : Number(line?.quantity || 0) * item.rolls / totalRolls,
+        netWeight: item.netWeight,
+      };
     }).filter((item) => item.line),
-  })), [form.lines, packingAllocations]);
-  const packingProductChecks = useMemo(() => form.lines.map((line, lineIndex) => {
+  })), [effectiveLines, packingAllocations]);
+  const packingProductChecks = useMemo(() => effectiveLines.map((line, lineIndex) => {
     const assignedRolls = packingAllocations.reduce((sum, entries) => sum + entries.filter((entry) => entry.lineIndex === lineIndex).reduce((entrySum, entry) => entrySum + entry.rolls, 0), 0);
     const assignedQuantity = packingAllocations.reduce((sum, entries) => sum + entries.filter((entry) => entry.lineIndex === lineIndex).reduce((entrySum, entry) => entrySum + Number(entry.quantity || 0), 0), 0);
     const orderedRolls = Math.max(0, Math.trunc(Number(line.rollCount) || 0));
     const orderedQuantity = Math.max(0, Number(line.quantity) || 0);
     return { line, lineIndex, assignedRolls, assignedQuantity, orderedRolls, orderedQuantity, rollDifference: assignedRolls - orderedRolls, quantityDifference: assignedQuantity - orderedQuantity };
-  }), [form.lines, packingAllocations]);
-  const packingHasMismatch = packingProductChecks.some((check) => check.rollDifference !== 0 || Math.abs(check.quantityDifference) > 0.02);
-  const packingPalletDetails = useMemo(() => packingDistribution.map((_, index) => form.palletDetails?.[index] ?? ({ grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 })), [form.palletDetails, packingDistribution]);
+  }), [effectiveLines, packingAllocations]);
+  const packingHasMismatch = packingProductChecks.some((check) => {
+    const isRollUnit = (check.line.unit as string) === "ROLL" || (check.line.unit as string) === "rulo";
+    if (isRollUnit) return check.rollDifference !== 0;
+    return check.rollDifference !== 0 || Math.abs(check.quantityDifference) > 0.05;
+  });
+  const packingPalletDetails = useMemo(() => packingDistribution.map((_, index) => {
+    const detail = form.palletDetails?.[index];
+    return {
+      grossWeight: Number(detail?.grossWeight) || 0,
+      tareWeight: detail?.tareWeight != null ? Number(detail.tareWeight) : 20,
+      lengthCm: Number(detail?.lengthCm) || 120,
+      widthCm: Number(detail?.widthCm) || 80,
+      heightCm: Number(detail?.heightCm) || 100,
+    };
+  }), [form.palletDetails, packingDistribution]);
+  const palletCalculatedWeights = useMemo(() => {
+    return packingPlan.map((pallet, pIdx) => {
+      const detail = packingPalletDetails[pIdx] ?? { grossWeight: 0, tareWeight: 20, lengthCm: 120, widthCm: 80, heightCm: 100 };
+      return computePalletItemWeights(pallet.items, detail);
+    });
+  }, [packingPlan, packingPalletDetails]);
+  const packingTotalNetWeight = useMemo(() => packingPalletDetails.reduce((sum, item) => sum + Math.max(0, Number(item.grossWeight) - Number(item.tareWeight)), 0), [packingPalletDetails]);
+  const packingTotalGrossWeight = useMemo(() => packingPalletDetails.reduce((sum, item) => sum + (Number(item.grossWeight) || 0), 0), [packingPalletDetails]);
   const isProforma = form.documentType !== "domestic";
   const isPackingList = form.documentType === "packing_list";
   const isCommercialInvoice = form.documentType === "commercial_invoice";
+  const exportTableRowCount = isPackingList
+    ? (packingPlan.length > 0 ? packingPlan.reduce((sum, pallet) => sum + 1 + pallet.items.length, 0) : form.lines.length)
+    : form.lines.length;
+  const isSinglePageFit = form.pageFit === "single";
+  const isForcedMultiPage = form.pageFit === "multi";
+  const isMultiPage = isForcedMultiPage || (!isSinglePageFit && (detailPageBreak || exportTableRowCount > 10));
+  const exportUnitLabels: Record<string, string> = { M2: "m²", M: "m", ROLL: "roll", BOX: "box", BUCKET: "bucket", PCS: "pcs", KG: "kg", LT: "lt", ML: "ml", GR: "g", SET: "set", PALLET: "pallet", BAG: "bag", CRATE: "crate", BUNDLE: "bundle" };
+  const domesticUnitLabels: Record<string, string> = { M2: "m²", M: "mt", ROLL: "rulo", BOX: "kutu", BUCKET: "kova", PCS: "adet", KG: "kg", LT: "lt", ML: "ml", GR: "gr", SET: "set", PALLET: "palet", BAG: "çuval", CRATE: "kasa", BUNDLE: "paket" };
+  const hasNestedExportPackages = form.lines.some(approvalLineHasPackageContent);
   const isPackingTask = packingMode && order.exportPackingRequired && isPackingList;
   const exportDocumentTitle = form.documentType === "commercial_invoice" ? "Commercial Invoice" : isPackingList ? "Packing List" : "Proforma Invoice";
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const paper = paperRef.current;
+      const detailStart = paper?.querySelector<HTMLElement>(".approval-bottom-grid");
+      const footer = paper?.querySelector<HTMLElement>(".approval-page-footer");
+      if (!paper || !detailStart || !footer || !isProforma || isSinglePageFit) {
+        setDetailPageBreak(false);
+        return;
+      }
+      const contentBlocks = Array.from(paper.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child !== footer);
+      const contentEnd = contentBlocks.at(-1);
+      const footerTop = footer.getBoundingClientRect().top;
+      const needsBreak = Boolean(contentEnd && contentEnd.getBoundingClientRect().bottom > footerTop - 6);
+      setDetailPageBreak((current) => current === needsBreak ? current : needsBreak);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [form, isProforma, isSinglePageFit, packingPlan, packingPalletDetails]);
   const exportExtraChargeLabel = form.extraChargeLabel?.trim().toLocaleLowerCase("tr-TR") === "nakliye / ek ücret"
     ? "Freight / additional charge"
     : form.extraChargeLabel;
-  const switchExportDocument = (documentType: "proforma" | "commercial_invoice" | "packing_list") => {
+  const switchExportDocument = (documentType: ExportDocumentType) => {
     if (form.documentType === documentType) return;
     setError("");
     const isShipmentDocument = documentType === "commercial_invoice" || documentType === "packing_list";
     const wasShipmentDocument = form.documentType === "commercial_invoice" || form.documentType === "packing_list";
-    setForm((current) => ({
-      ...current,
+    setForm((current) => {
+      const currentType = (["proforma", "commercial_invoice", "packing_list"].includes(String(current.documentType)) ? current.documentType : "proforma") as ExportDocumentType;
+      const exportDocuments = {
+        ...(current.exportDocuments ?? {}),
+        [currentType]: approvalDocumentWithoutVariants(current),
+      };
+      const existing = exportDocuments[documentType];
+      if (existing) {
+        const lines = documentType === "packing_list" ? existing.lines.map((line, index) => {
+          if (Math.max(0, Math.trunc(Number(line.rollCount) || 0)) > 0) return line;
+          const sourceIndex = matchOrderFormItems(existing.lines, safeItems(order))[index];
+          const sourceItem = sourceIndex >= 0 ? safeItems(order)[sourceIndex] : undefined;
+          const sourceRollCount = Number(sourceItem?.preparedRollCount) > 0
+            ? Number(sourceItem?.preparedRollCount)
+            : Number(sourceItem?.orderedRollCount) || 0;
+          return sourceRollCount > 0 ? { ...line, rollCount: sourceRollCount } : line;
+        }) : existing.lines;
+        return { ...existing, lines, number: exportDocumentNumber(documentType, existing.number || order.number), exportDocuments };
+      }
+      const source = approvalDocumentWithoutVariants(current);
+      const lines = documentType === "packing_list" ? current.lines.map((line, index) => {
+        if (Math.max(0, Math.trunc(Number(line.rollCount) || 0)) > 0) return line;
+        const sourceIndex = matchOrderFormItems(current.lines, safeItems(order))[index];
+        const sourceItem = sourceIndex >= 0 ? safeItems(order)[sourceIndex] : undefined;
+        const sourceRollCount = Number(sourceItem?.preparedRollCount) > 0
+          ? Number(sourceItem?.preparedRollCount)
+          : Number(sourceItem?.orderedRollCount) || 0;
+        return sourceRollCount > 0 ? { ...line, rollCount: sourceRollCount } : line;
+      }) : current.lines;
+      const totalR = lines.reduce((sum, line) => sum + Math.max(0, Math.trunc(Number(line.rollCount) || 0)), 0);
+      return {
+      ...source,
+      exportDocuments,
       documentType,
+      number: exportDocumentNumber(documentType, order.number),
       palletDistribution: documentType === "packing_list"
-        ? (current.palletDistribution?.length ? current.palletDistribution : balancedPalletDistribution(current.lines.reduce((sum, line) => sum + Math.max(0, Math.trunc(Number(line.rollCount) || 0)), 0)))
-        : current.palletDistribution,
-      palletDetails: documentType === "packing_list" ? (current.palletDetails ?? []) : current.palletDetails,
+        ? balancedPalletDistribution(totalR)
+        : undefined,
+      palletDetails: documentType === "packing_list" ? [] : undefined,
       shipmentDate: isShipmentDocument && !wasShipmentDocument
         ? new Date().toISOString().slice(0, 10)
         : current.shipmentDate,
@@ -8499,13 +11015,15 @@ function ApprovalFormEditor({
       overallDiscountRate: current.overallDiscountRate === 0
         ? defaultExportDiscount(current.customerName ?? "")
         : current.overallDiscountRate,
-      lines: current.lines.map((line) => ({ ...line, vatRate: 0 })),
+      lines: lines.map((line) => ({ ...line, vatRate: 0 })),
       status: "draft",
       approvedAt: undefined,
       approvedBy: undefined,
       archive: undefined,
-    }));
-    setArchivePath("");
+    }});
+    const target = form.exportDocuments?.[documentType];
+    setArchivePath(target?.archive?.windowsPath ?? target?.archive?.path ?? "");
+    setEditing(false);
   };
   const selectedCustomer = useMemo(() => {
     const name = order.customerName.trim().toLocaleLowerCase("tr");
@@ -8520,7 +11038,7 @@ function ApprovalFormEditor({
       priceFactor: 1,
       lines: current.lines.map((line) => {
         const price = Number(sourcePrices[line.productCode.trim().toLocaleUpperCase("tr")]);
-        return Number.isFinite(price) ? { ...line, unitPrice: Number((price * priceFactor).toFixed(4)) } : line;
+        return Number.isFinite(price) ? { ...line, unitPrice: (price * priceFactor) } : line;
       }),
     }));
   };
@@ -8547,6 +11065,7 @@ function ApprovalFormEditor({
     };
   }, [canEdit, order.id]);
   useEffect(() => {
+    if (previewOnly) return;
     if (form.documentType !== "domestic") {
       setRatePublicationDate("");
       setForm((current) => Number(current.exchangeRate) === 1 ? current : ({ ...current, exchangeRate: 1 }));
@@ -8571,12 +11090,13 @@ function ApprovalFormEditor({
     return () => {
       cancelled = true;
     };
-  }, [form.currency, form.date, form.documentType]);
+  }, [form.currency, form.date, form.documentType, previewOnly]);
   const labels =
     language === "az"
       ? {
           title: "Sifariş təsdiq formu",
-          save: "Yadda saxla və təsdiqə göndər",
+          saveDraft: "Qaralamanı saxla",
+          submit: "Təsdiqə göndər",
           approve: "Təsdiqlə",
           print: "Çap et",
           preview: "A4 önizləmə",
@@ -8584,7 +11104,8 @@ function ApprovalFormEditor({
       : language === "en"
         ? {
             title: "Order confirmation form",
-            save: "Save and send for approval",
+            saveDraft: "Save draft",
+            submit: "Submit for approval",
             approve: "Approve",
             print: "Print",
             preview: "A4 preview",
@@ -8592,14 +11113,16 @@ function ApprovalFormEditor({
         : language === "ru"
           ? {
               title: "Форма подтверждения заказа",
-              save: "Сохранить и отправить на согласование",
+              saveDraft: "Сохранить черновик",
+              submit: "Отправить на согласование",
               approve: "Подтвердить",
               print: "Печать",
               preview: "Предпросмотр A4",
             }
           : {
               title: "Sipariş onay formu",
-              save: "Kaydet ve onaya gönder",
+              saveDraft: "Taslak kaydet",
+              submit: "Onaya gönder",
               approve: "Onayla",
               print: "Yazdır",
               preview: "A4 önizleme",
@@ -8608,28 +11131,182 @@ function ApprovalFormEditor({
     setForm((current) => ({
       ...current,
       lines: current.lines.map((line, lineIndex) =>
-        lineIndex === index ? { ...line, ...patch } : line,
+        lineIndex === index ? { ...line, ...(() => {
+          const sourceIndex = matchOrderFormItems(current.lines, safeItems(order))[lineIndex];
+          const source = safeItems(order)[sourceIndex];
+          return line.manual && source && (source.manual || source.productId == null)
+            ? { sourceItemRef: { index: sourceIndex, code: source.productCode || "", name: source.productName || "" } } : {};
+        })(), ...patch } : line,
       ),
     }));
   const addManualExportLine = () => setForm((current) => ({
     ...current,
     lines: [...current.lines, {
       productId: null, productCode: "", productName: "", quantity: 1, rollCount: 0,
-      width: 1, unitPrice: 0, discountRate: 0, vatRate: 0, unit: "PCS", unitsPerBox: 1, manual: true,
+      width: 1, unitPrice: 0, discountRate: 0, vatRate: 0, unit: "PCS", manual: true,
     }],
   }));
   const removeManualExportLine = (index: number) => setForm((current) => ({
     ...current,
     lines: current.lines.filter((_, lineIndex) => lineIndex !== index),
   }));
+  const domesticOrderItems = safeItems(order);
+  const formSourceIndexes = matchOrderFormItems(form.lines, domesticOrderItems);
+  const orderFormSyncDiff = (() => {
+    const matchedLineIndexes = new Set<number>();
+    let added = 0;
+    let changed = 0;
+    for (const item of domesticOrderItems) {
+      const itemIndex = domesticOrderItems.indexOf(item);
+      const lineIndex = formSourceIndexes.indexOf(itemIndex);
+      if (lineIndex < 0) {
+        added += 1;
+        continue;
+      }
+      matchedLineIndexes.add(lineIndex);
+      const line = form.lines[lineIndex];
+      const quantity = Number(item.preparedQuantity ?? item.quantity) || 0;
+      const rollCount = Number(item.preparedRollCount) > 0 ? Number(item.preparedRollCount) : (Number(item.orderedRollCount) || 0);
+      if (
+        Math.abs(Number(line.quantity || 0) - quantity) > 0.001
+        || Number(line.rollCount || 0) !== rollCount
+        || line.productCode.trim() !== item.productCode.trim()
+        || line.productName.trim() !== item.productName.trim()
+      ) changed += 1;
+    }
+    const removed = form.lines.filter((line, index) => !line.manual && !matchedLineIndexes.has(index)).length;
+    return { added, changed, removed, hasChanges: added > 0 || changed > 0 || removed > 0 };
+  })();
+  const shouldOfferOrderSync = canEdit && !previewOnly && (form.status === "rejected" || orderFormSyncDiff.hasChanges);
+  const orderFormSyncSummary = orderFormSyncDiff.hasChanges ? [
+    orderFormSyncDiff.changed ? `${orderFormSyncDiff.changed} ürünün miktarı veya rulosu değişti` : "",
+    orderFormSyncDiff.added ? `${orderFormSyncDiff.added} yeni ürün eklendi` : "",
+    orderFormSyncDiff.removed ? `${orderFormSyncDiff.removed} ürün siparişten çıkarıldı` : "",
+  ].filter(Boolean).join(" · ") : "Formu güncel sipariş ürünlerinden yeniden yükleyebilirsiniz.";
+  const syncApprovalLinesFromOrder = () => {
+    const customer = customers.find((candidate) => candidate.name.trim().toLocaleLowerCase("tr") === order.customerName.trim().toLocaleLowerCase("tr"));
+    setError("");
+    setForm((current) => {
+      const currentSourceIndexes = matchOrderFormItems(current.lines, domesticOrderItems);
+      const syncedLines = domesticOrderItems.map((item, itemIndex) => {
+        const existing = current.lines[currentSourceIndexes.indexOf(itemIndex)];
+        const customerPrice = Number(customer?.prices?.[item.productCode.trim().toLocaleUpperCase("tr")]);
+        const isManual = isCustomUnitItem(item);
+        const innerQty = Number(item.innerQuantity) > 0 ? Number(item.innerQuantity) : undefined;
+        return {
+          ...(existing ?? {
+            width: 1.42,
+            unitPrice: Number.isFinite(customerPrice) ? customerPrice : 0,
+            discountRate: 0,
+            vatRate: current.documentType === "domestic" ? 20 : 0,
+          }),
+          productId: isManual ? null : item.productId,
+          productCode: item.productCode,
+          productName: item.productName,
+          quantity: Number(item.preparedQuantity ?? item.quantity ?? item.orderedRollCount) || 0,
+          rollCount: isManual && item.unit !== "ROLL" && item.unit !== "rulo" ? 0 : (Number(item.preparedRollCount) > 0 ? Number(item.preparedRollCount) : (Number(item.orderedRollCount) || 0)),
+          ...(isManual ? {
+            manual: true,
+            unit: existing?.unit ?? mapOrderUnitToApprovalUnit(item.unit, true),
+            ...(item.innerUnit ? { innerUnit: existing?.innerUnit ?? mapOrderUnitToApprovalUnit(item.innerUnit, true) } : {}),
+            ...(innerQty ? { innerQuantity: existing?.innerQuantity ?? innerQty, innerUnit: existing?.innerUnit ?? mapOrderUnitToApprovalUnit(item.innerUnit || "KG", true) } : {}),
+          } : {}),
+        } satisfies ApprovalFormLine;
+      });
+      const extraManualLines = current.lines.filter((line, idx) => line.manual && currentSourceIndexes[idx] < 0);
+      return {
+        ...current,
+        lines: [...syncedLines, ...extraManualLines],
+        palletDistribution: undefined,
+        palletAllocations: undefined,
+        palletDetails: undefined,
+      };
+    });
+    if (!editing) beginApprovalEditing();
+  };
+  const missingDomesticItems = domesticOrderItems.map((item, itemIndex) => ({ item, itemIndex }))
+    .filter(({ itemIndex }) => !formSourceIndexes.includes(itemIndex));
+  const addDomesticOrderItem = (itemIndex: number) => {
+    const item = domesticOrderItems[itemIndex];
+    if (!item) return;
+    const customer = customers.find((candidate) => candidate.name.trim().toLocaleLowerCase("tr") === order.customerName.trim().toLocaleLowerCase("tr"));
+    const customerPrice = Number(customer?.prices?.[item.productCode.trim().toLocaleUpperCase("tr")]);
+    const isManual = isCustomUnitItem(item);
+    const innerQty = Number(item.innerQuantity) > 0 ? Number(item.innerQuantity) : undefined;
+    setForm((current) => ({
+      ...current,
+      lines: [...current.lines, {
+        productId: isManual ? null : item.productId,
+        productCode: item.productCode,
+        productName: item.productName,
+        quantity: Number(item.preparedQuantity ?? item.quantity ?? item.orderedRollCount) || 0,
+        rollCount: isManual && item.unit !== "ROLL" && item.unit !== "rulo" ? 0 : (Number(item.preparedRollCount) > 0 ? Number(item.preparedRollCount) : (Number(item.orderedRollCount) || 0)),
+        width: 1.42,
+        unitPrice: Number.isFinite(customerPrice) ? customerPrice : 0,
+        discountRate: 0,
+        vatRate: 20,
+        ...(isManual ? {
+          manual: true,
+          unit: mapOrderUnitToApprovalUnit(item.unit, true),
+          ...(item.innerUnit ? { innerUnit: mapOrderUnitToApprovalUnit(item.innerUnit, true) } : {}),
+          ...(innerQty ? { innerQuantity: innerQty, innerUnit: mapOrderUnitToApprovalUnit(item.innerUnit || "KG", true) } : {}),
+        } : {}),
+      }],
+    }));
+  };
+  const removeApprovalLine = (index: number) => {
+    if (form.lines.length <= 1) {
+      setError("Sipariş formunda en az bir ürün bulunmalıdır.");
+      return;
+    }
+    setError("");
+    setForm((current) => ({ ...current, lines: current.lines.filter((_, lineIndex) => lineIndex !== index) }));
+  };
+  const beginApprovalEditing = () => {
+    void api(`/api/orders/${order.id}/activity`, { method: "POST", body: JSON.stringify({ type: "approval_form_editing_started" }) }).catch(() => undefined);
+    setEditing(true);
+  };
+  const addManualExportProduct = () => {
+    if (!canEdit) {
+      setError("Bu forma ürün eklemek için sipariş formu düzenleme yetkisi gerekir.");
+      return;
+    }
+    setError("");
+    if (!editing) beginApprovalEditing();
+    addManualExportLine();
+  };
   const normalizedSessionName = representativeIdentity(session.name);
   const normalizedRepresentative = representativeIdentity(form.salesRepresentative);
   const ownsOrder = order.createdByUserId ? order.createdByUserId === session.id : order.createdBy.trim().toLocaleLowerCase("tr") === normalizedSessionName;
   const isAssignedRepresentative = form.salesRepresentativeUserId === session.id || Boolean(normalizedRepresentative && normalizedRepresentative === normalizedSessionName);
-  const canApprove = allowApproval && (
-    workflowRole(session.role) === "owner" ||
+  const canApprove = !isHistoricalMerge && (workflowRole(session.role) === "owner" || (allowApproval && (
     Boolean(session.permissions?.includes("order_forms.approve")) ||
-    ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") && (ownsOrder || isAssignedRepresentative)));
+    ((Boolean(session.permissions?.includes("orders.approve")) || workflowRole(session.role) === "sales") && (ownsOrder || isAssignedRepresentative)) || canManageExportForm)));
+  const canRejectApproved = workflowRole(session.role) === "owner" || Boolean(session.permissions?.includes("order_forms.reject_approved")) || canManageExportForm;
+  const canReject = !isHistoricalMerge && (form.status === "approved" ? canRejectApproved : canApprove);
+  const archiveRenderedForm = async (savedDocument?: ApprovalForm) => {
+    const documentToArchive = savedDocument ?? form;
+    if (documentToArchive.documentType !== "domestic") {
+      return api<{ path: string; filename: string; order: Order }>(
+        `/api/orders/${order.id}/approval-form/archive`,
+        { method: "POST", body: JSON.stringify({ documentType: documentToArchive.documentType, expectedUpdatedAt: documentToArchive.updatedAt }) },
+      );
+    }
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+    if (!paperRef.current) throw new Error("A4 önizleme bulunamadı.");
+    await document.fonts.ready;
+    const css = Array.from(document.styleSheets)
+      .flatMap((sheet) => {
+        try { return Array.from(sheet.cssRules, (rule) => rule.cssText); }
+        catch { return []; }
+      })
+      .join("\n");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${paperRef.current.outerHTML}</body></html>`;
+    return api<{ path: string; filename: string; order: Order }>(
+      `/api/orders/${order.id}/approval-form/archive`,
+      { method: "POST", body: JSON.stringify({ html }) },
+    );
+  };
   const rejectForm = async () => {
     const reason = window.prompt("Ret sebebini yazın:", "");
     if (reason === null) return;
@@ -8639,60 +11316,122 @@ function ApprovalFormEditor({
     try {
       const next = await api<Order>(`/api/orders/${order.id}/approval-form/reject`, {
         method: "POST",
-        body: JSON.stringify({ reason: reason.trim() }),
+        body: JSON.stringify({ reason: reason.trim(), documentType: form.documentType }),
       });
-      onSaved(next);
+      const rejectedForm = next.approvalForm ?? form;
+      setForm({ ...rejectedForm, priceFactor: 1, lines: rejectedForm.lines.map((line) => ({ ...line, unitPrice: (line.unitPrice * printPriceFactor) })) });
+      const archived = await archiveRenderedForm(rejectedForm);
+      setArchivePath(archived.path);
+      onSaved(archived.order);
       onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sipariş formu reddedilemedi.");
     } finally { setBusy(false); }
   };
-  const save = async (status: ApprovalForm["status"]) => {
+  const withdrawForm = async () => {
+    if (!window.confirm("Bu formu onay bekleyenler listesinden geri çekip tekrar taslağa almak istiyor musunuz?")) return;
     setBusy(true);
     setError("");
     try {
-      if (form.documentType === "packing_list") {
+      const next = await api<Order>(`/api/orders/${order.id}/approval-form/withdraw`, {
+        method: "POST",
+        body: JSON.stringify({ documentType: form.documentType }),
+      });
+      const docType = form.documentType as ExportDocumentType;
+      const withdrawnDoc = (next.approvalForm?.documentType === form.documentType ? next.approvalForm : (docType ? next.approvalForm?.exportDocuments?.[docType] : undefined)) ?? next.approvalForm;
+      const nextForm = withdrawnDoc ?? { ...form, submittedForApproval: false };
+      setForm({ ...nextForm, priceFactor: 1, lines: nextForm.lines.map((line: ApprovalFormLine) => ({ ...line, unitPrice: (line.unitPrice * printPriceFactor) })) });
+      onSaved(next);
+      setEditing(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Onay geri çekilemedi.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = async (status: ApprovalForm["status"], submittedApprovalNote?: string, submitForApproval = false) => {
+    const isProxyApproval = status === "approved" && Boolean(normalizedRepresentative) && !isAssignedRepresentative;
+    if (isProxyApproval && submittedApprovalNote === undefined) {
+      const vowels = [...(form.salesRepresentative || "")].reverse().find((character) => "aeıioöuüAEIİOÖUÜ".includes(character))?.toLocaleLowerCase("tr-TR");
+      const genitive = ({ a: "ın", ı: "ın", o: "un", u: "un", e: "in", i: "in", ö: "ün", ü: "ün" } as Record<string, string>)[vowels ?? ""] ?? "in";
+      setProxyApprovalNote(`${form.salesRepresentative?.trim() || "Satış temsilcisi"}'${genitive} onayına istinaden onaylanmıştır.`);
+      setProxyApprovalDialogOpen(true);
+      return;
+    }
+    if (isProxyApproval && !submittedApprovalNote?.trim()) {
+      setError("Temsilci adına onay notu boş bırakılamaz.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (form.documentType === "packing_list" && status === "approved") {
         const plannedRolls = packingDistribution.reduce((sum, value) => sum + Math.max(0, Math.trunc(Number(value) || 0)), 0);
         if (plannedRolls !== packingTotalRolls) throw new Error(`Palet planı ${plannedRolls} rulo, ürünler ise ${packingTotalRolls} rulo içeriyor.`);
         if (!packingAllocations.length) throw new Error("Önce palet sayılarını yazıp dağılım listesini oluşturun.");
         if (packingHasMismatch) throw new Error("Paletlerdeki rulo ve metre toplamları siparişle uyuşmuyor. Kırmızı uyarıları düzeltin.");
-        const invalidPallet = packingPalletDetails.findIndex((detail) => detail.grossWeight <= 0 || detail.tareWeight < 0 || detail.tareWeight > 20 || detail.tareWeight >= detail.grossWeight || detail.lengthCm <= 0 || detail.widthCm <= 0 || detail.heightCm <= 0);
-        if (invalidPallet >= 0) throw new Error(`Palet ${invalidPallet + 1} için brüt ağırlık, en fazla 20 kg dara ve ölçüler eksiksiz girilmelidir.`);
+        const invalidPallet = packingPalletDetails.findIndex((detail) => detail.grossWeight <= 0 || detail.tareWeight < 0 || detail.tareWeight > 60 || detail.tareWeight >= detail.grossWeight);
+        if (invalidPallet >= 0) {
+          const d = packingPalletDetails[invalidPallet];
+          if (d.grossWeight <= 0) {
+            throw new Error(`Palet ${invalidPallet + 1} için brüt ağırlık girilmelidir.`);
+          }
+          if (d.tareWeight > 60) {
+            throw new Error(`Palet ${invalidPallet + 1} darası en fazla 60 kg olabilir.`);
+          }
+          if (d.tareWeight >= d.grossWeight) {
+            throw new Error(`Palet ${invalidPallet + 1} için dara ağırlığı brüt ağırlıktan küçük olmalıdır.`);
+          }
+          throw new Error(`Palet ${invalidPallet + 1} bilgileri eksiksiz girilmelidir.`);
+        }
       }
+      const sanitizedPalletDetails = packingPalletDetails.map((detail) => ({
+        grossWeight: Math.max(0, Number(detail.grossWeight) || 0),
+        tareWeight: Math.max(0, Number(detail.tareWeight) || 0),
+        lengthCm: Math.max(0, Number(detail.lengthCm) || 120),
+        widthCm: Math.max(0, Number(detail.widthCm) || 80),
+        heightCm: Math.max(0, Number(detail.heightCm) || 100),
+      }));
       const persistedForm: ApprovalForm = {
         ...form,
+        lines: (form.documentType === "packing_list" ? effectiveLines : form.lines).map((line, index) => {
+          const isRollUnit = (line.unit as string) === "ROLL" || (line.unit as string) === "rulo";
+          const allocatedQty = form.documentType === "packing_list" && isRollUnit
+            ? packingAllocations.reduce((sum, entries) => sum + entries.filter((e) => e.lineIndex === index).reduce((s, e) => s + Number(e.quantity || 0), 0), 0)
+            : 0;
+          return {
+            ...line,
+            quantity: allocatedQty > 0 ? Number(allocatedQty.toFixed(2)) : line.quantity,
+            unitPrice: (line.unitPrice / printPriceFactor),
+          };
+        }),
         palletDistribution: form.documentType === "packing_list" ? packingDistribution : form.palletDistribution,
         palletAllocations: form.documentType === "packing_list" ? packingAllocations : form.palletAllocations,
-        palletDetails: form.documentType === "packing_list" ? packingPalletDetails : form.palletDetails,
+        palletDetails: form.documentType === "packing_list" ? sanitizedPalletDetails : form.palletDetails,
         priceFactor: 1,
-        lines: form.lines.map((line) => ({ ...line, unitPrice: Number((line.unitPrice / printPriceFactor).toFixed(4)) })),
       };
       const next = await api<Order>(`/api/orders/${order.id}/approval-form`, {
         method: "PUT",
-        body: JSON.stringify({ ...persistedForm, status }),
+        body: JSON.stringify({
+          ...persistedForm,
+          ...(form.documentType !== "domestic" ? { expectedUpdatedAt: form.updatedAt } : {}),
+          status,
+          submitForApproval,
+          ...(status === "approved" && isProxyApproval ? { approvalNote: submittedApprovalNote?.trim() } : {}),
+        }),
       });
-      const savedForm = next.approvalForm ?? persistedForm;
-      setForm({ ...savedForm, priceFactor: 1, lines: savedForm.lines.map((line) => ({ ...line, unitPrice: Number((line.unitPrice * printPriceFactor).toFixed(4)) })) });
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
-      if (!paperRef.current) throw new Error("A4 önizleme bulunamadı.");
-      await document.fonts.ready;
-      const css = Array.from(document.styleSheets)
-        .flatMap((sheet) => {
-          try { return Array.from(sheet.cssRules, (rule) => rule.cssText); }
-          catch { return []; }
-        })
-        .join("\n");
-      const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${paperRef.current.outerHTML}</body></html>`;
-      const archived = await api<{ path: string; filename: string; order: Order }>(
-        `/api/orders/${order.id}/approval-form/archive`,
-        { method: "POST", body: JSON.stringify({ html }) },
-      );
+      const docType = form.documentType as ExportDocumentType;
+      const nextSavedDoc = (next.approvalForm?.documentType === form.documentType ? next.approvalForm : (docType ? next.approvalForm?.exportDocuments?.[docType] : undefined)) ?? next.approvalForm;
+      const savedForm: ApprovalForm = nextSavedDoc ?? persistedForm;
+      setForm({ ...savedForm, priceFactor: 1, lines: savedForm.lines.map((line: ApprovalFormLine) => ({ ...line, unitPrice: (line.unitPrice * printPriceFactor) })) });
+      const archived = await archiveRenderedForm(savedForm);
       setArchivePath(archived.path);
-      const archivedForm = archived.order.approvalForm ?? next.approvalForm ?? persistedForm;
+      const archivedDoc = (archived.order.approvalForm?.documentType === form.documentType ? archived.order.approvalForm : (docType ? archived.order.approvalForm?.exportDocuments?.[docType] : undefined)) ?? archived.order.approvalForm;
+      const archivedForm: ApprovalForm = archivedDoc ?? savedForm;
       approvedContentSnapshot.current = editableSnapshot(archivedForm);
-      setForm({ ...archivedForm, priceFactor: 1, lines: archivedForm.lines.map((line) => ({ ...line, unitPrice: Number((line.unitPrice * printPriceFactor).toFixed(4)) })) });
+      setForm({ ...archivedForm, priceFactor: 1, lines: archivedForm.lines.map((line: ApprovalFormLine) => ({ ...line, unitPrice: (line.unitPrice * printPriceFactor) })) });
       onSaved(archived.order);
-      if (status === "approved") onClose();
+      if (status === "approved" || submitForApproval) onClose();
       else setEditing(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Form kaydedilemedi.");
@@ -8706,7 +11445,7 @@ function ApprovalFormEditor({
     void save("approved");
   }, [initialAction, canApprove, form.status]);
   useEffect(() => {
-    if (initialAction !== "reject" || !canApprove || form.status === "approved" || automaticApprovalStarted.current) return;
+    if (initialAction !== "reject" || !canApprove || (form.status === "approved" && form.documentType !== "proforma") || automaticApprovalStarted.current) return;
     automaticApprovalStarted.current = true;
     void rejectForm();
   }, [initialAction, canApprove, form.status]);
@@ -8755,6 +11494,25 @@ function ApprovalFormEditor({
     }
   };
   const print = async () => {
+    if (form.documentType !== "domestic") {
+      if (hasFormChanges) { setError("Yazdırmadan önce değişiklikleri kaydedin."); return; }
+      setError("");
+      try {
+        const response = await fetch(`/api/orders/${order.id}/approval-form/preview-pdf`, {
+          method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ documentType: form.documentType, expectedUpdatedAt: form.updatedAt }),
+        });
+        if (!response.ok) { const data = await response.json(); throw new Error(data.error || "PDF açılamadı."); }
+        const url = URL.createObjectURL(await response.blob());
+        const frame = document.createElement("iframe");
+        frame.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none";
+        frame.onload = () => { frame.contentWindow?.focus(); frame.contentWindow?.print(); };
+        frame.src = url;
+        document.body.appendChild(frame);
+        window.setTimeout(() => { frame.remove(); URL.revokeObjectURL(url); }, 120_000);
+      } catch (cause) { setError(cause instanceof Error ? cause.message : "PDF açılamadı."); }
+      return;
+    }
     if (!paperRef.current) return;
     await document.fonts.ready;
     const css = Array.from(document.styleSheets)
@@ -8781,8 +11539,28 @@ function ApprovalFormEditor({
       window.setTimeout(() => frame.remove(), 30_000);
     }, 350);
   };
+  const openDirectPdf = async () => {
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/orders/${order.id}/approval-form/pdf${isProforma ? `?documentType=${encodeURIComponent(form.documentType || "")}&expectedUpdatedAt=${encodeURIComponent(form.updatedAt || "")}` : ""}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "PDF açılamadı.");
+      }
+      const blob = await response.blob();
+      const filenameBase = (form.customerName || order.customerName).replace(/[\\/:*?"<>|]/g, "-").trim();
+      const previewTitle = isProforma ? exportDocumentTitle : labels.title;
+      onPreviewPdf?.(blob, { ...order, approvalForm: { ...form } }, `${filenameBase} - ${previewTitle}.pdf`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "PDF oluşturulamadı.");
+    } finally {
+      setBusy(false);
+    }
+  };
   useEffect(() => {
-    if (!previewOnly || !isProforma || !onPreviewPdf || previewPdfStarted.current) return;
+    if (!previewOnly || !onPreviewPdf || previewPdfStarted.current) return;
     previewPdfStarted.current = true;
     void (async () => {
       try {
@@ -8800,29 +11578,90 @@ function ApprovalFormEditor({
           method: "POST",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ html }),
+          body: JSON.stringify(isProforma ? { documentType: form.documentType, expectedUpdatedAt: form.updatedAt } : { html }),
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.error || "PDF önizlemesi oluşturulamadı.");
         }
         const filenameBase = (form.customerName || order.customerName).replace(/[\\/:*?"<>|]/g, "-").trim();
-        onPreviewPdf(await response.blob(), { ...order, approvalForm: { ...form } }, `${filenameBase} - ${exportDocumentTitle}.pdf`);
+        const previewTitle = isProforma ? exportDocumentTitle : labels.title;
+        onPreviewPdf(await response.blob(), { ...order, approvalForm: { ...form } }, `${filenameBase} - ${previewTitle}.pdf`);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "PDF önizlemesi oluşturulamadı.");
       }
     })();
   }, [previewOnly, isProforma, onPreviewPdf, order.id]);
+  const topActionButtons = !previewOnly ? (
+    <div className="approval-modal-header-actions">
+      {canEdit && !editing && (
+        <button type="button" className="secondary" disabled={busy} onClick={beginApprovalEditing}>
+          <Pencil size={15} aria-hidden="true" />
+          <span>{isProforma ? `${exportDocumentTitle} düzenle` : "Düzenle"}</span>
+        </button>
+      )}
+      {canEdit && (
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          onClick={() => void save("draft", undefined, false)}
+          title="Değişiklikleri taslak olarak kaydeder, onay bildirimi göndermez."
+        >
+          {labels.saveDraft}
+        </button>
+      )}
+      {canEdit && form.status !== "approved" && (
+        <button
+          type="button"
+          className={canApprove ? "secondary" : "primary"}
+          disabled={busy}
+          onClick={() => void save("draft", undefined, true)}
+          title="Formu tamamlayıp satış temsilcisinin ve yönetimin onayına gönderir."
+        >
+          <Send size={15} aria-hidden="true" />
+          <span>{labels.submit}</span>
+        </button>
+      )}
+      {!isHistoricalMerge && canWithdrawApproval(form, session, workflowRole(session.role) === "owner") && (
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          onClick={() => void withdrawForm()}
+          title="Bu formu onay bekleyenler listesinden geri çekip tekrar taslağa alır."
+        >
+          <RotateCcw size={15} aria-hidden="true" />
+          <span>Onayı geri çek</span>
+        </button>
+      )}
+      {canApprove && (
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || (form.status === "approved" && !hasFormChanges)}
+          onClick={() => void save("approved")}
+          title={form.status === "approved" && !hasFormChanges ? "Bu form zaten onaylandı. Yeniden onaylamak için önce bir değişiklik yapın." : undefined}
+        >
+          <Check size={15} aria-hidden="true" />
+          <span>{labels.approve}</span>
+        </button>
+      )}
+    </div>
+  ) : undefined;
+
   return (
+    <>
     <Modal
       title={isProforma ? exportDocumentTitle : labels.title}
       subtitle={`${order.customerName} · ${order.number}`}
       onClose={onClose}
-      wide
+      wide={!previewOnly}
       showBack
+      headerActions={topActionButtons}
       className={`approval-modal ${isPackingTask ? "packing-task-only" : ""} ${previewOnly && !editing ? "preview-only" : ""}`}
     >
-      {isProforma && (
+      {isProforma && !previewOnly && !singleDocument && (
         <nav className="approval-document-switch" aria-label="Export document view">
           <button type="button" className={form.documentType === "proforma" ? "active" : ""} onClick={() => switchExportDocument("proforma")}>Proforma</button>
           <button type="button" className={form.documentType === "commercial_invoice" ? "active" : ""} onClick={() => switchExportDocument("commercial_invoice")}>Commercial Invoice</button>
@@ -8830,9 +11669,23 @@ function ApprovalFormEditor({
         </nav>
       )}
       <div className="approval-workspace">
+        {isHistoricalMerge && <div className="approval-order-sync-alert" role="status"><b>Birleştirme geçmişi · {order.mergedIntoOrderNumber || order.number}</b><span>Bu belge korunur. Güncel formu birleşik siparişten oluşturun.</span></div>}
+        {shouldOfferOrderSync && (
+          <div className="approval-order-sync-alert" role="status">
+            <span className="approval-order-sync-icon"><RotateCcw aria-hidden="true" /></span>
+            <span className="approval-order-sync-copy">
+              <b>{orderFormSyncDiff.hasChanges ? "Sipariş ile form birbirinden farklı" : "Reddedilen formu siparişten yenileyebilirsiniz"}</b>
+              <small>{orderFormSyncSummary}</small>
+            </span>
+            <button type="button" className="primary" onClick={syncApprovalLinesFromOrder}>
+              <RotateCcw aria-hidden="true" />
+              Siparişten yenile
+            </button>
+          </div>
+        )}
         <section className={`approval-editor ${editing ? "" : "is-readonly"}`} aria-disabled={!editing}>
           <div className="approval-fields four">
-            <label>
+            {!singleDocument && <label>
               {isProforma ? "Document type" : "Belge türü"}
               <select
                 value={form.documentType ?? "domestic"}
@@ -8845,7 +11698,7 @@ function ApprovalFormEditor({
                   setForm({
                     ...form,
                     documentType,
-                    proformaNumber: form.proformaNumber || `PRF-${order.number.replace(/\D/g, "")}`,
+                    proformaNumber: form.proformaNumber || documentNumberFromSource("PRF", order.number),
                   });
                 }}
               >
@@ -8854,21 +11707,22 @@ function ApprovalFormEditor({
                 <option value="commercial_invoice">Export - Commercial Invoice</option>
                 <option value="packing_list">Export - Packing List</option>
               </select>
-            </label>
+            </label>}
             <label>
-              {isProforma ? "Form number" : "Form no"}
+              {isProforma ? "Document number" : "Form no"}
               <input
                 value={form.number}
+                readOnly={isProforma}
                 onChange={(event) =>
                   setForm({ ...form, number: event.target.value })
                 }
               />
             </label>
-            {isProforma && <label>
+            {isProforma && form.documentType !== "proforma" && <label>
               Proforma Number
               <input value={form.proformaNumber ?? ""} readOnly />
             </label>}
-            {isProforma && <label>
+            {isProforma && (form.documentType === "commercial_invoice" || form.documentType === "packing_list") && <label>
               Invoice Number
               <input
                 placeholder="Commercial invoice number"
@@ -9043,27 +11897,35 @@ function ApprovalFormEditor({
                 setForm({ ...form, vatIncluded: event.target.checked })
               }
             />
-            <span>{isProforma ? "Prices include VAT" : "KDV fiyatlara dahil"}</span>
+            <span>{isPackingList ? "KDV fiyatlara dahil" : isProforma ? "Prices include VAT" : "KDV fiyatlara dahil"}</span>
           </label>
           {isPackingList && <section className="approval-pallet-planner">
             <div className="approval-pallet-planner-head">
-              <div><b>{packingStep === 1 ? "1. Set pallet quantities" : "2. Adjust product and meter allocation"}</b><small>Total: {packingTotalRolls} rolls</small></div>
+              <div><b>{packingStep === 1 ? "1. Palet rulo sayılarını ayarla" : "2. Ürün ve metre dağılımını düzenle"}</b><small>Toplam: {packingTotalRolls} rulo</small></div>
               <div className="approval-pallet-toolbar">
-                {packingStep === 2 && <button type="button" className="secondary" onClick={() => setPackingStep(1)}>Back to pallet quantities</button>}
+                {packingStep === 2 && <button type="button" className="secondary" onClick={() => setPackingStep(1)}>Palet sayılarına dön</button>}
                 <button type="button" className="secondary" onClick={() => {
-                  const distribution = balancedPalletDistribution(packingTotalRolls);
-                  setForm((current) => ({ ...current, palletDistribution: distribution, palletAllocations: packingAllocationsFromPlan(current.lines, distribution), palletDetails: distribution.map((_, index) => current.palletDetails?.[index] ?? ({ grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 })), allowSeventeenRollPallet: false }));
+                  const automatic = balancedPalletDistribution(packingTotalRolls);
+                  const distribution = automatic.length ? automatic : (hasManualPackingItems ? [0] : []);
+                  setForm((current) => ({ ...current, palletDistribution: distribution, palletAllocations: packingAllocationsFromPlan(current.lines, distribution), palletDetails: distribution.map((_, index) => current.palletDetails?.[index] ?? ({ grossWeight: 0, tareWeight: 20, lengthCm: 120, widthCm: 80, heightCm: 100 })), allowSeventeenRollPallet: false }));
                   setPackingStep(2);
-                }}>Auto-distribute</button>
-                {packingStep === 1 && <button type="button" className="secondary" onClick={() => setForm((current) => ({ ...current, palletDistribution: [...packingDistribution, 0], palletDetails: [...packingPalletDetails, { grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 }] }))}>+ Add pallet</button>}
+                }}>Otomatik dağıt</button>
+                {packingStep === 2 && <button type="button" className="secondary" title="Tüm paletlerdeki ürün dağılımını temizleyip sıfırdan elle yerleştirmek için" onClick={() => {
+                  setForm((current) => ({
+                    ...current,
+                    palletAllocations: packingDistribution.map(() => []),
+                    palletDistribution: packingDistribution.map(() => 0),
+                  }));
+                }}>Paletleri boşalt (Sıfırdan dağıt)</button>}
+                {packingStep === 1 && <button type="button" className="secondary" onClick={() => setForm((current) => ({ ...current, palletDistribution: [...packingDistribution, 0], palletDetails: [...packingPalletDetails, { grossWeight: 0, tareWeight: 20, lengthCm: 120, widthCm: 80, heightCm: 100 }] }))}>+ Palet ekle</button>}
               </div>
             </div>
             {packingStep === 1 && <>
               <div className="approval-pallet-distribution setup">
-                {packingDistribution.map((rolls, index) => <label key={index}><span>Pallet {index + 1}</span><div><input type="number" min="0" step="1" value={rolls} onChange={(event) => setForm((current) => ({ ...current, palletDistribution: packingDistribution.map((value, palletIndex) => palletIndex === index ? Math.max(0, Math.trunc(Number(event.target.value) || 0)) : value), palletAllocations: undefined }))} /><button type="button" className="danger-quiet" disabled={packingDistribution.length <= 1} onClick={() => setForm((current) => ({ ...current, palletDistribution: packingDistribution.filter((_, palletIndex) => palletIndex !== index), palletDetails: packingPalletDetails.filter((_, palletIndex) => palletIndex !== index), palletAllocations: undefined }))}>Remove</button></div></label>)}
+                {packingDistribution.map((rolls, index) => <label key={index}><span>Palet {index + 1}</span><div><input type="number" min="0" step="1" value={rolls} onChange={(event) => setForm((current) => ({ ...current, palletDistribution: packingDistribution.map((value, palletIndex) => palletIndex === index ? Math.max(0, Math.trunc(Number(event.target.value) || 0)) : value), palletAllocations: undefined }))} /><button type="button" className="danger-quiet" disabled={packingDistribution.length <= 1} onClick={() => setForm((current) => ({ ...current, palletDistribution: packingDistribution.filter((_, palletIndex) => palletIndex !== index), palletDetails: packingPalletDetails.filter((_, palletIndex) => palletIndex !== index), palletAllocations: undefined }))}>Kaldır</button></div></label>)}
               </div>
-              <div className={`approval-pallet-check ${packingDistribution.reduce((sum, value) => sum + value, 0) === packingTotalRolls ? "valid" : "invalid"}`}>Entered: {packingDistribution.reduce((sum, value) => sum + value, 0)} / Order: {packingTotalRolls} rolls</div>
-              <button type="button" className="primary approval-pallet-next" disabled={packingDistribution.some((value) => value <= 0) || packingDistribution.reduce((sum, value) => sum + value, 0) !== packingTotalRolls} onClick={() => { setForm((current) => ({ ...current, palletAllocations: packingAllocationsFromPlan(current.lines, packingDistribution), palletDetails: packingDistribution.map((_, index) => current.palletDetails?.[index] ?? ({ grossWeight: 0, tareWeight: 0, lengthCm: 0, widthCm: 0, heightCm: 0 })) })); setPackingStep(2); }}>Create allocation list</button>
+              <div className={`approval-pallet-check ${packingDistribution.reduce((sum, value) => sum + value, 0) === packingTotalRolls ? "valid" : "invalid"}`}>Girilen: {packingDistribution.reduce((sum, value) => sum + value, 0)} / Sipariş: {packingTotalRolls} rulo</div>
+              <button type="button" className="primary approval-pallet-next" disabled={packingDistribution.some((value) => value < 0 || (value === 0 && !hasManualPackingItems)) || packingDistribution.reduce((sum, value) => sum + value, 0) !== packingTotalRolls} onClick={() => { setForm((current) => ({ ...current, palletAllocations: current.palletAllocations?.length === packingDistribution.length ? current.palletAllocations : packingAllocationsFromPlan(current.lines, packingDistribution), palletDetails: packingDistribution.map((_, index) => current.palletDetails?.[index] ?? ({ grossWeight: 0, tareWeight: 20, lengthCm: 120, widthCm: 80, heightCm: 100 })) })); setPackingStep(2); }}>Dağılım listesini oluştur</button>
             </>}
             {packingStep === 2 && <div className="approval-pallet-details-grid">
               {packingPlan.map((pallet, index) => {
@@ -9074,256 +11936,712 @@ function ApprovalFormEditor({
                   palletDetails: packingPalletDetails.map((item, palletIndex) => palletIndex === index ? { ...item, ...patch } : item),
                 }));
                 return <div className="approval-pallet-detail" key={`detail-${index}`}>
-                  <div className="approval-pallet-card-head"><span><b>Pallet {index + 1}</b><small>{rolls} rolls assigned</small></span><button type="button" className="danger-quiet" disabled={packingPlan.length <= 1 || rolls > 0} title={rolls > 0 ? "Move the products to another pallet before removing this pallet" : "Remove pallet"} onClick={() => setForm((current) => ({ ...current, palletDistribution: packingDistribution.filter((_, palletIndex) => palletIndex !== index), palletAllocations: packingAllocations.filter((_, palletIndex) => palletIndex !== index), palletDetails: packingPalletDetails.filter((_, palletIndex) => palletIndex !== index) }))}>Remove pallet</button></div>
+                  <div className="approval-pallet-card-head"><span><b>Palet {index + 1}</b><small>{rolls} rulo yerleştirildi</small></span><button type="button" className="danger-quiet" disabled={packingPlan.length <= 1 || rolls > 0} title={rolls > 0 ? "Bu paleti kaldırmadan önce ürünleri başka bir palete taşıyın" : "Paleti kaldır"} onClick={() => setForm((current) => ({ ...current, palletDistribution: packingDistribution.filter((_, palletIndex) => palletIndex !== index), palletAllocations: packingAllocations.filter((_, palletIndex) => palletIndex !== index), palletDetails: packingPalletDetails.filter((_, palletIndex) => palletIndex !== index) }))}>Paleti kaldır</button></div>
                   <div className="approval-pallet-products">
-                    {pallet.items.map((item) => {
+                    {pallet.items.map((item, itemIdx) => {
                       const key = `${index}-${item.lineIndex}`;
                       const target = palletMoveTargets[key] ?? packingPlan.findIndex((_, targetIndex) => targetIndex !== index);
-                      const moveCount = Math.min(item.rolls, Math.max(1, Math.trunc(palletMoveCounts[key] || 1)));
-                      const proportionalMoveQuantity = item.rolls > 0 ? Number(item.quantity) * moveCount / item.rolls : 0;
-                      const moveQuantity = Math.min(Number(item.quantity), Math.max(0, Number(palletMoveQuantities[key] ?? proportionalMoveQuantity)));
+                      const itemHasRolls = lineHasRolls(item.line) || item.rolls > 0;
+                      const calculatedWeight = palletCalculatedWeights[index]?.[itemIdx];
+                      const moveCount = itemHasRolls ? Math.min(item.rolls, Math.max(1, Math.trunc(palletMoveCounts[key] || 1))) : 0;
+                      const proportionalMoveQuantity = itemHasRolls && item.rolls > 0 ? Number((Number(item.quantity) * moveCount / item.rolls).toFixed(2)) : 0;
+                      const moveQuantity = Math.min(Number(item.quantity), Math.max(0, Number(palletMoveQuantities[key] ?? (itemHasRolls ? proportionalMoveQuantity : Number(item.quantity)))));
                       const move = (count: number, requestedQuantity?: number) => {
-                        if (target < 0 || target === index || count <= 0) return;
+                        if (target < 0 || target === index) return;
                         const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry })));
                         const sourceEntry = next[index].find((entry) => entry.lineIndex === item.lineIndex);
                         if (!sourceEntry) return;
-                        const actual = Math.min(sourceEntry.rolls, count);
-                        const automaticQuantity = Number.isFinite(Number(sourceEntry.quantity)) ? Number(sourceEntry.quantity) * actual / sourceEntry.rolls : Number(item.quantity) * actual / item.rolls;
-                        const movedQuantity = Math.min(Number(sourceEntry.quantity ?? item.quantity), Math.max(0, Number.isFinite(Number(requestedQuantity)) ? Number(requestedQuantity) : automaticQuantity));
-                        sourceEntry.rolls -= actual;
-                        sourceEntry.quantity = Math.max(0, Number(sourceEntry.quantity ?? item.quantity) - movedQuantity);
-                        next[index] = next[index].filter((entry) => entry.rolls > 0);
+                        const actual = itemHasRolls ? Math.min(sourceEntry.rolls, Math.max(1, count)) : 0;
+                        if (itemHasRolls && actual <= 0) return;
+                        const defaultQuantity = itemHasRolls && sourceEntry.rolls > 0
+                          ? Number((Number(sourceEntry.quantity ?? item.quantity) * actual / sourceEntry.rolls).toFixed(2))
+                          : Number(sourceEntry.quantity ?? item.quantity);
+                        const movedQuantity = Math.min(
+                          Number(sourceEntry.quantity ?? item.quantity),
+                          Math.max(0, Number.isFinite(Number(requestedQuantity)) ? Number(requestedQuantity) : defaultQuantity),
+                        );
+                        if (!itemHasRolls && movedQuantity <= 0) return;
+
+                        if (itemHasRolls) {
+                          sourceEntry.rolls = Math.max(0, sourceEntry.rolls - actual);
+                          sourceEntry.quantity = Math.max(0, Number((Number(sourceEntry.quantity ?? item.quantity) - movedQuantity).toFixed(2)));
+                        } else {
+                          sourceEntry.quantity = Math.max(0, Number((Number(sourceEntry.quantity ?? item.quantity) - movedQuantity).toFixed(2)));
+                        }
+
                         const targetEntry = next[target].find((entry) => entry.lineIndex === item.lineIndex);
-                        if (targetEntry) { targetEntry.rolls += actual; targetEntry.quantity = Number(targetEntry.quantity || 0) + movedQuantity; }
-                        else next[target].push({ lineIndex: item.lineIndex, rolls: actual, quantity: movedQuantity });
+                        if (targetEntry) {
+                          targetEntry.rolls += actual;
+                          targetEntry.quantity = Number((Number(targetEntry.quantity || 0) + movedQuantity).toFixed(2));
+                        } else {
+                          next[target].push({
+                            lineIndex: item.lineIndex,
+                            rolls: actual,
+                            quantity: Number(movedQuantity.toFixed(2)),
+                          });
+                        }
+
+                        next[index] = next[index].filter((entry) => {
+                          const l = form.lines[entry.lineIndex];
+                          const r = lineHasRolls(l) || entry.rolls > 0;
+                          return r ? entry.rolls > 0 : Number(entry.quantity || 0) > 0;
+                        });
+
                         const distribution = next.map((entries) => entries.reduce((sum, entry) => sum + entry.rolls, 0));
                         setForm((current) => ({ ...current, palletAllocations: next, palletDistribution: distribution }));
                         setActivePalletMoveKey("");
                       };
                       return <article key={key}>
-                        <div><b>{item.line.productCode} · {item.line.productName}</b><div className="approval-pallet-amounts"><label><span>Rolls on this pallet</span><input type="number" min="1" step="1" value={item.rolls} onChange={(event) => { const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry }))); const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex); if (entry) entry.rolls = Math.max(1, Math.trunc(Number(event.target.value) || 1)); const distribution = next.map((entries) => entries.reduce((sum, allocation) => sum + allocation.rolls, 0)); setForm((current) => ({ ...current, palletAllocations: next, palletDistribution: distribution })); }} /></label><label><span>Meters on this pallet</span><input type="number" min="0" step="0.01" value={Number(item.quantity.toFixed(2))} onChange={(event) => { const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry }))); const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex); if (entry) entry.quantity = Math.max(0, Number(event.target.value) || 0); setForm((current) => ({ ...current, palletAllocations: next })); }} /></label></div></div>
-                        {packingPlan.length > 1 && <><button type="button" className="secondary approval-pallet-transfer-trigger" onClick={() => setActivePalletMoveKey(key)}>Move to another pallet</button>{activePalletMoveKey === key && <div className="approval-pallet-transfer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setActivePalletMoveKey(""); }}><section className="approval-pallet-transfer-dialog" role="dialog" aria-modal="true" aria-label="Move product to another pallet"><header><div><b>{item.line.productCode} · {item.line.productName}</b><small>Move from pallet {index + 1}</small></div><button type="button" className="icon-button" aria-label="Close" onClick={() => setActivePalletMoveKey("")}>×</button></header><div className="approval-pallet-move"><label><span>Rolls to move</span><input aria-label="Rolls to move" type="number" min="1" max={item.rolls} value={moveCount} onChange={(event) => { const rolls = Math.min(item.rolls, Math.max(1, Math.trunc(Number(event.target.value) || 1))); setPalletMoveCounts((current) => ({ ...current, [key]: rolls })); setPalletMoveQuantities((current) => ({ ...current, [key]: item.rolls > 0 ? Number((Number(item.quantity) * rolls / item.rolls).toFixed(2)) : 0 })); }} /></label><label><span>Meters to move</span><input aria-label="Meters to move" type="number" min="0" max={item.quantity} step="0.01" value={Number(moveQuantity.toFixed(2))} onChange={(event) => setPalletMoveQuantities((current) => ({ ...current, [key]: Math.max(0, Number(event.target.value) || 0) }))} /></label><label><span>Destination pallet</span><select aria-label="Destination pallet" value={target} onChange={(event) => setPalletMoveTargets((current) => ({ ...current, [key]: Number(event.target.value) }))}>{packingPlan.map((_, targetIndex) => targetIndex !== index && <option key={targetIndex} value={targetIndex}>Pallet {targetIndex + 1}</option>)}</select></label><button type="button" className="primary" onClick={() => move(moveCount, moveQuantity)}>Move selected</button><button type="button" className="secondary approval-pallet-move-all" onClick={() => move(item.rolls, item.quantity)}>Move entire product</button></div></section></div>}</>}
+                        <div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
+                            <b>{item.line.productCode} · {item.line.productName}</b>
+                            <button type="button" className="danger-quiet" title="Bu ürünü bu paletten çıkar" onClick={() => {
+                              const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry })));
+                              next[index] = next[index].filter((entry) => entry.lineIndex !== item.lineIndex);
+                              const distribution = next.map((entries) => entries.reduce((sum, entry) => sum + entry.rolls, 0));
+                              setForm((current) => ({ ...current, palletAllocations: next, palletDistribution: distribution }));
+                            }}>Kaldır</button>
+                          </div>
+                          <div className="approval-pallet-amounts">
+                            {itemHasRolls && <label><span>Bu paletteki rulo</span><input type="number" min="1" step="1" value={item.rolls} onChange={(event) => {
+                              const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry })));
+                              const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex);
+                              if (entry) {
+                                const newRolls = Math.max(1, Math.trunc(Number(event.target.value) || 1));
+                                const oldRolls = entry.rolls || 1;
+                                entry.rolls = newRolls;
+                                if (entry.quantity != null && oldRolls > 0) {
+                                  entry.quantity = Number((Number(entry.quantity) * newRolls / oldRolls).toFixed(2));
+                                }
+                              }
+                              const distribution = next.map((entries) => entries.reduce((sum, allocation) => sum + allocation.rolls, 0));
+                              setForm((current) => ({ ...current, palletAllocations: next, palletDistribution: distribution }));
+                            }} /></label>}
+                            <label><span>{itemHasRolls ? "Bu paletteki metre" : "Bu paletteki miktar"}</span><input type="number" min="0" step="0.01" value={Number(item.quantity.toFixed(2))} onChange={(event) => { const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry }))); const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex); if (entry) entry.quantity = Math.max(0, Number(event.target.value) || 0); setForm((current) => ({ ...current, palletAllocations: next })); }} /></label>
+                            <label>
+                              <span>
+                                Net kg
+                                {calculatedWeight?.isIntrinsicKg ? <small style={{ color: "var(--success, #16a34a)", marginLeft: 4 }}>(Kg ürün)</small> : null}
+                                {calculatedWeight?.isManual ? <small style={{ color: "var(--primary, #3b82f6)", marginLeft: 4 }}>(Manuel)</small> : null}
+                              </span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.netWeight != null && item.netWeight > 0 ? item.netWeight : ""}
+                                placeholder={calculatedWeight && calculatedWeight.netWeight > 0 ? calculatedWeight.netWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 }) : "0.00"}
+                                onChange={(event) => {
+                                  const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry })));
+                                  const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex);
+                                  if (entry) {
+                                    const val = event.target.value.trim() === "" ? undefined : Math.max(0, Number(event.target.value) || 0);
+                                    entry.netWeight = val;
+                                  }
+                                  setForm((current) => ({ ...current, palletAllocations: next }));
+                                }}
+                              />
+                            </label>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.82rem", color: "var(--muted, #64748b)", marginTop: 4 }}>
+                            <span>Hesaplanan: <b>{calculatedWeight?.netWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg net</b> · <b>~{calculatedWeight?.grossWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg brüt</b></span>
+                            {item.netWeight != null && item.netWeight > 0 && (
+                              <button type="button" className="danger-quiet" style={{ fontSize: "0.75rem", padding: "2px 6px" }} onClick={() => {
+                                const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry })));
+                                const entry = next[index].find((candidate) => candidate.lineIndex === item.lineIndex);
+                                if (entry) {
+                                  delete entry.netWeight;
+                                }
+                                setForm((current) => ({ ...current, palletAllocations: next }));
+                              }}>Otomatik kiloya dön</button>
+                            )}
+                          </div>
+                        </div>
+                        {packingPlan.length > 1 && (
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
+                            {(itemHasRolls ? item.rolls > 1 : item.quantity > 1) && (
+                              <button
+                                type="button"
+                                className="secondary"
+                                style={{ flex: "1 1 auto", fontSize: "11px", padding: "4px 8px" }}
+                                title="Ürünün yarısını diğer palete aktar"
+                                onClick={() => {
+                                  const halfCount = itemHasRolls ? Math.max(1, Math.round(item.rolls / 2)) : 0;
+                                  const halfQty = Number((item.quantity / 2).toFixed(2));
+                                  move(halfCount, halfQty);
+                                }}
+                              >
+                                Yarısını aktar (½)
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="secondary approval-pallet-transfer-trigger"
+                              style={{ flex: "1 1 auto", fontSize: "11px", padding: "4px 8px" }}
+                              onClick={() => {
+                                const defaultHalf = itemHasRolls ? Math.max(1, Math.round(item.rolls / 2)) : 1;
+                                const defaultQty = Number((item.quantity / 2).toFixed(2));
+                                setPalletMoveCounts((c) => ({ ...c, [key]: defaultHalf }));
+                                setPalletMoveQuantities((c) => ({ ...c, [key]: defaultQty }));
+                                setActivePalletMoveKey(key);
+                              }}
+                            >
+                              Başka palete taşı / böl
+                            </button>
+                          </div>
+                        )}
+                        {activePalletMoveKey === key && (
+                          <div className="approval-pallet-transfer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setActivePalletMoveKey(""); }}>
+                            <section className="approval-pallet-transfer-dialog" role="dialog" aria-modal="true" aria-label="Ürünü başka palete taşı">
+                              <header>
+                                <div><b>{item.line.productCode} · {item.line.productName}</b><small>Palet {index + 1} içinden taşı</small></div>
+                                <button type="button" className="icon-button" aria-label="Kapat" onClick={() => setActivePalletMoveKey("")}>×</button>
+                              </header>
+                              <div className="approval-pallet-move">
+                                {itemHasRolls && (
+                                  <label><span>Taşınacak rulo (Mevcut: {item.rolls})</span><input aria-label="Taşınacak rulo" type="number" min="1" max={item.rolls} value={moveCount} onChange={(event) => { const rolls = Math.min(item.rolls, Math.max(1, Math.trunc(Number(event.target.value) || 1))); setPalletMoveCounts((current) => ({ ...current, [key]: rolls })); setPalletMoveQuantities((current) => ({ ...current, [key]: item.rolls > 0 ? Number((Number(item.quantity) * rolls / item.rolls).toFixed(2)) : 0 })); }} /></label>
+                                )}
+                                <label><span>{itemHasRolls ? `Taşınacak metre (Mevcut: ${item.quantity.toFixed(1)} m)` : `Taşınacak miktar (Mevcut: ${item.quantity})`}</span><input aria-label="Taşınacak miktar" type="number" min="0" max={item.quantity} step="0.01" value={Number(moveQuantity.toFixed(2))} onChange={(event) => setPalletMoveQuantities((current) => ({ ...current, [key]: Math.max(0, Number(event.target.value) || 0) }))} /></label>
+                                <label><span>Hedef palet</span><select aria-label="Hedef palet" value={target} onChange={(event) => setPalletMoveTargets((current) => ({ ...current, [key]: Number(event.target.value) }))}>{packingPlan.map((_, targetIndex) => targetIndex !== index && <option key={targetIndex} value={targetIndex}>Palet {targetIndex + 1}</option>)}</select></label>
+                                <div style={{ gridColumn: "1 / -1", display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+                                  <button type="button" className="secondary" style={{ flex: 1 }} onClick={() => {
+                                    const halfR = itemHasRolls ? Math.max(1, Math.round(item.rolls / 2)) : 0;
+                                    const halfQ = Number((item.quantity / 2).toFixed(2));
+                                    move(halfR, halfQ);
+                                  }}>Yarısını (%50) taşı</button>
+                                  <button type="button" className="primary" style={{ flex: 1 }} onClick={() => move(moveCount, moveQuantity)}>Seçileni taşı</button>
+                                  <button type="button" className="secondary approval-pallet-move-all" style={{ flex: 1 }} onClick={() => move(item.rolls, item.quantity)}>Tamamını taşı</button>
+                                </div>
+                              </div>
+                            </section>
+                          </div>
+                        )}
                       </article>;
                     })}
-                    {!pallet.items.length && <small>This pallet is empty. Move products from another pallet.</small>}
+                    {!pallet.items.length && <small>Bu palet boş. Aşağıdan ürün ekleyin veya başka bir paletten taşıyın.</small>}
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #dce2eb" }}>
+                      <select
+                        style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#f8fafc" }}
+                        value=""
+                        onChange={(event) => {
+                          const lineIdx = Number(event.target.value);
+                          if (!Number.isFinite(lineIdx) || lineIdx < 0) return;
+                          const line = form.lines[lineIdx];
+                          const check = packingProductChecks[lineIdx];
+                          const lineHasR = lineHasRolls(line);
+                          const unassignedRolls = lineHasR ? Math.max(0, -check.rollDifference) : 0;
+                          const unassignedQty = Number(Math.max(0, -check.quantityDifference).toFixed(2)) || (lineHasR && line.rollCount ? Number((Number(line.quantity) * Math.max(1, unassignedRolls) / Math.max(1, line.rollCount)).toFixed(2)) : line.quantity);
+                          const next = packingAllocations.map((entries) => entries.map((entry) => ({ ...entry })));
+                          const targetEntry = next[index].find((entry) => entry.lineIndex === lineIdx);
+                          if (targetEntry) {
+                            targetEntry.rolls += unassignedRolls;
+                            targetEntry.quantity = Number((Number(targetEntry.quantity || 0) + unassignedQty).toFixed(2));
+                          } else {
+                            next[index].push({ lineIndex: lineIdx, rolls: unassignedRolls, quantity: unassignedQty });
+                          }
+                          const distribution = next.map((entries) => entries.reduce((sum, entry) => sum + entry.rolls, 0));
+                          setForm((current) => ({ ...current, palletAllocations: next, palletDistribution: distribution }));
+                        }}
+                      >
+                        <option value="">+ Bu palete ürün ekle...</option>
+                        {form.lines.map((l, lIdx) => {
+                          const check = packingProductChecks[lIdx];
+                          const lineHasR = lineHasRolls(l);
+                          const remainingRolls = Math.max(0, -check.rollDifference);
+                          const remainingQty = Math.max(0, -check.quantityDifference);
+                          const isFullyAllocated = (lineHasR ? check.rollDifference >= 0 : true) && check.quantityDifference >= -0.02;
+                          return (
+                            <option key={lIdx} value={lIdx}>
+                              {l.productCode} · {l.productName} ({isFullyAllocated ? "Tamamı yerleştirildi" : lineHasR ? `Kalan: ${remainingRolls} rulo / ${remainingQty.toFixed(1)} m` : `Kalan: ${remainingQty} ${orderUnitShortLabel(l.unit, "tr")}`})
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
                   </div>
-                  <label><span>Total gross weight (kg)</span><input type="number" min="0" step="0.01" value={detail.grossWeight || ""} onChange={(event) => updatePalletDetail({ grossWeight: Number(event.target.value) })} /></label>
-                  <label><span>Pallet tare (kg, max. 20)</span><input type="number" min="0" max="20" step="0.01" value={detail.tareWeight || ""} onChange={(event) => updatePalletDetail({ tareWeight: Number(event.target.value) })} /></label>
-                  <span className="approval-pallet-net">Net product weight: {Math.max(0, detail.grossWeight - detail.tareWeight).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</span>
+                  <label><span>Toplam brüt ağırlık (kg)</span><input type="number" min="0" step="0.01" value={detail.grossWeight || ""} placeholder="0.00" onChange={(event) => updatePalletDetail({ grossWeight: Number(event.target.value) })} /></label>
+                  <label><span>Palet darası (kg, en fazla 60)</span><input type="number" min="0" max="60" step="0.01" value={detail.tareWeight != null ? detail.tareWeight : 20} placeholder="20" onChange={(event) => updatePalletDetail({ tareWeight: Number(event.target.value) })} /></label>
+                  <span className="approval-pallet-net">Net ürün ağırlığı: {Math.max(0, detail.grossWeight - detail.tareWeight).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</span>
                   <div className="approval-pallet-dimensions">
-                    <label><span>Length (cm)</span><input type="number" min="0" step="1" value={detail.lengthCm || ""} onChange={(event) => updatePalletDetail({ lengthCm: Number(event.target.value) })} /></label>
-                    <label><span>Width (cm)</span><input type="number" min="0" step="1" value={detail.widthCm || ""} onChange={(event) => updatePalletDetail({ widthCm: Number(event.target.value) })} /></label>
-                    <label><span>Height (cm)</span><input type="number" min="0" step="1" value={detail.heightCm || ""} onChange={(event) => updatePalletDetail({ heightCm: Number(event.target.value) })} /></label>
+                    <label><span>Uzunluk (cm)</span><input type="number" min="0" step="1" value={detail.lengthCm || 120} onChange={(event) => updatePalletDetail({ lengthCm: Number(event.target.value) })} /></label>
+                    <label><span>En (cm)</span><input type="number" min="0" step="1" value={detail.widthCm || 80} onChange={(event) => updatePalletDetail({ widthCm: Number(event.target.value) })} /></label>
+                    <label><span>Yükseklik (cm)</span><input type="number" min="0" step="1" value={detail.heightCm || 100} onChange={(event) => updatePalletDetail({ heightCm: Number(event.target.value) })} /></label>
                   </div>
                 </div>;
               })}
             </div>}
             {packingStep === 2 && <div className="approval-pallet-product-checks">
-              <h4>Check pallet allocation against order</h4>
+              <h4>Palet dağılımını siparişle karşılaştır</h4>
               {packingProductChecks.map((check) => {
-                const valid = check.rollDifference === 0 && Math.abs(check.quantityDifference) <= 0.02;
-                return <div key={check.lineIndex} className={valid ? "valid" : "invalid"}><b>{check.line.productCode} · {check.line.productName}</b><span>Rolls: {check.assignedRolls} / {check.orderedRolls}{check.rollDifference > 0 ? ` · ${check.rollDifference} over` : check.rollDifference < 0 ? ` · ${Math.abs(check.rollDifference)} short` : " · Exact"}</span><span>Meters: {check.assignedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} / {check.orderedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}{check.quantityDifference > 0.02 ? ` · ${check.quantityDifference.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m over` : check.quantityDifference < -0.02 ? ` · ${Math.abs(check.quantityDifference).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m short` : " · Exact"}</span></div>;
+                const isRollUnit = (check.line.unit as string) === "ROLL" || (check.line.unit as string) === "rulo";
+                const valid = check.rollDifference === 0 && (isRollUnit || Math.abs(check.quantityDifference) <= 0.05);
+                return <div key={check.lineIndex} className={valid ? "valid" : "invalid"}><b>{check.line.productCode} · {check.line.productName}</b><span>Rulo: {check.assignedRolls} / {check.orderedRolls}{check.rollDifference > 0 ? ` · ${check.rollDifference} fazla` : check.rollDifference < 0 ? ` · ${Math.abs(check.rollDifference)} eksik` : " · Tam"}</span><span>{isRollUnit ? `Metre: ${check.assignedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt · Tam` : `Metre: ${check.assignedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} / ${check.orderedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}${check.quantityDifference > 0.02 ? ` · ${check.quantityDifference.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m fazla` : check.quantityDifference < -0.02 ? ` · ${Math.abs(check.quantityDifference).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m eksik` : " · Tam"}`}</span></div>;
               })}
             </div>}
             <div className={`approval-pallet-check ${packingDistribution.reduce((sum, value) => sum + value, 0) === packingTotalRolls ? "valid" : "invalid"}`}>
-              Allocated to pallets: {packingDistribution.reduce((sum, value) => sum + value, 0)} / Order total: {packingTotalRolls} rolls
+              Paletlere dağıtılan: {packingDistribution.reduce((sum, value) => sum + value, 0)} / Sipariş toplamı: {packingTotalRolls} rulo
             </div>
           </section>}
-          <div className="approval-line-head">
-            <span>{isProforma ? "Product / prepared" : "Ürün / hazırlanan"}</span>
-            <span>{isProforma ? "Width (m) / Unit price (m²)" : "En (m) / Birim fiyat (m²)"}</span>
-            <span>{isProforma ? "Discount" : "İskonto"}</span>
-            <span>{isProforma ? "VAT" : "KDV"}</span>
+          {/* Action Toolbar above products */}
+          <div className="approval-product-toolbar">
+            <div className="approval-toolbar-left">
+              {!isProforma && editing && (
+                <div className="approval-domestic-select-wrap">
+                  <Plus size={14} className="approval-select-icon" aria-hidden="true" />
+                  <select
+                    aria-label="Siparişten ürün ekle"
+                    value=""
+                    disabled={!missingDomesticItems.length}
+                    onChange={(event) => {
+                      if (event.target.value !== "") addDomesticOrderItem(Number(event.target.value));
+                    }}
+                  >
+                    <option value="">{missingDomesticItems.length ? "+ Siparişten ürün ekle..." : "Tüm sipariş ürünleri formda"}</option>
+                    {missingDomesticItems.map(({ item, itemIndex }) => (
+                      <option key={itemIndex} value={itemIndex}>
+                        {item.productCode} · {item.productName} · {Number(item.preparedQuantity ?? item.quantity) || 0} mt
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <button
+                type="button"
+                className="secondary approval-btn-add-manual"
+                onClick={addManualExportProduct}
+                title={!isProforma || isPackingList ? (canEdit ? "Kova/kap, kilogram, litre, rulo, kutu, adet, set, palet ve diğer harici ürünler için" : "Ürün eklemek için yetki gerekir") : (canEdit ? "For bucket, box, piece, kilogram, liter, set, pallet and other external items" : "Editing permission required")}
+              >
+                <Plus size={14} aria-hidden="true" />
+                <span>{!isProforma || isPackingList ? "Manuel Ürün Ekle (Tutkal, Silikon...)" : "+ Add manual / external product"}</span>
+              </button>
+            </div>
+
+            {!isProforma && editing && (
+              <div className="approval-toolbar-right">
+                <label className="approval-bulk-vat-label">
+                  <span>Toplu KDV:</span>
+                  <select
+                    aria-label="Tüm ürünlerin KDV oranı"
+                    value={form.lines.length && form.lines.every(line => line.vatRate === form.lines[0].vatRate) ? String(form.lines[0].vatRate) : ""}
+                    onChange={event => {
+                      const vatRate = Number(event.target.value);
+                      setForm(current => ({ ...current, lines: current.lines.map(line => ({ ...line, vatRate })) }));
+                    }}
+                  >
+                    <option value="" disabled>Farklı</option>
+                    {[0, 1, 10, 20].map(rate => <option key={rate} value={rate}>%{rate}</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
           </div>
-          {isProforma && <div className="approval-manual-line-action">
-            <button type="button" className="secondary" onClick={addManualExportLine}>+ Add manual product</button>
-            <small>For box, piece, kilogram, set, pallet and other export items</small>
-          </div>}
           <div className="approval-lines">
             {form.lines.map((line, index) => {
               const width = Number(line.width) || 1.42;
               const squareMeters = line.quantity * width;
+              const catalogProduct = products.find((product) =>
+                (line.productId != null && String(product.id) === String(line.productId)) ||
+                (Boolean(line.productCode?.trim()) && [product.code, product.sku].some((code) => code?.trim().toLocaleUpperCase("tr") === line.productCode.trim().toLocaleUpperCase("tr"))));
+              const externalLine = line.manual === true && !catalogProduct;
+              const finalMultiplier = isProforma ? 1 : domesticFinalMultiplier(line.vatRate, form.vatIncluded, form.overallDiscountRate);
+              const lineFinalAmount = approvalLineFinalAmount(line) * finalMultiplier;
+              const useTurkishLabels = !isProforma || isPackingList;
+              const unitMap = useTurkishLabels ? domesticUnitLabels : exportUnitLabels;
+              const showWidthField = !(externalLine && line.unit !== "M2");
               return (
                 <div
-                  className="approval-line"
+                  className={`approval-line ${externalLine ? "is-manual-line" : ""}`}
                   key={`${line.productId}-${index}`}
                 >
-                  <div>
-                    {isProforma && line.manual ? <div className="approval-manual-product-fields">
-                      <input placeholder="Product code" value={line.productCode} onChange={(event) => updateLine(index, { productCode: event.target.value })} />
-                      <input required placeholder="Product name" value={line.productName} onChange={(event) => updateLine(index, { productName: event.target.value })} />
-                      <label><span>Quantity</span><input type="number" min="0.001" step="0.001" value={line.quantity || ""} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} /></label>
-                      <label><span>Unit</span><select value={line.unit ?? "PCS"} onChange={(event) => updateLine(index, { unit: event.target.value as ApprovalFormLine["unit"] })}>
-                        <option value="M">Meter (m)</option><option value="M2">Square meter (m²)</option><option value="ROLL">Roll</option>
-                        <option value="BOX">Box</option><option value="PCS">Piece (pcs)</option><option value="KG">Kilogram (kg)</option>
-                        <option value="SET">Set</option><option value="PALLET">Pallet</option>
-                      </select></label>
-                      {line.unit === "BOX" && <label><span>Pieces per box</span><input type="number" min="1" step="1" value={line.unitsPerBox || ""} onChange={(event) => updateLine(index, { unitsPerBox: Number(event.target.value) })} /></label>}
-                      <button type="button" className="danger-quiet" onClick={() => removeManualExportLine(index)}>Remove</button>
-                    </div> : <>
-                      <small>{line.productCode}</small>
-                      <b>{line.productName}</b>
-                      <span>{line.quantity} {isProforma ? "m" : "mt"} · {squareMeters.toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 2 })} m² · {line.rollCount} {isProforma ? "rolls" : "rulo"}</span>
-                    </>}
+                  <div className="approval-line-head-row">
+                    <div className="approval-line-identity-wrap">
+                      {externalLine ? (
+                        <div className="approval-manual-product-fields">
+                          <label>
+                            <span>{useTurkishLabels ? "Ürün kodu" : "Product code"}</span>
+                            <input
+                              placeholder={useTurkishLabels ? "Ürün kodu" : "Product code"}
+                              value={line.productCode}
+                              onChange={(event) => updateLine(index, { productCode: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            <span>{useTurkishLabels ? "Ürün adı (Tutkal, Silikon vb.)" : "Product name"}</span>
+                            <input
+                              required
+                              placeholder={useTurkishLabels ? "Ürün adı" : "Product name"}
+                              value={line.productName}
+                              onChange={(event) => updateLine(index, { productName: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            <span>{useTurkishLabels ? "Paket sayısı / miktar" : "Package count / quantity"}</span>
+                            <input
+                              type="number"
+                              min="0.001"
+                              step="0.001"
+                              value={line.quantity || ""}
+                              onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })}
+                            />
+                          </label>
+                          <label>
+                            <span>{useTurkishLabels ? "Ana birim / paket" : "Package / unit"}</span>
+                            <select
+                              value={line.unit ?? "BUCKET"}
+                              onChange={(event) => {
+                                const unit = event.target.value as ApprovalFormLine["unit"];
+                                const innerQuantity = approvalLineInnerQuantity(line);
+                                updateLine(index, {
+                                  unit,
+                                  innerQuantity: innerQuantity > 0 ? innerQuantity : undefined,
+                                  unitsPerBox: unit === "BOX" && innerQuantity > 0 ? innerQuantity : undefined,
+                                  innerUnit: line.innerUnit ?? (innerQuantity > 0 ? (unit === "BUCKET" ? "KG" : "PCS") : undefined),
+                                  priceBasis: innerQuantity > 0 ? (approvalLineUsesContentPrice(line) ? "CONTENT" : "PACKAGE") : undefined,
+                                });
+                              }}
+                            >
+                              <option value="BUCKET">{useTurkishLabels ? "Kova / Kap" : "Bucket / Pail"}</option>
+                              <option value="KG">Kilogram (kg)</option>
+                              <option value="LT">{useTurkishLabels ? "Litre (lt)" : "Liter (lt)"}</option>
+                              <option value="ROLL">{useTurkishLabels ? "Rulo" : "Roll"}</option>
+                              <option value="PCS">{useTurkishLabels ? "Adet (pcs)" : "Piece (pcs)"}</option>
+                              <option value="BOX">{useTurkishLabels ? "Kutu / Koli" : "Box"}</option>
+                              <option value="M">{useTurkishLabels ? "Metre (m)" : "Meter (m)"}</option>
+                              <option value="M2">{useTurkishLabels ? "Metrekare (m²)" : "Square meter (m²)"}</option>
+                              <option value="SET">Set</option>
+                              <option value="PALLET">{useTurkishLabels ? "Palet" : "Pallet"}</option>
+                              <option value="BAG">{useTurkishLabels ? "Çuval" : "Bag"}</option>
+                              <option value="CRATE">{useTurkishLabels ? "Kasa" : "Crate"}</option>
+                              <option value="BUNDLE">{useTurkishLabels ? "Paket" : "Bundle"}</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>{useTurkishLabels ? "Alt birim / içerik birimi" : "Sub-unit / content unit"}</span>
+                            <select
+                              value={approvalLineInnerUnit(line) ?? (line.unit === "BUCKET" ? "KG" : "PCS")}
+                              onChange={(event) => updateLine(index, { innerUnit: event.target.value as ApprovalFormLine["innerUnit"] })}
+                            >
+                              <option value="KG">Kilogram (kg)</option>
+                              <option value="LT">{useTurkishLabels ? "Litre (lt)" : "Liter (lt)"}</option>
+                              <option value="ML">{useTurkishLabels ? "Mililitre (ml)" : "Milliliter (ml)"}</option>
+                              <option value="GR">{useTurkishLabels ? "Gram (gr)" : "Gram (g)"}</option>
+                              <option value="PCS">{useTurkishLabels ? "Adet (pcs)" : "Piece (pcs)"}</option>
+                              <option value="M">{useTurkishLabels ? "Metre (m)" : "Meter (m)"}</option>
+                              <option value="M2">{useTurkishLabels ? "Metrekare (m²)" : "Square meter (m²)"}</option>
+                              <option value="ROLL">{useTurkishLabels ? "Rulo" : "Roll"}</option>
+                              <option value="SET">Set</option>
+                              <option value="BOX">{useTurkishLabels ? "Kutu" : "Box"}</option>
+                              <option value="BUCKET">{useTurkishLabels ? "Kova / Kap" : "Bucket"}</option>
+                              <option value="BAG">{useTurkishLabels ? "Çuval" : "Bag"}</option>
+                              <option value="CRATE">{useTurkishLabels ? "Kasa" : "Crate"}</option>
+                              <option value="BUNDLE">{useTurkishLabels ? "Paket" : "Bundle"}</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>{useTurkishLabels ? "1 paketteki miktar (opsiyonel)" : "Content per package (optional)"}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.001"
+                              value={approvalLineInnerQuantity(line) || ""}
+                              placeholder={useTurkishLabels ? "Örn. 15" : "e.g. 15"}
+                              onChange={(event) => {
+                                const innerQuantity = Math.max(0, Number(event.target.value) || 0);
+                                updateLine(index, {
+                                  innerQuantity,
+                                  unitsPerBox: line.unit === "BOX" && innerQuantity > 0 ? innerQuantity : undefined,
+                                  innerUnit: line.innerUnit ?? (innerQuantity > 0 ? (line.unit === "BUCKET" ? "KG" : "PCS") : undefined),
+                                  priceBasis: innerQuantity > 0 ? (approvalLineUsesContentPrice(line) ? "CONTENT" : "PACKAGE") : undefined,
+                                });
+                              }}
+                            />
+                          </label>
+                          {approvalLineHasPackageContent(line) && (
+                            <label>
+                              <span>{useTurkishLabels ? "Fiyat esası" : "Price basis"}</span>
+                              <select
+                                value={approvalLineUsesContentPrice(line) ? "CONTENT" : "PACKAGE"}
+                                onChange={(event) => updateLine(index, { priceBasis: event.target.value as "PACKAGE" | "CONTENT" })}
+                              >
+                                <option value="PACKAGE">{useTurkishLabels ? `Paket birimine göre (${unitMap[line.unit ?? "PCS"]})` : `Price per ${exportUnitLabels[line.unit ?? "PCS"]}`}</option>
+                                <option value="CONTENT">{useTurkishLabels ? `Alt birime göre (${unitMap[approvalLineInnerUnit(line) ?? "PCS"]})` : `Price per ${exportUnitLabels[approvalLineInnerUnit(line) ?? "PCS"]}`}</option>
+                              </select>
+                            </label>
+                          )}
+                          <button type="button" className="danger-quiet" onClick={() => removeManualExportLine(index)}>
+                            <Trash2 size={13} aria-hidden="true" />
+                            <span>{useTurkishLabels ? "Kaldır" : "Remove"}</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="approval-line-identity">
+                          <span className="approval-product-code">{line.productCode}</span>
+                          <span className="approval-product-name">{line.productName}</span>
+                          <span className="approval-product-badges">
+                            <span className="approval-badge-metric">{line.quantity} {isPackingList ? "mt" : isProforma ? "m" : "mt"}</span>
+                            <span className="approval-badge-metric">{squareMeters.toLocaleString(isPackingList ? "tr-TR" : isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 2 })} m²</span>
+                            <span className="approval-badge-metric">{line.rollCount} {isPackingList ? "rulo" : isProforma ? "rolls" : "rulo"}</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {editing && !isProforma && !externalLine && (
+                      <button
+                        type="button"
+                        className="approval-remove-line-btn"
+                        disabled={form.lines.length <= 1}
+                        onClick={() => removeApprovalLine(index)}
+                        title="Bu ürünü formdan çıkar"
+                      >
+                        <Trash2 size={13} aria-hidden="true" />
+                        <span>Ürünü çıkar</span>
+                      </button>
+                    )}
                   </div>
-                  {isCommercialInvoice && <div className="approval-commercial-line-fields">
-                    <label><span>HS Code</span><input value={line.hsCode ?? ""} onChange={(event) => updateLine(index, { hsCode: event.target.value })} /></label>
-                    <label><span>Origin</span><input value={line.countryOfOrigin ?? form.countryOfOrigin ?? ""} onChange={(event) => updateLine(index, { countryOfOrigin: event.target.value })} /></label>
-                    {(line.manual || Number(line.rollCount) <= 0) && <label><span>Packages</span><input type="number" min="0" step="1" value={line.packageCount || ""} onChange={(event) => updateLine(index, { packageCount: Number(event.target.value) })} /></label>}
-                    <label><span>Net kg</span><input type="number" min="0" step="0.01" value={line.netWeight || ""} onChange={(event) => updateLine(index, { netWeight: Number(event.target.value) })} /></label>
-                    <label><span>Gross kg</span><input type="number" min="0" step="0.01" value={line.grossWeight || ""} onChange={(event) => updateLine(index, { grossWeight: Number(event.target.value) })} /></label>
-                  </div>}
-                  {isPackingList ? <div className="approval-packing-fields"><small>Product weights are calculated from the pallet total by meter ratio.</small></div> : <div className="approval-price-pair">
-                    {!(isProforma && line.manual && line.unit !== "M2") && <label>
-                      <span>{isProforma ? "Width (m)" : "En (m)"}</span>
-                      <input
-                        aria-label={isProforma ? "Product width" : "Ürün eni"}
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        title={isProforma ? "Product width (meters)" : "Ürün eni (metre)"}
-                        value={width}
-                        onChange={(event) =>
-                          updateLine(index, {
-                            width: Number(event.target.value),
-                          })
-                        }
-                      />
-                    </label>}
-                    <label className="approval-unit-price">
-                      <span>{isProforma ? "Unit price" : "Birim fiyat (m²)"}</span>
-                      <input
-                        aria-label={isProforma ? "Unit price per m²" : "m² fiyatı"}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0,00"
-                        title={isProforma ? "Unit price per m²" : "m² birim fiyatı"}
-                        value={line.unitPrice || ""}
-                        onChange={(event) =>
-                          updateLine(index, {
-                            unitPrice: Number(event.target.value),
-                          })
-                        }
-                      />
-                      {!isProforma && <small className="approval-local-price">
-                        {form.currency === "TRY"
-                          ? `${formatMoney(line.unitPrice, "TRY")} / m²`
-                          : `${formatMoney(line.unitPrice, form.currency)} × ${Number(form.exchangeRate || 0).toLocaleString("tr-TR", { maximumFractionDigits: 4 })} = ${formatMoney(line.unitPrice * (Number(form.exchangeRate) || 0), "TRY")} / m²`}
-                      </small>}
-                    </label>
-                  </div>}
-                  {!isPackingList && <label>
-                    <span>{isProforma ? "Discount %" : "İskonto %"}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={line.discountRate}
-                      onChange={(event) =>
-                        updateLine(index, {
-                          discountRate: Number(event.target.value),
-                        })
-                      }
-                    />
-                  </label>}
-                  {!isPackingList && <label>
-                    <span>{isProforma ? "VAT %" : "KDV %"}</span>
-                    <select
-                      value={line.vatRate}
-                      onChange={(event) =>
-                        updateLine(index, {
-                          vatRate: Number(event.target.value),
-                        })
-                      }
-                    >
-                      <option value="0">0</option>
-                      <option value="1">1</option>
-                      <option value="10">10</option>
-                      <option value="20">20</option>
-                    </select>
-                  </label>}
+
+                  {isCommercialInvoice && (
+                    <div className="approval-commercial-line-fields">
+                      <label><span>HS Code</span><input value={line.hsCode ?? ""} onChange={(event) => updateLine(index, { hsCode: event.target.value })} /></label>
+                      <label><span>Origin</span><input value={line.countryOfOrigin ?? form.countryOfOrigin ?? ""} onChange={(event) => updateLine(index, { countryOfOrigin: event.target.value })} /></label>
+                      {(externalLine || Number(line.rollCount) <= 0) && <label><span>Packages</span><input type="number" min="0" step="1" value={line.packageCount || ""} onChange={(event) => updateLine(index, { packageCount: Number(event.target.value) })} /></label>}
+                      <label><span>Net kg</span><input type="number" min="0" step="0.01" value={line.netWeight || ""} onChange={(event) => updateLine(index, { netWeight: Number(event.target.value) })} /></label>
+                      <label><span>Gross kg</span><input type="number" min="0" step="0.01" value={line.grossWeight || ""} onChange={(event) => updateLine(index, { grossWeight: Number(event.target.value) })} /></label>
+                    </div>
+                  )}
+
+                  {isPackingList ? (
+                    <div className="approval-packing-fields">
+                      <small>Ürün ağırlıkları, palet toplamından metre oranına göre hesaplanır.</small>
+                    </div>
+                  ) : (
+                    <div className="approval-line-inputs-container">
+                      <div className={`approval-line-grid ${showWidthField ? "has-width" : "no-width"}`}>
+                        {showWidthField && (
+                          <label className="approval-input-box">
+                            <span className="approval-box-label">{isProforma ? "Width (m)" : "En (m)"}</span>
+                            <input
+                              aria-label={isProforma ? "Product width" : "Ürün eni"}
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              title={isProforma ? "Product width (meters)" : "Ürün eni (metre)"}
+                              value={width}
+                              onChange={(event) => updateLine(index, { width: Number(event.target.value) })}
+                            />
+                          </label>
+                        )}
+
+                        <label className="approval-input-box">
+                          <span className="approval-box-label">
+                            {externalLine
+                              ? (isProforma
+                                  ? `Price (${approvalLineHasPackageContent(line) && approvalLineUsesContentPrice(line) ? exportUnitLabels[approvalLineInnerUnit(line) ?? "PCS"] : exportUnitLabels[line.unit ?? "PCS"]})`
+                                  : `Fiyat (${domesticUnitLabels[approvalLineInnerUnit(line) ?? "PCS"] ?? domesticUnitLabels[line.unit ?? "PCS"]})`)
+                              : isProforma ? `Unit Price (${form.currency}/m²)` : `Birim Fiyat (${form.currency}/m²)`}
+                          </span>
+                          <input
+                            aria-label={isProforma ? "Unit price" : "Birim fiyatı"}
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="0,00"
+                            title={isProforma ? "Unit price" : "Birim fiyatı"}
+                            value={line.unitPrice || ""}
+                            onChange={(event) => updateLine(index, { unitPrice: Number(event.target.value) })}
+                          />
+                        </label>
+
+                        <label className="approval-input-box">
+                          <span className="approval-box-label">{isProforma ? "Discount %" : "İskonto %"}</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={line.discountRate}
+                            onChange={(event) => updateLine(index, { discountRate: Number(event.target.value) })}
+                          />
+                        </label>
+
+                        <label className="approval-input-box">
+                          <span className="approval-box-label">{isProforma ? "VAT %" : "KDV %"}</span>
+                          <select
+                            value={line.vatRate}
+                            onChange={(event) => updateLine(index, { vatRate: Number(event.target.value) })}
+                          >
+                            <option value="0">%0</option>
+                            <option value="1">%1</option>
+                            <option value="10">%10</option>
+                            <option value="20">%20</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="approval-line-bottom-row">
+                        {!isProforma ? (
+                          <div className="approval-rate-pill">
+                            <span className="approval-rate-tag">TRY Değeri:</span>
+                            <span className="approval-rate-val">
+                              {(() => {
+                                const unitSuffix = externalLine ? (approvalLineHasPackageContent(line) && approvalLineUsesContentPrice(line) ? domesticUnitLabels[approvalLineInnerUnit(line) ?? "PCS"] : domesticUnitLabels[line.unit ?? "PCS"]) : "m²";
+                                return form.currency === "TRY"
+                                  ? `${formatMoney(line.unitPrice, "TRY")} / ${unitSuffix}`
+                                  : `${formatMoney(line.unitPrice, form.currency)} × ${Number(form.exchangeRate || 0).toLocaleString("tr-TR", { maximumFractionDigits: 4 })} = ${formatMoney(line.unitPrice * (Number(form.exchangeRate) || 0), "TRY")} / ${unitSuffix}`;
+                              })()}
+                            </span>
+                          </div>
+                        ) : <div />}
+
+                        <label className="approval-final-amount-box">
+                          <span className="approval-box-label">{isProforma ? "Line Total" : "Satır Toplamı (KDV & İsk. dâhil)"} ({form.currency}):</span>
+                          <input
+                            aria-label={isProforma ? "Final amount" : "Satır toplamı"}
+                            disabled={approvalLineBillableQuantity(line) <= 0 || Number(line.discountRate) >= 100 || finalMultiplier <= 0}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={lineFinalAmount ? Number(lineFinalAmount.toFixed(2)) : ""}
+                            onChange={(event) => {
+                              const finalAmount = Math.max(0, Number(event.target.value) || 0);
+                              const billableQuantity = approvalLineBillableQuantity(line);
+                              const discountMultiplier = 1 - Math.min(100, Math.max(0, Number(line.discountRate) || 0)) / 100;
+                              updateLine(index, {
+                                unitPrice: billableQuantity > 0 && discountMultiplier > 0 && finalMultiplier > 0
+                                  ? finalAmount / billableQuantity / discountMultiplier / finalMultiplier
+                                  : 0,
+                              });
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
-          <div className="approval-fields two approval-terms-fields">
-            <label className="approval-compact-field">
-              {isProforma ? "Overall discount %" : "Genel iskonto %"}
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={form.overallDiscountRate || ""}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    overallDiscountRate: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label className="approval-compact-field">
-              {isProforma ? "Additional charge label" : "Ek masraf adı"}
-              <input
-                value={isProforma ? (exportExtraChargeLabel ?? "") : form.extraChargeLabel}
-                onChange={(event) =>
-                  setForm({ ...form, extraChargeLabel: event.target.value })
-                }
-              />
-            </label>
-            <label className="approval-compact-field">
-              {isProforma ? "Additional charge" : "Ek masraf"}
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.extraCharge || ""}
-                onChange={(event) =>
-                  setForm({ ...form, extraCharge: Number(event.target.value) })
-                }
-              />
-            </label>
-            <label className="approval-terms-field">
-              {isProforma ? "Payment terms" : "Ödeme koşulu"}
-              <textarea
-                rows={2}
-                placeholder={isProforma ? "e.g. Advance payment upon order confirmation" : "Örn. Sipariş onayında peşin ödeme"}
-                value={form.paymentTerms}
-                onChange={(event) =>
-                  setForm({ ...form, paymentTerms: event.target.value })
-                }
-              />
-            </label>
-            <label className="approval-terms-field">
-              {isProforma ? "Delivery terms" : "Teslimat koşulu"}
-              <textarea
-                rows={2}
-                placeholder={isProforma ? "e.g. Ex-works; freight payable by the buyer" : "Örn. Depo teslim, nakliye alıcıya aittir"}
-                value={form.deliveryTerms}
-                onChange={(event) =>
-                  setForm({ ...form, deliveryTerms: event.target.value })
-                }
-              />
-            </label>
-            <label className="wide-field">
-              {isProforma ? "Proforma invoice note" : "Ek not"}
-              <textarea
-                rows={2}
-                placeholder={isProforma ? DEFAULT_PROFORMA_NOTE : "Bu siparişe özel ek açıklama"}
-                value={form.note}
-                onChange={(event) =>
-                  setForm({ ...form, note: event.target.value })
-                }
-              />
-            </label>
+          <div className="approval-terms-section">
+            <div className="approval-terms-row-three">
+              <label className="approval-input-box">
+                <span className="approval-box-label">{isProforma ? "Overall discount %" : "Genel iskonto %"}</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  placeholder="0"
+                  value={form.overallDiscountRate || ""}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      overallDiscountRate: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="approval-input-box">
+                <span className="approval-box-label">{isProforma ? "Additional charge label" : "Ek masraf adı"}</span>
+                <input
+                  placeholder={isProforma ? "e.g. Shipping / Extra fee" : "Örn. Nakliye / ek ücret"}
+                  value={isProforma ? (exportExtraChargeLabel ?? "") : form.extraChargeLabel}
+                  onChange={(event) =>
+                    setForm({ ...form, extraChargeLabel: event.target.value })
+                  }
+                />
+              </label>
+              <label className="approval-input-box">
+                <span className="approval-box-label">{isProforma ? "Additional charge" : "Ek masraf"} ({form.currency})</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={form.extraCharge || ""}
+                  onChange={(event) =>
+                    setForm({ ...form, extraCharge: Number(event.target.value) })
+                  }
+                />
+              </label>
+            </div>
+            <div className="approval-terms-row-two">
+              <label className="approval-input-box">
+                <span className="approval-box-label">{isProforma ? "Payment terms" : "Ödeme koşulu"}</span>
+                <textarea
+                  rows={2}
+                  placeholder={isProforma ? "e.g. Advance payment upon order confirmation" : "Örn. Sipariş onayında peşin ödeme"}
+                  value={form.paymentTerms}
+                  onChange={(event) =>
+                    setForm({ ...form, paymentTerms: event.target.value })
+                  }
+                />
+              </label>
+              <label className="approval-input-box">
+                <span className="approval-box-label">{isProforma ? "Delivery terms" : "Teslimat koşulu"}</span>
+                <textarea
+                  rows={2}
+                  placeholder={isProforma ? "e.g. Ex-works; freight payable by the buyer" : "Örn. Depo teslim, nakliye alıcıya aittir"}
+                  value={form.deliveryTerms}
+                  onChange={(event) =>
+                    setForm({ ...form, deliveryTerms: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+            <div className="approval-terms-row-one">
+              <label className="approval-input-box">
+                <span className="approval-box-label">{isProforma ? "Proforma invoice note" : "Ek not"}</span>
+                <textarea
+                  rows={2}
+                  placeholder={isProforma ? DEFAULT_PROFORMA_NOTE : "Bu siparişe özel ek açıklama"}
+                  value={form.note}
+                  onChange={(event) =>
+                    setForm({ ...form, note: event.target.value })
+                  }
+                />
+              </label>
+            </div>
           </div>
         </section>
         <section className="approval-paper-wrap">
-          <div className="approval-preview-label">{labels.preview}</div>
-          <article className="approval-paper" ref={paperRef} lang={isProforma ? "en" : "tr"}>
+          <div className="approval-preview-top-toolbar">
+            <div className="approval-preview-label">{labels.preview}</div>
+            <div className="approval-page-fit-switch" role="group" aria-label="Sayfa Düzeni">
+              {isProforma && (
+                <>
+                  <span className="approval-page-fit-caption">{isProforma ? "Layout:" : "Düzen:"}</span>
+                  <button
+                    type="button"
+                    className={`approval-page-fit-btn ${!isMultiPage ? "active" : ""}`}
+                    onClick={() => setForm((curr) => ({ ...curr, pageFit: "single" }))}
+                    title={isProforma ? "Fit onto single page without blank space" : "Boşluk bırakmadan tek sayfaya sığdır"}
+                  >
+                    <FileText size={12} />
+                    <span>{isProforma ? "Single Page (Fit)" : "Tek Sayfa (Sığdır)"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`approval-page-fit-btn ${isMultiPage ? "active" : ""}`}
+                    onClick={() => setForm((curr) => ({ ...curr, pageFit: "multi" }))}
+                    title={isProforma ? "Split summaries & signatures to page 2 with running header" : "Özet ve imzaları 2. sayfaya al, üst başlıkla göster"}
+                  >
+                    <Layers3 size={12} />
+                    <span>{isProforma ? "2 Pages (Split)" : "2 Sayfa (Geniş)"}</span>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className="approval-page-fit-btn approval-open-pdf-btn"
+                onClick={() => void openDirectPdf()}
+                disabled={busy}
+                title={isProforma ? "View official compiled PDF" : "Resmi derlenmiş PDF'e gözat"}
+              >
+                <Eye size={12} />
+                <span>{isProforma ? "Official PDF" : "Resmi PDF"}</span>
+              </button>
+            </div>
+          </div>
+          <article className={`approval-paper ${!isMultiPage ? "is-single-page-fit" : "is-multi-page"}`} ref={paperRef} lang={isProforma ? "en" : "tr"}>
             <header className="approval-paper-header">
               <div className="approval-brand-bar">
                 <div className="approval-company-identity">
@@ -9385,14 +12703,12 @@ function ApprovalFormEditor({
               </div>
 
               <div className="approval-summary-strip">
-                <div><ApprovalIcon kind="document" /><span><small>{isProforma ? "PROFORMA NUMBER" : "FORM NO"}</small><b>{isProforma ? form.proformaNumber : form.number}</b><em>{order.number}</em></span></div>
-                <div><ApprovalIcon kind="calendar" /><span><small>{isProforma ? "ISSUE DATE" : "BELGE TARİHİ"}</small><b>{form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? (form.shipmentDate || form.date) : form.date}</b></span></div>
+                <div><ApprovalIcon kind="document" /><span><small>{form.documentType === "commercial_invoice" ? "COMMERCIAL INVOICE NUMBER" : form.documentType === "packing_list" ? "PACKING LIST NUMBER" : isProforma ? "PROFORMA NUMBER" : "FORM NO"}</small><b>{form.number}</b><em>{order.number}</em></span></div>
+                <div><ApprovalIcon kind="calendar" /><span><small>{form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? "SHIPMENT DATE" : (isProforma ? "ISSUE DATE" : "BELGE TARİHİ")}</small><b>{form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? (form.shipmentDate || form.date) : form.date}</b>{(form.documentType === "commercial_invoice" || form.documentType === "packing_list") && form.date ? <em>Proforma date: {form.date}</em> : null}</span></div>
                 <div><ApprovalIcon kind="representative" /><span><small>{isProforma ? "SALES REPRESENTATIVE" : "SATIŞ TEMSİLCİSİ"}</small><b>{form.salesRepresentative || "-"}</b></span></div>
                 <div><ApprovalIcon kind="source" /><span><small>{isProforma ? "INVOICE NUMBER" : "KAYNAK"}</small><b>{isProforma ? (form.invoiceNumber || "-") : "ERSA DEPO"}</b></span></div>
                 <div><ApprovalIcon kind="currency" /><span><small>{isProforma ? "CURRENCY" : "KUR"}</small><b>{isProforma ? form.currency : (form.currency === "TRY" ? "TL · 1" : `${form.currency} · ${form.exchangeRate}`)}</b>{!isProforma && form.currency !== "TRY" && ratePublicationDate && <em>({ratePublicationDate})</em>}</span></div>
               </div>
-              {(form.documentType === "commercial_invoice" || form.documentType === "packing_list") && <div className="approval-shipment-date"><b>Proforma date</b><span>{form.date}</span></div>}
-
               <div className="approval-company-panel">
                 <strong>{isProforma ? "BUYER INFORMATION" : "MÜŞTERİ BİLGİLERİ"}</strong>
                 <div className="approval-company-panel-content">
@@ -9416,39 +12732,43 @@ function ApprovalFormEditor({
                 <tr>
                   <th>#</th>
                   <th>{isProforma ? "Product" : "Ürün"}</th>
-                  <th>{isPackingList ? "Packages" : isProforma ? "Rolls" : "Rulo"}</th>
-                  <th>{isProforma ? "Quantity / Unit" : "Miktar"}</th>
+                  <th>{isPackingList || hasNestedExportPackages ? "Packages" : isProforma ? "Rolls" : "Rulo"}</th>
+                  <th>{isProforma ? (hasNestedExportPackages ? "Contents / Unit" : "Quantity / Unit") : "Miktar"}</th>
                   <th>{isPackingList ? "Net Weight" : isProforma ? "Unit Price" : "m² Fiyatı"}</th>
                   <th>{isPackingList ? "Gross Weight" : isProforma ? "Amount" : "Toplam"}</th>
                 </tr>
               </thead>
               <tbody>
-                {isPackingList ? packingPlan.map((pallet) => {
-                  const detail = packingPalletDetails[pallet.number - 1];
-                  const palletMeters = pallet.items.reduce((sum, item) => sum + item.quantity, 0);
+                {isPackingList ? packingPlan.map((pallet, pIdx) => {
+                  const detail = packingPalletDetails[pIdx];
                   const palletNet = Math.max(0, detail.grossWeight - detail.tareWeight);
+                  const palletWeights = palletCalculatedWeights[pIdx] ?? [];
                   return <Fragment key={`pallet-${pallet.number}`}>
                   <tr className="approval-pallet-row">
                     <td colSpan={2}><b>PALLET {pallet.number}</b></td>
-                    <td><b>{pallet.rollCount} rolls</b></td>
-                    <td><small>{detail.lengthCm} × {detail.widthCm} × {detail.heightCm} cm</small></td>
+                    <td><b>{pallet.rollCount > 0 ? `${pallet.rollCount} rolls` : ""}</b></td>
+                    <td className="approval-pallet-dimensions-cell"><span>{detail.lengthCm} × {detail.widthCm} × {detail.heightCm}</span><small>cm · L × W × H</small></td>
                     <td><b>{palletNet.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></td>
                     <td><b>{detail.grossWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></td>
                   </tr>
                   {pallet.items.map((item, itemIndex) => {
-                    const ratio = palletMeters > 0 ? item.quantity / palletMeters : 0;
+                    const itemWeight = palletWeights[itemIndex] ?? { netWeight: 0, grossWeight: 0 };
+                    const hasRolls = lineHasRolls(item.line) || item.rolls > 0;
                     return <tr key={`${pallet.number}-${item.lineIndex}-${itemIndex}`}>
                     <td>{item.lineIndex + 1}</td>
                     <td><b>{item.line.productName}</b><small>{item.line.productCode}</small></td>
-                    <td>{item.rolls}</td>
-                    <td className="approval-quantity-cell"><b>{(item.quantity * (Number(item.line.width) || 1.42)).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m²</b><small>{item.quantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</small></td>
-                    <td><b>{(palletNet * ratio).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></td>
-                    <td><b>{(detail.grossWeight * ratio).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></td>
-                  </tr>})}
+                    <td>{hasRolls ? `${item.rolls} ${item.rolls === 1 ? "roll" : "rolls"}` : `${item.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })} ${exportUnitLabels[item.line.unit ?? "PCS"]}`}</td>
+                    <td className="approval-quantity-cell">{hasRolls ? <b>{item.quantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} m</b> : (approvalLineHasPackageContent(item.line) ? <><b>{(item.quantity * approvalLineInnerQuantity(item.line)).toLocaleString("en-US", { maximumFractionDigits: 3 })} {exportUnitLabels[approvalLineInnerUnit(item.line) ?? "PCS"]}</b><small>{approvalLineInnerQuantity(item.line).toLocaleString("en-US", { maximumFractionDigits: 3 })} {exportUnitLabels[approvalLineInnerUnit(item.line) ?? "PCS"]} / {exportUnitLabels[item.line.unit ?? "PCS"]}</small></> : <b>{item.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })} {exportUnitLabels[item.line.unit ?? "PCS"]}</b>)}</td>
+                    <td><b>{itemWeight.netWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></td>
+                    <td><b>{itemWeight.grossWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></td>
+                  </tr>;})}
                 </Fragment>}) : form.lines.map((line, index) => {
+                  const catalogLine = products.some((product) =>
+                    (line.productId != null && String(product.id) === String(line.productId)) ||
+                    (Boolean(line.productCode?.trim()) && [product.code, product.sku].some((code) => code?.trim().toLocaleUpperCase("tr") === line.productCode.trim().toLocaleUpperCase("tr"))));
+                  const showExternalUnits = line.manual === true && !catalogLine;
                   const squareMeters =
                     line.quantity * (Number(line.width) || 1.42);
-                  const exportUnitLabels: Record<string, string> = { M2: "m²", M: "m", ROLL: "roll", BOX: "box", PCS: "pcs", KG: "kg", SET: "set", PALLET: "pallet" };
                   const exportUnit = line.unit ?? "M2";
                   const price = dualMoney(line.unitPrice, form);
                   const total = dualMoney(totals.lines[index].net, form);
@@ -9466,16 +12786,14 @@ function ApprovalFormEditor({
                           </small>
                         )}
                       </td>
-                      <td>{isProforma ? <>{line.rollCount} rolls</> : line.rollCount}{isCommercialInvoice && (line.manual || Number(line.rollCount) <= 0) && Number(line.packageCount) > 0 && <small>{line.packageCount} packages</small>}</td>
+                      <td>{isProforma && showExternalUnits && approvalLineHasPackageContent(line) ? <>{line.quantity.toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 3 })} {(isProforma ? exportUnitLabels : domesticUnitLabels)[exportUnit]}</> : (Number(line.rollCount) > 0 ? (isProforma ? <>{line.rollCount} rolls</> : line.rollCount) : "")}{isCommercialInvoice && !approvalLineHasPackageContent(line) && (line.manual || Number(line.rollCount) <= 0) && Number(line.packageCount) > 0 && <small>{line.packageCount} packages</small>}</td>
                       <td className="approval-quantity-cell">
-                        {isProforma && line.manual ? <>
-                          <b>{line.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })} {exportUnitLabels[exportUnit]}</b>
-                          {exportUnit === "BOX" && <small>{line.unitsPerBox || 0} pcs / box · {(line.quantity * Number(line.unitsPerBox || 0)).toLocaleString("en-US", { maximumFractionDigits: 0 })} pcs total</small>}
-                        </> : <><b>{squareMeters.toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 2 })} m²</b><small>{line.quantity} {isProforma ? "m" : "mt"}</small></>}
+                        {isProforma && showExternalUnits ? (approvalLineHasPackageContent(line) ? <><b>{(line.quantity * approvalLineInnerQuantity(line)).toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 3 })} {(isProforma ? exportUnitLabels : domesticUnitLabels)[approvalLineInnerUnit(line) ?? "PCS"]}</b><small>{approvalLineInnerQuantity(line).toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 3 })} {(isProforma ? exportUnitLabels : domesticUnitLabels)[approvalLineInnerUnit(line) ?? "PCS"]} / {(isProforma ? exportUnitLabels : domesticUnitLabels)[exportUnit]}</small></> : <b>{line.quantity.toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 3 })} {(isProforma ? exportUnitLabels : domesticUnitLabels)[exportUnit]}{line.innerUnit ? ` (${(isProforma ? exportUnitLabels : domesticUnitLabels)[line.innerUnit]})` : ""}</b>) : <><b>{squareMeters.toLocaleString(isProforma ? "en-US" : "tr-TR", { maximumFractionDigits: 2 })} m²</b><small>{line.quantity} {isProforma ? "m" : "mt"}</small></>}
                       </td>
                       <td>
                         <>
                         <b>{price.primary}</b>
+                        {isProforma && showExternalUnits && <small>{isProforma ? `per ${approvalLineHasPackageContent(line) && approvalLineUsesContentPrice(line) ? exportUnitLabels[approvalLineInnerUnit(line) ?? "PCS"] : exportUnitLabels[exportUnit]}` : `/ ${approvalLineHasPackageContent(line) && approvalLineUsesContentPrice(line) ? domesticUnitLabels[approvalLineInnerUnit(line) ?? "PCS"] : domesticUnitLabels[exportUnit]}`}</small>}
                         {!isProforma && price.local && <small>{price.local}</small>}
                         </>
                       </td>
@@ -9489,8 +12807,45 @@ function ApprovalFormEditor({
                   );
                 })}
               </tbody>
+              {isPackingList && <tfoot className="approval-packing-totals">
+                <tr>
+                  <td colSpan={4}><b>TOTAL WEIGHT</b><small>{packingDistribution.length} pallets · {packingDistribution.reduce((sum, value) => sum + value, 0)} rolls</small></td>
+                  <td><small>Total net</small><b>{packingTotalNetWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></td>
+                  <td><small>Total gross</small><b>{packingTotalGrossWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></td>
+                </tr>
+              </tfoot>}
             </table>
-            <div className="approval-bottom-grid">
+            {isMultiPage && (
+              <footer className="approval-page-footer approval-page-1-footer">
+                <span>Powered by <AriXLogo /> <b>AriX</b> {isProforma ? "Order system" : "Sipariş sistemi"}</span>
+                <span className="approval-footer-page-tag">{isProforma ? "Page 1 / 2" : "Sayfa 1 / 2"}</span>
+                <span>{isProforma ? "Secure document management" : "Güvenli belge yönetimi"} &nbsp; | &nbsp; {new Date(form.date).getFullYear() || new Date().getFullYear()}</span>
+              </footer>
+            )}
+            {isMultiPage && (
+              <div className="approval-page-break-divider" aria-hidden="true">
+                <span>{isProforma ? "── PAGE 2 ──" : "── 2. SAYFA ──"}</span>
+              </div>
+            )}
+            {isMultiPage && (
+              <div className="approval-running-header">
+                <div className="approval-running-brand">
+                  {printSettings.companyLogo ? (
+                    <img className="approval-running-logo" src={printSettings.companyLogo} alt={printSettings.companyName} />
+                  ) : (
+                    <span className="approval-running-monogram">{printSettings.companyName.slice(0, 2).toUpperCase()}</span>
+                  )}
+                  <span>
+                    <b>{printSettings.companyName}</b> · {isProforma ? exportDocumentTitle : "Sipariş Onay Formu"}
+                  </span>
+                </div>
+                <div className="approval-running-meta">
+                  <span><b>{form.number}</b> · {form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? (form.shipmentDate || form.date) : form.date}</span>
+                  <span className="approval-running-page-badge">{isProforma ? "Page 2 / 2" : "Sayfa 2 / 2"}</span>
+                </div>
+              </div>
+            )}
+            <div className={`approval-bottom-grid ${isMultiPage ? "approval-detail-page-break" : ""}`}>
               {isCommercialInvoice || isProforma ? <div className={`approval-commercial-panel approval-commercial-shipment-panel${isProforma ? " approval-proforma-shipment-panel" : ""}`}>
                 <div className="approval-condition-heading"><ApprovalIcon kind="delivery" /><span><b>{isProforma ? "Proforma & shipment details" : "Shipment & customs"}</b><small>{isProforma ? "Package, delivery and origin information" : "Transport, package and customs details"}</small></span></div>
                 <div className="approval-commercial-panel-grid">
@@ -9512,7 +12867,6 @@ function ApprovalFormEditor({
                     <span><small>CMR / B/L / AWB</small>{form.transportDocumentNumber || "-"}</span>
                     <span><small>Marks & numbers</small>{form.marksAndNumbers || "-"}</span>
                     {form.lines.some((line) => (line.manual || Number(line.rollCount) <= 0) && Number(line.packageCount) > 0) && <span><small>Packages</small>{form.lines.reduce((sum, line) => sum + ((line.manual || Number(line.rollCount) <= 0) ? (Number(line.packageCount) || 0) : 0), 0)}</span>}
-                    <span><small>Net / Gross</small>{form.lines.reduce((sum, line) => sum + (Number(line.netWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} / {form.lines.reduce((sum, line) => sum + (Number(line.grossWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</span>
                   </>}
                 </div>
               </div> : isPackingList ? <div className="approval-commercial-panel approval-packing-summary-panel">
@@ -9520,8 +12874,8 @@ function ApprovalFormEditor({
                 <div className="approval-packing-summary-grid">
                   <span><small>Total pallets</small><b>{packingDistribution.length}</b></span>
                   <span><small>Total rolls</small><b>{packingDistribution.reduce((sum, value) => sum + value, 0)}</b></span>
-                  <span><small>Total net weight</small><b>{packingPalletDetails.reduce((sum, item) => sum + Math.max(0, Number(item.grossWeight) - Number(item.tareWeight)), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></span>
-                  <span><small>Total gross weight</small><b>{packingPalletDetails.reduce((sum, item) => sum + (Number(item.grossWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></span>
+                  <span><small>Total net weight</small><b>{packingTotalNetWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></span>
+                  <span><small>Total gross weight</small><b>{packingTotalGrossWeight.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</b></span>
                 </div>
               </div> : <div className="approval-general-terms approval-general-terms-main">
                 <div className="approval-condition-heading">
@@ -9592,19 +12946,12 @@ function ApprovalFormEditor({
                 </b>
               </strong>
               </div>}
-              {isPackingList && <div className="approval-commercial-panel approval-packing-shipment-panel">
-                <div className="approval-condition-heading"><ApprovalIcon kind="delivery" /><span><b>Shipment details</b><small>Packing list reference information</small></span></div>
-                <div className="approval-packing-shipment-grid">
-                  <span><small>Invoice no.</small>{form.invoiceNumber || "-"}</span>
-                  <span><small>Shipment date</small>{form.shipmentDate || form.date}</span>
-                  <span><small>Place of loading</small>{form.loadingPlace || form.shipmentPort || "-"}</span>
-                  <span><small>Destination</small>{form.destination || "-"}</span>
-                  <span><small>Delivery term</small>{form.incoterm || "-"}</span>
-                  <span><small>Country of origin</small>{form.countryOfOrigin || "-"}</span>
-                </div>
+              {isPackingList && <div className="approval-commercial-panel approval-packing-declaration-panel">
+                <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>Packing declaration</b><small>Shipment contents confirmation</small></span></div>
+                <span>We hereby certify that the packages, quantities and weights stated in this packing list are true and correct.</span>
               </div>}
             </div>
-            {(isCommercialInvoice || isProforma) && <div className="approval-commercial-tail"><section className="approval-commercial-panels">
+            {!isPackingList && (isCommercialInvoice || isProforma) && <div className="approval-commercial-tail"><section className="approval-commercial-panels">
               <div className="approval-general-terms approval-general-terms-main approval-commercial-terms-panel">
                 <div className="approval-condition-heading"><ApprovalIcon kind="terms" /><span><b>Terms and export details</b><small>{isProforma ? "Proforma invoice conditions" : "Commercial invoice conditions"}</small></span></div>
                 <ul>{EXPORT_GENERAL_TERMS.map((term) => <li key={term}>{term}</li>)}</ul>
@@ -9633,9 +12980,16 @@ function ApprovalFormEditor({
               </div>
             </section></div>}
             {isPackingList && <section className="approval-packing-approval-tail">
-              <div className="approval-commercial-panel approval-packing-declaration-panel">
-                <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>Packing declaration</b><small>Shipment contents confirmation</small></span></div>
-                <span>We hereby certify that the packages, quantities and weights stated in this packing list are true and correct.</span>
+              <div className="approval-commercial-panel approval-packing-shipment-panel">
+                <div className="approval-condition-heading"><ApprovalIcon kind="delivery" /><span><b>Shipment details</b><small>Packing list reference information</small></span></div>
+                <div className="approval-packing-shipment-grid">
+                  <span><small>Invoice no.</small>{form.invoiceNumber || "-"}</span>
+                  <span><small>Shipment date</small>{form.shipmentDate || form.date}</span>
+                  <span><small>Place of loading</small>{form.loadingPlace || form.shipmentPort || "-"}</span>
+                  <span><small>Destination</small>{form.destination || "-"}</span>
+                  <span><small>Delivery term</small>{form.incoterm || "-"}</span>
+                  <span><small>Country of origin</small>{form.countryOfOrigin || "-"}</span>
+                </div>
               </div>
               <div className="approval-commercial-panel approval-commercial-stamp-panel">
                 <div className="approval-commercial-stamp">
@@ -9653,8 +13007,9 @@ function ApprovalFormEditor({
                 </span>
               </div>
             </section>}
-            <footer className="approval-page-footer">
+            <footer className={`approval-page-footer ${isMultiPage ? "approval-page-2-footer" : ""}`}>
               <span>Powered by <AriXLogo /> <b>AriX</b> {isProforma ? "Order system" : "Sipariş sistemi"}</span>
+              <span className="approval-footer-page-tag">{isMultiPage ? (isProforma ? "Page 2 / 2" : "Sayfa 2 / 2") : (isProforma ? "Page 1 / 1" : "Sayfa 1 / 1")}</span>
               <span>{isProforma ? "Secure document management" : "Güvenli belge yönetimi"} &nbsp; | &nbsp; {new Date(form.date).getFullYear() || new Date().getFullYear()}</span>
             </footer>
           </article>
@@ -9681,24 +13036,43 @@ function ApprovalFormEditor({
           {labels.print}
         </button>
         {canEdit && !editing && (
-          <button className="secondary" disabled={busy} onClick={() => {
-            void api(`/api/orders/${order.id}/activity`, { method: "POST", body: JSON.stringify({ type: "approval_form_editing_started" }) }).catch(() => undefined);
-            setEditing(true);
-          }}>
-            Düzenle
+          <button className="secondary" disabled={busy} onClick={beginApprovalEditing}>
+            {isProforma ? `${exportDocumentTitle} düzenle` : "Düzenle"}
           </button>
         )}
-        {canEdit && editing && (
+        {canEdit && (
           <button
             className="secondary"
             disabled={busy}
-            onClick={() => void save("draft")}
+            onClick={() => void save("draft", undefined, false)}
+            title="Değişiklikleri taslak olarak kaydeder, onay bildirimi göndermez."
           >
-            {labels.save}
+            {labels.saveDraft}
           </button>
         )}
-        {canApprove && (
-          <button className="danger-button" disabled={busy || form.status === "approved"} onClick={() => void rejectForm()}>
+        {canEdit && form.status !== "approved" && (
+          <button
+            className={canApprove ? "secondary" : "primary"}
+            disabled={busy}
+            onClick={() => void save("draft", undefined, true)}
+            title="Formu tamamlayıp satış temsilcisinin ve yönetimin onayına gönderir."
+          >
+            {labels.submit}
+          </button>
+        )}
+        {!isHistoricalMerge && canWithdrawApproval(form, session, workflowRole(session.role) === "owner") && (
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={() => void withdrawForm()}
+            title="Bu formu onay bekleyenler listesinden geri çekip tekrar taslağa alır."
+          >
+            Onayı geri çek
+          </button>
+        )}
+        {canReject && (
+          <button className="danger-button" disabled={busy} onClick={() => void rejectForm()}>
             Reddet
           </button>
         )}
@@ -9714,281 +13088,24 @@ function ApprovalFormEditor({
         )}
       </div>
     </Modal>
-  );
-  return (
-    <Modal
-      title={labels.title}
-      subtitle={`${order.customerName} · ${order.number}`}
-      onClose={onClose}
-      wide
-      showBack
-      className="approval-modal"
-    >
-      <div className="approval-workspace">
-        <section className="approval-editor">
-          <div className="approval-fields four">
-            <label>
-              Form no
-              <input
-                value={form.number}
-                onChange={(e) => setForm({ ...form, number: e.target.value })}
-              />
-            </label>
-            <label>
-              Tarih
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-              />
-            </label>
-            <label>
-              Para birimi
-              <select
-                value={form.currency}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    currency: e.target.value as ApprovalForm["currency"],
-                  })
-                }
-              >
-                <option>USD</option>
-                <option>TRY</option>
-                <option>EUR</option>
-              </select>
-            </label>
-            <label>
-              Kur
-              <input
-                type="number"
-                min="0.0001"
-                step="0.0001"
-                value={form.exchangeRate}
-                onChange={(e) =>
-                  setForm({ ...form, exchangeRate: Number(e.target.value) })
-                }
-              />
-            </label>
+    {proxyApprovalDialogOpen && (
+      <Modal
+        title="Temsilci adına onay"
+        subtitle={`${form.salesRepresentative || "Atanan satış temsilcisi"} için onay notu`}
+        onClose={() => setProxyApprovalDialogOpen(false)}
+      >
+        <div className="proxy-approval-confirm">
+          <p>Bu formu atanan satış temsilcisi yerine onaylıyorsunuz. Not, işlem geçmişinde ve onay bildiriminde görünecek.</p>
+          <label htmlFor="proxy-approval-note">Onay notu</label>
+          <textarea id="proxy-approval-note" autoFocus rows={3} maxLength={500} value={proxyApprovalNote} onChange={(event) => setProxyApprovalNote(event.target.value)} />
+          <div className="modal-actions">
+            <button type="button" className="secondary" onClick={() => setProxyApprovalDialogOpen(false)}>Vazgeç</button>
+            <button type="button" className="primary" disabled={busy || !proxyApprovalNote.trim()} onClick={() => { setProxyApprovalDialogOpen(false); void save("approved", proxyApprovalNote); }}>Notla onayla</button>
           </div>
-          <label className="approval-toggle">
-            <input
-              type="checkbox"
-              checked={form.vatIncluded}
-              onChange={(e) =>
-                setForm({ ...form, vatIncluded: e.target.checked })
-              }
-            />
-            <span>KDV fiyatlara dahil</span>
-          </label>
-          <div className="approval-line-head">
-            <span>Ürün / hazırlanan</span>
-            <span>Fiyat</span>
-            <span>İskonto</span>
-            <span>KDV</span>
-          </div>
-          <div className="approval-lines">
-            {form.lines.map((line, index) => (
-              <div className="approval-line" key={`${line.productId}-${index}`}>
-                <div>
-                  <small>{line.productCode}</small>
-                  <b>{line.productName}</b>
-                  <span>
-                    {line.quantity} mt · {line.rollCount} rulo
-                  </span>
-                </div>
-                <label>
-                  <span>Birim fiyat</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={line.unitPrice || ""}
-                    onChange={(e) =>
-                      updateLine(index, { unitPrice: Number(e.target.value) })
-                    }
-                  />
-                </label>
-                <label>
-                  <span>İskonto %</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    value={line.discountRate}
-                    onChange={(e) =>
-                      updateLine(index, {
-                        discountRate: Number(e.target.value),
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  <span>KDV %</span>
-                  <select
-                    value={line.vatRate}
-                    onChange={(e) =>
-                      updateLine(index, { vatRate: Number(e.target.value) })
-                    }
-                  >
-                    <option value="0">0</option>
-                    <option value="1">1</option>
-                    <option value="10">10</option>
-                    <option value="20">20</option>
-                  </select>
-                </label>
-              </div>
-            ))}
-          </div>
-          <div className="approval-fields two">
-            <label>
-              Ek masraf adı
-              <input
-                value={form.extraChargeLabel}
-                onChange={(e) =>
-                  setForm({ ...form, extraChargeLabel: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Ek masraf
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.extraCharge || ""}
-                onChange={(e) =>
-                  setForm({ ...form, extraCharge: Number(e.target.value) })
-                }
-              />
-            </label>
-            <label>
-              Ödeme koşulu
-              <textarea
-                rows={2}
-                value={form.paymentTerms}
-                onChange={(e) =>
-                  setForm({ ...form, paymentTerms: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Teslimat koşulu
-              <textarea
-                rows={2}
-                value={form.deliveryTerms}
-                onChange={(e) =>
-                  setForm({ ...form, deliveryTerms: e.target.value })
-                }
-              />
-            </label>
-            <label className="wide-field">
-              Not
-              <textarea
-                rows={2}
-                value={form.note}
-                onChange={(e) => setForm({ ...form, note: e.target.value })}
-              />
-            </label>
-          </div>
-        </section>
-        <section className="approval-paper-wrap">
-          <div className="approval-preview-label">{labels.preview}</div>
-          <article className="approval-paper">
-            <header>
-              <div>
-                <AriXLogo className="approval-logo" />
-                <h2>SİPARİŞ ONAY FORMU</h2>
-                <span>{order.customerName}</span>
-              </div>
-              <div>
-                <b>{form.number}</b>
-                <span>{form.date}</span>
-                <small>{order.number}</small>
-              </div>
-            </header>
-            <table>
-              <thead>
-                <tr>
-                  <th>Ürün</th>
-                  <th>Rulo</th>
-                  <th>mt</th>
-                  <th>Fiyat</th>
-                  <th>Toplam</th>
-                </tr>
-              </thead>
-              <tbody>
-                {form.lines.map((line, index) => (
-                  <tr key={index}>
-                    <td>
-                      <b>{line.productName}</b>
-                      <small>{line.productCode}</small>
-                    </td>
-                    <td>{line.rollCount}</td>
-                    <td>{line.quantity}</td>
-                    <td>{money(line.unitPrice, form.currency)}</td>
-                    <td>{money(totals.lines[index].net, form.currency)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="approval-totals">
-              <span>
-                Ara toplam <b>{money(totals.subtotal, form.currency)}</b>
-              </span>
-              <span>
-                KDV <b>{money(totals.vat, form.currency)}</b>
-              </span>
-              <span>
-                Ek masraf <b>{money(form.extraCharge, form.currency)}</b>
-              </span>
-              <strong>
-                Genel toplam <b>{money(totals.total, form.currency)}</b>
-              </strong>
-            </div>
-            <footer>
-              <span>
-                <small>Ödeme</small>
-                {form.paymentTerms || "-"}
-              </span>
-              <span>
-                <small>Teslimat</small>
-                {form.deliveryTerms || "-"}
-              </span>
-            </footer>
-          </article>
-        </section>
-      </div>
-      {error && <p className="form-error">{error}</p>}
-      <div className="modal-actions">
-        <button className="secondary mobile-hide-print" onClick={print}>
-          {labels.print}
-        </button>
-        <button
-          className="secondary"
-          disabled={busy}
-          onClick={() => void save("draft")}
-        >
-          {labels.save}
-        </button>
-        {canApprove && (
-          <button className="danger-button" disabled={busy || form.status === "approved"} onClick={() => void rejectForm()}>
-            Reddet
-          </button>
-        )}
-        {canApprove && (
-          <button
-            className="primary"
-            disabled={busy || (form.status === "approved" && !hasFormChanges)}
-            onClick={() => void save("approved")}
-            title={form.status === "approved" && !hasFormChanges ? "Bu form zaten onaylandı. Yeniden onaylamak için önce bir değişiklik yapın." : undefined}
-          >
-            {labels.approve}
-          </button>
-        )}
-      </div>
-    </Modal>
+        </div>
+      </Modal>
+    )}
+    </>
   );
 }
 
@@ -10095,7 +13212,7 @@ function Login({
           text: "continue_with",
           shape: "rectangular",
           logo_alignment: "left",
-          width: Math.min(360, googleButton.current.clientWidth || 360),
+          width: Math.min(360, Math.max(240, window.innerWidth - 74)),
           locale: "az",
         });
       })
@@ -10186,8 +13303,14 @@ function Login({
             <div className="login-logo">
               <AriXLogo />
             </div>
-            <strong>AriX Panel</strong>
-            <small>Əməkdaş girişi</small>
+            <span>
+              <strong>AriX Order</strong>
+              <small>Sifariş sistemi</small>
+            </span>
+          </div>
+          <div className="login-heading">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <span><b>Hesabınıza daxil olun</b><small>Sifariş məlumatları yalnız icazəli istifadəçilər üçün açıqdır.</small></span>
           </div>
           {pending ? (
             <div className="pending-box">
@@ -10370,8 +13493,9 @@ function DocumentPreview({
 }) {
   const ui = copy[language];
   const isImage = attachment.mimeType.startsWith("image/");
+  const [zoom, setZoom] = useState(1);
   useBrowserBackLayer(true, onClose);
-  return (
+  const content = (
     <div
       className="document-preview-backdrop"
       onMouseDown={(event) => {
@@ -10383,10 +13507,20 @@ function DocumentPreview({
           <div>
             <strong>{attachment.name}</strong>
             <small>
-              {formatFileSize(attachment.size)} · {attachment.uploadedBy}
+              {attachment.size > 0 ? `${formatFileSize(attachment.size)} · ` : ""}{attachment.uploadedBy}
             </small>
           </div>
           <div className="document-preview-actions">
+            {isImage && (
+              <>
+                <button type="button" onClick={() => setZoom((z) => Math.max(1, Number((z - 0.5).toFixed(2))))} aria-label="Küçült">
+                  −
+                </button>
+                <button type="button" onClick={() => setZoom((z) => (z >= 3 ? 1 : Number((z + 0.5).toFixed(2))))} aria-label="Yakınlaştır">
+                  %{Math.round(zoom * 100)} +
+                </button>
+              </>
+            )}
             <button type="button" onClick={onPrint}>
               {ui.printFile}
             </button>
@@ -10404,9 +13538,14 @@ function DocumentPreview({
             </button>
           </div>
         </header>
-        <div className="document-preview-canvas">
+        <div className={`document-preview-canvas${zoom > 1 ? " is-zoomed" : ""}`}>
           {isImage ? (
-            <img src={attachment.url} alt={attachment.name} />
+            <img
+              src={attachment.url}
+              alt={attachment.name}
+              style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: "none", maxHeight: "none" } : undefined}
+              onDoubleClick={() => setZoom((z) => (z >= 2.5 ? 1 : z + 1))}
+            />
           ) : (
             <iframe src={attachment.url} title={attachment.name} />
           )}
@@ -10414,6 +13553,7 @@ function DocumentPreview({
       </section>
     </div>
   );
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
 
 function Modal({
@@ -10423,6 +13563,7 @@ function Modal({
   wide,
   showBack = false,
   className = "",
+  headerActions,
   children,
 }: {
   title: string;
@@ -10431,6 +13572,7 @@ function Modal({
   wide?: boolean;
   showBack?: boolean;
   className?: string;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   useBrowserBackLayer(true, onClose);
@@ -10453,6 +13595,7 @@ function Modal({
             <h2>{title}</h2>
             <p>{subtitle}</p>
           </div>
+          {headerActions && <div className="modal-header-actions">{headerActions}</div>}
           <button className="close" aria-label="Bağla" onClick={onClose}>
             ×
           </button>
@@ -10462,3 +13605,4 @@ function Modal({
     </div>
   );
 }
+

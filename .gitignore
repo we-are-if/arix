@@ -20,6 +20,7 @@ server/data/*.sqlite-shm
 server/data/*.sqlite-wal
 server/data/backups/
 server/data/order-uploads/
+server/data/chat-archive/
 server/data/stock-imports/
 tmp/
 dist-marketing/

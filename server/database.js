@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { createPushOutbox } from "./dailyPushOutbox.js";
 import { copyFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 
@@ -9,11 +10,12 @@ const fileStamp = (date = new Date()) => date.toISOString().replace(/[:.]/g, "-"
 const dayStamp = (date = new Date()) => date.toISOString().slice(0, 10);
 const sqlString = (value) => `'${String(value).replaceAll("'", "''")}'`;
 
-export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(dataDir, "arix.sqlite") }) {
+export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(dataDir, "arix.sqlite"), pushDelivery = null, prepareWrite = null }) {
   const backupDir = join(dataDir, "backups");
   let database = null;
   let normalize = (value) => value;
   let cachedState = null;
+  let outbox = null;
   let writeQueue = Promise.resolve();
 
   const cloneState = (value) => structuredClone(value);
@@ -37,7 +39,13 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS rate_limit_hits (
+        key TEXT NOT NULL,
+        ts INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_rate_limit_hits_key ON rate_limit_hits(key, ts);
     `);
+    if (pushDelivery) outbox = createPushOutbox(database, (job) => pushDelivery(job, cachedState));
     return database;
   };
 
@@ -121,6 +129,9 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
 
   const write = async (value) => {
     const snapshot = cloneState(value);
+    if (prepareWrite) prepareWrite(snapshot);
+    const pushJobs = snapshot.__dailyPushJobs || [];
+    delete snapshot.__dailyPushJobs;
     const pendingWrite = writeQueue.then(async () => {
       await createDailyBackup();
       const db = open();
@@ -129,6 +140,7 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
       try {
         db.prepare("UPDATE app_state SET data = ?, revision = revision + 1, updated_at = ? WHERE id = ?")
           .run(JSON.stringify(snapshot), now, STATE_ID);
+        if (outbox) outbox.enqueue(pushJobs);
         db.exec("COMMIT");
         cachedState = snapshot;
       } catch (error) {
@@ -140,6 +152,29 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
     return pendingWrite;
   };
 
+  // Sliding-window limiter shared by every process that opens this database file.
+  const rateLimitHit = (key, limit, windowMs, now = Date.now()) => {
+    const db = open();
+    const stamp = Number(now);
+    const cutoff = stamp - Math.max(1000, Number(windowMs) || 60000);
+    const allowed = Math.max(1, Number(limit) || 1);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare("DELETE FROM rate_limit_hits WHERE ts <= ?").run(cutoff);
+      const row = db.prepare("SELECT COUNT(*) AS hits FROM rate_limit_hits WHERE key = ? AND ts > ?").get(String(key), cutoff);
+      if ((row?.hits ?? 0) >= allowed) {
+        db.exec("COMMIT");
+        return false;
+      }
+      db.prepare("INSERT INTO rate_limit_hits (key, ts) VALUES (?, ?)").run(String(key), stamp);
+      db.exec("COMMIT");
+      return true;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  };
+
   const status = () => {
     const row = open().prepare("SELECT revision, updated_at FROM app_state WHERE id = ?").get(STATE_ID);
     return { engine: "sqlite", path: basename(sqlitePath), revision: row?.revision ?? 0, updatedAt: row?.updated_at ?? null, journalMode: "wal" };
@@ -147,10 +182,14 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
 
   const close = () => {
     if (!database) return;
+    outbox?.stop();
     database.close();
     database = null;
     cachedState = null;
   };
 
-  return { initialize, read, write, createDailyBackup, status, close };
+  return { initialize, read, write, createDailyBackup, status, close, rateLimitHit,
+    supportsAtomicPush: Boolean(pushDelivery),
+    enqueuePush: (jobs) => { open(); outbox?.enqueue(jobs); },
+  };
 }

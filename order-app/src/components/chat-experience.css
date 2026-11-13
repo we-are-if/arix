@@ -1,0 +1,1174 @@
+/* ========================================================
+   AriX Team Chat — WhatsApp Layout with AriX Brand Identity
+   ======================================================== */
+
+:root {
+  --arix-indigo: #4f46e5;
+  --arix-indigo-dark: #4338ca;
+  --arix-indigo-light: #eef2ff;
+  --arix-indigo-border: #c7d2fe;
+  --arix-mint: #34d399;
+  --arix-sky: #38bdf8;
+  --arix-emerald: #10b981;
+  --arix-canvas: #f8fafc;
+  --arix-surface: #ffffff;
+  --arix-border: #e2e8f0;
+  --arix-border-subtle: #f1f5f9;
+  --arix-text: #0f172a;
+  --arix-text-muted: #64748b;
+  --arix-text-light: #94a3b8;
+  --arix-tab-bg: rgba(255, 255, 255, 0.96);
+}
+
+/* 1. Container: Floating Phone Card on Desktop, Fullscreen on Mobile */
+.team-chat-drawer {
+  position: fixed !important;
+  bottom: 84px;
+  right: 24px;
+  z-index: 99991 !important;
+  width: 410px !important;
+  height: min(730px, calc(100dvh - 96px)) !important;
+  max-height: calc(100dvh - 96px) !important;
+  background: var(--arix-surface) !important;
+  border: 1px solid var(--arix-border) !important;
+  border-radius: 28px !important;
+  box-shadow: 0 24px 64px -12px rgba(15, 23, 42, 0.24), 0 0 0 1px rgba(15, 23, 42, 0.05) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+  overflow: hidden !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif !important;
+  -webkit-font-smoothing: antialiased !important;
+}
+
+@media (max-width: 600px) {
+  .team-chat-drawer {
+    inset: 0 !important;
+    top: var(--arix-chat-top, 0px) !important;
+    bottom: auto !important;
+    right: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    /* The on-screen keyboard shrinks the visual viewport, not 100dvh. The widget
+       publishes the measured height here so the header stays visible while typing. */
+    height: var(--arix-chat-vh, 100dvh) !important;
+    max-height: var(--arix-chat-vh, 100dvh) !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+  .team-chat-messages {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-bottom: 12px;
+  }
+}
+
+.team-chat-desktop-list {
+  display: none !important;
+}
+
+/* AriX Top Gradient Strip */
+.team-chat-header-accent {
+  display: block !important;
+  height: 3.5px !important;
+  width: 100% !important;
+  background: linear-gradient(90deg, #34d399 0%, #38bdf8 50%, #4f46e5 100%) !important;
+  flex-shrink: 0 !important;
+}
+
+/* 2. WhatsApp Clean Header (No Clutter) */
+.wa-header {
+  background: #ffffff;
+  border-bottom: 1px solid var(--arix-border-subtle);
+  padding: 10px 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.wa-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wa-brand-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--arix-indigo-light);
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--arix-indigo-border);
+}
+.wa-brand-pill svg {
+  width: 18px;
+  height: 18px;
+}
+.wa-brand-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--arix-indigo-dark);
+  letter-spacing: 0.3px;
+}
+.wa-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wa-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--arix-indigo);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+.wa-icon-btn.compose {
+  background: var(--arix-indigo-light);
+}
+.wa-icon-btn.close {
+  color: var(--arix-text-light);
+}
+.wa-icon-btn:hover {
+  opacity: 0.8;
+}
+
+.wa-title-row h1.wa-large-title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  color: var(--arix-text);
+  margin: 0;
+  line-height: 1.1;
+}
+
+/* WhatsApp Capsule Search */
+.wa-search-capsule {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.wa-search-capsule input {
+  width: 100%;
+  height: 36px;
+  background: var(--arix-canvas);
+  border: 1px solid var(--arix-border);
+  border-radius: 12px;
+  padding: 0 32px 0 34px;
+  font-size: 14px;
+  color: var(--arix-text);
+  outline: none;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+.wa-search-capsule input:focus {
+  background: #ffffff;
+  border-color: var(--arix-indigo);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08);
+}
+.wa-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--arix-text-light);
+  pointer-events: none;
+}
+.wa-search-clear {
+  position: absolute;
+  right: 8px;
+  background: var(--arix-text-light);
+  border: none;
+  border-radius: 50%;
+  color: #ffffff;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* WhatsApp Filter Chips */
+.wa-filter-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-top: 2px;
+}
+.wa-filter-chips::-webkit-scrollbar {
+  display: none;
+}
+.wa-filter-chip {
+  background: var(--arix-canvas);
+  color: var(--arix-text-muted);
+  border: 1px solid var(--arix-border);
+  border-radius: 16px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+.wa-filter-chip:hover {
+  border-color: var(--arix-indigo-border);
+  color: var(--arix-indigo);
+}
+.wa-filter-chip.active {
+  background: var(--arix-indigo-light);
+  color: var(--arix-indigo-dark);
+  border-color: var(--arix-indigo-border);
+  font-weight: 700;
+}
+
+/* 3. Directory & Chats List */
+.team-chat-directory {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  overflow: hidden !important;
+  background: var(--arix-surface) !important;
+}
+
+.team-chat-list {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: #ffffff !important;
+}
+
+.team-chat-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 11px 16px !important;
+  background: #ffffff !important;
+  border: none !important;
+  border-radius: 0 !important;
+  width: 100% !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  position: relative !important;
+  transition: background 0.15s ease !important;
+  box-sizing: border-box !important;
+}
+.team-chat-item:hover, .team-chat-item:active {
+  background: var(--arix-canvas) !important;
+}
+.team-chat-item::after {
+  content: "" !important;
+  position: absolute !important;
+  bottom: 0 !important;
+  left: 74px !important;
+  right: 0 !important;
+  height: 0.5px !important;
+  background: var(--arix-border-subtle) !important;
+}
+
+.team-chat-avatar {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  position: relative !important;
+  overflow: visible !important;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08) !important;
+}
+.team-chat-avatar img {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 50% !important;
+  object-fit: cover !important;
+}
+.team-chat-status-dot.online {
+  position: absolute !important;
+  bottom: 0 !important;
+  right: 0 !important;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  background: var(--arix-emerald) !important;
+  border: 2px solid #ffffff !important;
+}
+
+.team-chat-item-content {
+  flex: 1 !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+}
+.team-chat-item-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+}
+.team-chat-item-title-block strong {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: var(--arix-text) !important;
+  letter-spacing: -0.2px !important;
+}
+.team-chat-item-row time {
+  font-size: 12px !important;
+  color: var(--arix-text-light) !important;
+  font-weight: 400 !important;
+  white-space: nowrap !important;
+}
+.team-chat-item-preview {
+  font-size: 13.5px !important;
+  color: var(--arix-text-muted) !important;
+  line-height: 1.3 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.team-chat-unread-badge {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%) !important;
+  color: #ffffff !important;
+  font-size: 11.5px !important;
+  font-weight: 800 !important;
+  min-width: 20px !important;
+  height: 20px !important;
+  padding: 0 6px !important;
+  border-radius: 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3) !important;
+}
+
+/* 4. WhatsApp Bottom Tab Bar */
+.wa-bottom-tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  height: 54px;
+  min-height: 54px;
+  background: var(--arix-tab-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--arix-border);
+  z-index: 10;
+  flex-shrink: 0;
+}
+.wa-tab-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--arix-text-light);
+  padding: 5px 0;
+  position: relative;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+.wa-tab-item:hover {
+  color: var(--arix-indigo);
+}
+.wa-tab-item.active {
+  color: var(--arix-indigo);
+  font-weight: 700;
+}
+.wa-tab-item svg {
+  width: 22px;
+  height: 22px;
+}
+.wa-tab-badge {
+  position: absolute;
+  top: 2px;
+  right: calc(50% - 18px);
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 5px;
+  min-width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 5. Settings Screen (Ayarlar Ekranı) */
+.wa-settings-view {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--arix-canvas);
+}
+.wa-settings-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #ffffff;
+  border: 1px solid var(--arix-border);
+  border-radius: 16px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+}
+.wa-settings-profile-card:hover {
+  border-color: var(--arix-indigo-border);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08);
+}
+.wa-settings-profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wa-settings-profile-info strong {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--arix-text);
+}
+.wa-role-badge {
+  display: inline-block;
+  background: var(--arix-indigo-light);
+  color: var(--arix-indigo);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  align-self: flex-start;
+}
+.wa-settings-profile-info small {
+  font-size: 11.5px;
+  color: var(--arix-text-muted);
+}
+.wa-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wa-settings-section h4 {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--arix-text-light);
+  letter-spacing: 0.5px;
+  margin: 0 0 2px 4px;
+}
+.wa-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border: 1px solid var(--arix-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.wa-settings-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wa-settings-icon {
+  color: var(--arix-indigo);
+}
+.wa-settings-label strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--arix-text);
+}
+.wa-settings-label small {
+  font-size: 11.5px;
+  color: var(--arix-text-muted);
+}
+.wa-toggle-switch {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: #cbd5e1;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s ease;
+  padding: 2px;
+}
+.wa-toggle-switch.on {
+  background: var(--arix-indigo);
+}
+.wa-toggle-knob {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  display: block;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.wa-toggle-switch.on .wa-toggle-knob {
+  transform: translateX(20px);
+}
+
+/* 6. Active Chat Header & Navigation */
+.wa-chat-header {
+  background: #ffffff;
+  border-bottom: 1px solid var(--arix-border);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.wa-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  color: var(--arix-indigo);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+.wa-back-btn:hover {
+  background: #eef2ff;
+}
+.wa-back-btn svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 2.5;
+}
+.wa-back-badge {
+  background: var(--arix-indigo);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 6px;
+  margin-left: 2px;
+}
+.wa-chat-header-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-width: 0;
+  flex: 1;
+}
+.wa-chat-header-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+.wa-chat-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--arix-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.wa-chat-subtitle {
+  font-size: 11.5px;
+  color: var(--arix-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-chat-subtitle.is-online {
+  color: var(--arix-emerald);
+  font-weight: 600;
+}
+.wa-chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wa-header-tool-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--arix-border);
+  background: #ffffff;
+  color: var(--arix-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.wa-header-tool-btn:hover, .wa-header-tool-btn.active {
+  background: var(--arix-indigo-light);
+  color: var(--arix-indigo);
+  border-color: var(--arix-indigo-border);
+}
+.wa-header-tool-btn.close:hover {
+  background: #fee2e2;
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+
+/* 7. Active Chat Messages & Wallpaper */
+.team-chat-conversation {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  overflow: hidden !important;
+  position: relative !important;
+  background: var(--arix-canvas) !important;
+}
+
+.team-chat-messages {
+  background-color: #f8fafc !important;
+  background-image: none !important;
+  padding: 12px 14px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  overflow-y: auto !important;
+  flex: 1 !important;
+}
+
+/* Clean Date Pill */
+.arix-chat-date {
+  align-self: center !important;
+  background: #ffffff !important;
+  border: 1px solid var(--arix-border) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05) !important;
+  border-radius: 8px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--arix-text-muted) !important;
+  padding: 4px 10px !important;
+  margin: 8px auto !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.3px !important;
+}
+
+/* Message Rows & Bubbles */
+.team-chat-msg-row {
+  display: flex !important;
+  margin-bottom: 3px !important;
+  position: relative !important;
+  width: 100% !important;
+}
+.team-chat-msg-row.is-mine {
+  justify-content: flex-end !important;
+}
+.team-chat-msg-row.is-other {
+  justify-content: flex-start !important;
+}
+
+.team-chat-msg-bubble {
+  max-width: 82% !important;
+  padding: 8px 12px 6px !important;
+  font-size: 14px !important;
+  line-height: 1.42 !important;
+  position: relative !important;
+  word-break: break-word !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* Outgoing (Mine) — AriX Signature Indigo Gradient */
+.team-chat-msg-row.is-mine .team-chat-msg-bubble {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%) !important;
+  color: #ffffff !important;
+  border-radius: 16px 16px 4px 16px !important;
+  border: none !important;
+  box-shadow: 0 3px 12px rgba(79, 70, 229, 0.22) !important;
+}
+.team-chat-msg-row.is-mine .team-chat-msg-text {
+  color: #ffffff !important;
+}
+.team-chat-msg-row.is-mine .team-chat-msg-footer time {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+.team-chat-msg-row.is-mine .team-chat-receipt.read {
+  color: #38bdf8 !important; /* AriX Sky Blue Double Check */
+}
+.team-chat-msg-row.is-mine .team-chat-receipt.delivered,
+.team-chat-msg-row.is-mine .team-chat-receipt.sent {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+.team-chat-msg-row.is-mine .team-chat-msg-menu {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+.team-chat-msg-row.is-mine .team-chat-quoted-box {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-left: 3px solid #ffffff !important;
+  color: #ffffff !important;
+}
+.team-chat-msg-row.is-mine .team-chat-quoted-box strong {
+  color: #ffffff !important;
+}
+.team-chat-msg-row.is-mine .team-chat-quoted-box p {
+  color: rgba(255, 255, 255, 0.88) !important;
+}
+
+/* Incoming (Other) — Crisp White Card */
+.team-chat-msg-row.is-other .team-chat-msg-bubble {
+  background: #ffffff !important;
+  color: var(--arix-text) !important;
+  border: 1px solid var(--arix-border) !important;
+  border-radius: 16px 16px 16px 4px !important;
+}
+.team-chat-msg-row.is-other .team-chat-msg-text {
+  color: var(--arix-text) !important;
+}
+.team-chat-msg-row.is-other .team-chat-msg-footer time {
+  color: var(--arix-text-light) !important;
+}
+.team-chat-msg-sender {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: var(--arix-indigo) !important;
+  margin-bottom: 2px !important;
+}
+.team-chat-msg-footer {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 3px !important;
+  margin-top: 2px !important;
+  font-size: 11px !important;
+}
+
+/* Reactions */
+.team-chat-msg-reactions {
+  display: flex !important;
+  gap: 4px !important;
+  padding: 2px 6px !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  border: 1px solid var(--arix-border) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+  font-size: 12px !important;
+  margin-top: 4px !important;
+  align-self: flex-start !important;
+}
+.team-chat-msg-row.is-mine .team-chat-msg-reactions {
+  align-self: flex-end !important;
+}
+
+/* 8. Bottom Composer */
+.team-chat-composer {
+  background: #ffffff !important;
+  border-top: 1px solid var(--arix-border) !important;
+  padding: 8px 12px 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+}
+.team-chat-attach-toggle-btn {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  border-radius: 50% !important;
+  background: #f1f5f9 !important;
+  color: #4f46e5 !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.18s ease !important;
+  padding: 0 !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-appearance: none !important;
+}
+.team-chat-attach-toggle-btn:focus,
+.team-chat-attach-toggle-btn:focus-visible,
+.team-chat-attach-toggle-btn:active {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+.team-chat-attach-toggle-btn:hover {
+  background: #e0e7ff !important;
+  color: #4338ca !important;
+}
+.team-chat-attach-toggle-btn.is-open {
+  transform: rotate(45deg) !important;
+  background: #e2e8f0 !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+}
+.team-chat-composer input {
+  flex: 1 !important;
+  height: 38px !important;
+  background: var(--arix-canvas) !important;
+  border: 1px solid var(--arix-border) !important;
+  border-radius: 19px !important;
+  padding: 0 16px !important;
+  font-size: 14.5px !important;
+  color: var(--arix-text) !important;
+  outline: none !important;
+  font-family: inherit !important;
+  transition: all 0.15s ease !important;
+}
+.team-chat-composer input:focus {
+  background: #ffffff !important;
+  border-color: var(--arix-indigo) !important;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08) !important;
+}
+
+/* Send & Mic */
+.team-chat-action-btn-primary {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.3) !important;
+  transition: transform 0.15s ease !important;
+}
+.team-chat-action-btn-primary:hover {
+  transform: scale(1.05) !important;
+}
+.team-chat-action-btn-mic {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  border-radius: 50% !important;
+  background: var(--arix-indigo-light) !important;
+  color: var(--arix-indigo) !important;
+  border: 1px solid var(--arix-indigo-border) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: all 0.15s ease !important;
+}
+.team-chat-action-btn-mic:hover {
+  background: var(--arix-indigo) !important;
+  color: #ffffff !important;
+}
+
+/* Action Sheet */
+.arix-chat-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 99999;
+  background: #ffffff;
+  color: var(--arix-text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: inherit;
+  animation: iosSheetSlideUp 0.22s ease-out;
+}
+@keyframes iosSheetSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.arix-chat-sheet header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--arix-canvas);
+  border-bottom: 1px solid var(--arix-border);
+}
+.arix-chat-sheet header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--arix-text);
+}
+.arix-chat-sheet header button {
+  background: transparent;
+  border: none;
+  color: var(--arix-indigo);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px;
+}
+.arix-chat-sheet-body {
+  padding: 20px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.arix-chat-sheet button.primary {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+}
+.arix-chat-reactions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 8px 0;
+}
+.arix-chat-reactions button {
+  font-size: 26px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  transition: transform 0.15s ease;
+}
+.arix-chat-reactions button:hover {
+  transform: scale(1.3);
+}
+
+/* Online indicator in preview list */
+.wa-list-online {
+  color: #10b981 !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+.wa-list-receipt {
+  display: inline-flex !important;
+  align-items: center !important;
+  margin-right: 4px !important;
+  vertical-align: -1px !important;
+}
+.wa-list-receipt.read {
+  color: #38bdf8 !important;
+}
+.wa-list-receipt.delivered,
+.wa-list-receipt.sent {
+  color: #94a3b8 !important;
+}
+
+/* WhatsApp Outgoing Failed / Retry Bubble */
+.team-chat-msg-row.is-mine.is-queued {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  width: 100% !important;
+}
+.wa-msg-retry-btn {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  border-radius: 50% !important;
+  background: #fee2e2 !important;
+  color: #ef4444 !important;
+  border: 1.5px solid #fca5a5 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.2) !important;
+  padding: 0 !important;
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+.wa-msg-retry-btn:hover {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  transform: scale(1.08) !important;
+}
+.team-chat-msg-bubble.is-failed {
+  border: 1.5px solid #f87171 !important;
+  box-shadow: 0 3px 12px rgba(239, 68, 68, 0.2) !important;
+}
+.wa-msg-failed-status {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  color: #fecaca !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+}
+
+/* AriX Context Menu (Right Click & Long Press) */
+.arix-context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999998;
+  background: rgba(15, 23, 42, 0.08);
+  -webkit-tap-highlight-color: transparent;
+}
+.arix-context-menu {
+  position: fixed;
+  z-index: 999999;
+  width: 250px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 14px 34px -4px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(15, 23, 42, 0.07);
+  overflow: hidden;
+  animation: arix-cm-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  font-family: inherit;
+  user-select: none;
+  -webkit-user-select: none;
+}
+@keyframes arix-cm-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.arix-cm-header {
+  padding: 10px 12px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.arix-cm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  align-self: flex-start;
+  margin-bottom: 2px;
+}
+.arix-cm-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.arix-cm-subtitle {
+  font-size: 11.5px;
+  color: #64748b;
+  font-weight: 500;
+}
+.arix-cm-divider {
+  height: 1px;
+  background: #e2e8f0;
+}
+.arix-cm-items {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.arix-cm-action {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.12s ease;
+  font-family: inherit;
+  color: #1e293b;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.arix-cm-action:hover,
+.arix-cm-action:active {
+  background: #f1f5f9;
+}
+.arix-cm-action.primary {
+  background: #f5f3ff;
+  color: #4338ca;
+}
+.arix-cm-action.primary:hover,
+.arix-cm-action.primary:active {
+  background: #ede9fe;
+}
+.arix-cm-action-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #475569;
+}
+.arix-cm-action-icon.chat {
+  background: #2563eb;
+  color: #ffffff;
+}
+.arix-cm-action-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.arix-cm-action-label b {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.arix-cm-action-label small {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+.arix-cm-action.primary .arix-cm-action-label small {
+  color: #6366f1;
+}
+
+/* Subtle visual cue on long-pressable product rows */
+.prep-row, .order-card {
+  -webkit-touch-callout: none;
+  touch-action: pan-y;
+}
