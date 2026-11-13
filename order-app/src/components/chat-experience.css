@@ -1186,60 +1186,40 @@
    ARIX RIGGED LIVE MASCOT COMPANION
    ========================================================= */
 
-@keyframes floatingMascot {
-  0%, 100% {
-    transform: translateY(0px) rotate(0deg);
-  }
-  50% {
-    transform: translateY(-12px) rotate(1.2deg);
-  }
+@keyframes mascotFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-14px); }
 }
-
-@keyframes floorShadow {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.6;
-  }
-  50% {
-    transform: scale(0.72);
-    opacity: 0.25;
-  }
+@keyframes thrusterGlow {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(0.72); opacity: 0.3; }
 }
-
-@keyframes thinkingTilt {
-  0%, 100% {
-    transform: translateY(-4px) rotate(-6deg);
-  }
-  50% {
-    transform: translateY(-10px) rotate(6deg);
-  }
+@keyframes headThink {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  75% { transform: rotate(7deg); }
 }
-
-@keyframes sparklePop {
-  0%, 100% {
-    transform: scale(0.9) translate(0, 0);
-    opacity: 0.7;
-  }
-  50% {
-    transform: scale(1.15) translate(3px, -3px);
-    opacity: 1;
-  }
+@keyframes rightArmWave {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-32deg); }
+  50% { transform: rotate(-8deg); }
+  75% { transform: rotate(-38deg); }
 }
-
-@keyframes visorRadar {
-  0% {
-    left: -100%;
-  }
-  100% {
-    left: 200%;
-  }
+@keyframes rightArmThink {
+  0%, 100% { transform: rotate(-76deg) translate(-3px, -5px); }
+  50% { transform: rotate(-85deg) translate(-5px, -8px); }
 }
-
-@keyframes happyPop {
-  0%, 100% { transform: translateY(0) scale(1); }
-  30% { transform: translateY(-16px) scale(1.06); }
-  50% { transform: translateY(0) scale(0.96); }
-  70% { transform: translateY(-8px) scale(1.02); }
+@keyframes leftArmIdle {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(7deg); }
+}
+@keyframes eyeBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  96% { transform: scaleY(0.1); }
+}
+@keyframes eyeScan {
+  0%, 100% { transform: translateX(-8px); }
+  50% { transform: translateX(8px); }
 }
 
 .arix-live-mascot-container {
@@ -1258,115 +1238,54 @@
   cursor: grabbing;
 }
 
-/* 3D Mascot Body Wrapper */
-.arix-mascot-body-wrap {
-  position: relative;
-  width: 92px;
-  height: 92px;
-  transition: transform 0.25s ease;
+.arix-mascot-rig-wrap {
+  animation: mascotFloat 3.2s ease-in-out infinite;
+  filter: drop-shadow(0 12px 24px rgba(15, 23, 42, 0.22));
+  transition: transform 0.2s ease;
 }
-.arix-live-mascot-container:hover .arix-mascot-body-wrap {
+.arix-live-mascot-container:hover .arix-mascot-rig-wrap {
   transform: scale(1.06);
 }
 
-.state-idle .arix-mascot-body-wrap {
-  animation: floatingMascot 3.4s ease-in-out infinite;
-}
-.state-thinking .arix-mascot-body-wrap {
-  animation: thinkingTilt 2s ease-in-out infinite;
-}
-.state-happy .arix-mascot-body-wrap {
-  animation: happyPop 1.2s ease-in-out infinite;
+.rig-thruster {
+  animation: thrusterGlow 3.2s ease-in-out infinite;
+  transform-origin: 100px 210px;
 }
 
-/* 100% Original 3D Character Image */
-.arix-mascot-3d-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  filter: drop-shadow(0 14px 28px rgba(15, 23, 42, 0.25));
-  pointer-events: none;
+/* Rig Animations */
+.state-idle .rig-arm-right {
+  transform-origin: 135px 122px;
+  animation: rightArmWave 2.8s ease-in-out infinite;
+}
+.state-idle .rig-arm-left {
+  transform-origin: 65px 122px;
+  animation: leftArmIdle 3.2s ease-in-out infinite;
+}
+.state-idle .rig-eyes-normal {
+  transform-origin: 100px 76px;
+  animation: eyeBlink 3.8s infinite;
 }
 
-/* Dynamic Visor Overlay during Thinking */
-.arix-mascot-3d-scanner {
-  position: absolute;
-  top: 32%;
-  left: 30%;
-  width: 40%;
-  height: 18%;
-  border-radius: 9999px;
-  overflow: hidden;
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(56, 189, 248, 0.65);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 10;
+/* Thinking Rig Animation */
+.state-thinking .rig-head {
+  transform-origin: 100px 96px;
+  animation: headThink 2.4s ease-in-out infinite;
 }
-.arix-mascot-3d-scanline {
-  position: absolute;
-  inset: 0;
-  width: 60%;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.7), transparent);
-  animation: visorRadar 1.4s linear infinite;
+.state-thinking .rig-arm-right {
+  transform-origin: 135px 122px;
+  animation: rightArmThink 1.5s ease-in-out infinite;
+}
+.state-thinking .rig-eyes-thinking {
+  animation: eyeScan 1.4s ease-in-out infinite;
 }
 
-/* Waving Hand Sparkles */
-.arix-mascot-sparkle-wave {
-  position: absolute;
-  top: 40%;
-  right: 6%;
-  animation: sparklePop 1.4s ease-in-out infinite;
-  pointer-events: none;
+/* Happy Rig Animation */
+.state-happy .rig-arm-right {
+  transform-origin: 135px 122px;
+  animation: rightArmWave 1.1s ease-in-out infinite;
 }
-
-/* 3D Ambient Floor Shadow & Cyan Glow */
-.arix-mascot-3d-floor {
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 80%;
-  height: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-.arix-mascot-3d-floor .floor-shadow {
-  width: 80%;
-  height: 6px;
-  background: rgba(15, 23, 42, 0.35);
-  border-radius: 50%;
-  filter: blur(2px);
-  animation: floorShadow 3.4s ease-in-out infinite;
-}
-.state-thinking .floor-shadow {
-  animation: floorShadow 2s ease-in-out infinite;
-}
-.arix-mascot-3d-floor .floor-glow {
-  position: absolute;
-  width: 70%;
-  height: 8px;
-  background: rgba(56, 189, 248, 0.45);
-  border-radius: 50%;
-  filter: blur(4px);
-}
-
-/* Thinking Aura */
-.arix-mascot-3d-aura {
-  position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  background: transparent;
-  pointer-events: none;
-  transition: all 0.4s ease;
-}
-.arix-mascot-3d-aura.is-thinking {
-  background: radial-gradient(circle, rgba(56, 189, 248, 0.4) 0%, rgba(56, 189, 248, 0) 70%);
-  animation: arixMascotAuraPulse 1.8s infinite ease-in-out;
+.state-happy .rig-head {
+  animation: mascotFloat 1.1s ease-in-out infinite;
 }
 
 /* Floating Greeting Bubble */
