@@ -1,4 +1,5 @@
 import {ChatInfo,ChatMessageMenu,ChatTaskSheet,ChatTasksPanel} from "./ChatExperience";
+import { AriXMascot } from "./AriXMascot";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import AriXLogo from "../../../src/components/AriXLogo";
 import {
@@ -365,6 +366,7 @@ export function TeamChatWidget({
   onClearPreset,
 }: TeamChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [infoOpen,setInfoOpen]=useState<"self"|"channel"|null>(null);
   const [menuMessage,setMenuMessage]=useState<ChatMessage|null>(null);
   const [taskSource,setTaskSource]=useState<ChatMessage|null>(null);
@@ -500,6 +502,8 @@ export function TeamChatWidget({
   // The software keyboard only shrinks the visual viewport on iOS, so the drawer
   // follows the measured height instead of 100dvh and keeps its header on screen.
   const [visualViewport, setVisualViewport] = useState<{ height: number; offsetTop: number } | null>(null);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+
   useEffect(() => {
     if (!isOpen || typeof window === "undefined") return;
     const vv = window.visualViewport;
@@ -508,7 +512,14 @@ export function TeamChatWidget({
     const update = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        setVisualViewport({ height: Math.round(vv.height), offsetTop: Math.round(vv.offsetTop) });
+        if (window.scrollY !== 0) {
+          window.scrollTo(0, 0);
+        }
+        const vh = Math.round(vv.height);
+        const top = Math.round(vv.offsetTop);
+        const kbOpen = vh < window.innerHeight - 80;
+        setIsKeyboardOpen(kbOpen);
+        setVisualViewport({ height: vh, offsetTop: top });
         const stream = streamRef.current;
         if (stream && nearBottomRef.current) stream.scrollTop = stream.scrollHeight;
       });
@@ -516,21 +527,39 @@ export function TeamChatWidget({
     update();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
+    window.addEventListener("scroll", update);
     return () => {
       cancelAnimationFrame(frame);
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
+      window.removeEventListener("scroll", update);
       setVisualViewport(null);
+      setIsKeyboardOpen(false);
     };
   }, [isOpen]);
 
-  // The page behind the drawer must not scroll while the mobile sheet is open
+  // Lock background scrolling. The drawer is inside app-shell, so making
+  // that ancestor inert would disable the chat itself as well.
   useEffect(() => {
     if (!isOpen || viewport.w > 600 || typeof document === "undefined") return;
-    const previous = document.body.style.overflow;
+    const prevOverflow = document.body.style.overflow;
+    const prevPosition = document.body.style.position;
+    const prevTop = document.body.style.top;
+    const prevWidth = document.body.style.width;
+
+    const scrollY = window.scrollY;
     document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = "100%";
+
+
     return () => {
-      document.body.style.overflow = previous;
+      document.body.style.overflow = prevOverflow;
+      document.body.style.position = prevPosition;
+      document.body.style.top = prevTop;
+      document.body.style.width = prevWidth;
+      window.scrollTo(0, scrollY);
     };
   }, [isOpen, viewport.w]);
 
@@ -1269,8 +1298,10 @@ export function TeamChatWidget({
         nearBottomRef.current=true;
       }
       setChatError(''); void loadChannels();
+      setIsAssistantThinking(false);
       return message;
     } catch {
+      setIsAssistantThinking(false);
       setChatError('Mesaj gönderilemedi. Aşağıdaki bekleyen mesajdan yeniden deneyin.');
       return null;
     }
@@ -1295,6 +1326,9 @@ export function TeamChatWidget({
     e?.preventDefault();
     if(!selectedChannel)return;
     if(!text.trim() && !attachImage && !attachOrder && !attachProduct)return;
+    if (selectedChannel.id.startsWith("assistant:") || selectedChannel.name?.includes("Asistan")) {
+      setIsAssistantThinking(true);
+    }
     const id=crypto.randomUUID();
     const entry={id,payload:{clientMessageId:id,channelId:selectedChannel.id,text:text.trim(),imageUrl:attachImage,orderReference:attachOrder,productReference:attachProduct,replyToReference:replyingTo}};
     saveOutbox([...outboxRef.current,entry]);
@@ -1536,11 +1570,11 @@ export function TeamChatWidget({
         </div>
       )}
 
-      {/* DRAGGABLE ARIX FAB BUTTON */}
+      {/* DRAGGABLE ARIX LIVING MASCOT FAB */}
       <button
         ref={fabRef}
         type="button"
-        className={`team-chat-fab ${isOpen ? "is-active" : ""} ${totalUnread > 0 ? "has-unread" : ""} ${isDragging ? "is-dragging" : ""}`}
+        className={`team-chat-fab arix-mascot-fab ${isOpen ? "is-active" : ""} ${totalUnread > 0 ? "has-unread" : ""} ${isDragging ? "is-dragging" : ""}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1551,46 +1585,23 @@ export function TeamChatWidget({
           bottom: "auto",
           right: "auto",
         } : undefined}
-        aria-label="AriX Ekip Sohbeti"
-        title="AriX Ekip Sohbeti (Sürükleyip istediğiniz yere bırakabilirsiniz)"
+        aria-label="AriX Asistan"
+        title="AriX Akıllı Saha Asistanı (Sürükleyip istediğiniz yere bırakabilirsiniz)"
       >
-        <div className="team-chat-fab-pulse" />
-        
-        {/* AriX Custom Floating Speech Emblem */}
-        <div className="team-chat-fab-emblem">
-          <svg viewBox="0 0 60 60" width="56" height="56" fill="none">
-            <defs>
-              <linearGradient id="arixFabBorderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#34d399" />
-                <stop offset="50%" stopColor="#38bdf8" />
-                <stop offset="100%" stopColor="#4f7ddc" />
-              </linearGradient>
-            </defs>
-            {/* Elegant Speech Bubble Shape */}
-            <path
-              d="M30 6C16.745 6 6 16.745 6 30C6 34.62 7.305 38.935 9.56 42.6L7 52.5L17.225 50.15C20.89 52.585 25.285 54 30 54C43.255 54 54 43.255 54 30C54 16.745 43.255 6 30 6Z"
-              fill="#ffffff"
-              stroke="url(#arixFabBorderGrad)"
-              strokeWidth="2.5"
-              strokeLinejoin="round"
-            />
-            {/* Centered geometric AriX Logo */}
-            <g transform="translate(7.5, 8.5) scale(0.40)">
-              <polygon points="30,80 46,20 70,20 54,80" fill="#34d399" />
-              <path d="M62 40 L84 62" stroke="#4f7ddc" strokeWidth={10} strokeLinecap="round" />
-              <path d="M84 40 L62 62" stroke="#4f7ddc" strokeWidth={10} strokeLinecap="round" />
-            </g>
-          </svg>
-        </div>
-
-        {totalUnread > 0 && (
-          <span className="team-chat-fab-badge">{totalUnread > 99 ? "99+" : totalUnread}</span>
-        )}
+        <AriXMascot
+          size="fab"
+          state={isAssistantThinking ? "thinking" : totalUnread > 0 ? "alert" : "idle"}
+          badgeCount={totalUnread}
+          showBubble={false}
+          interactive={false}
+        />
       </button>
 
       {/* CHAT DRAWER */}
       {isOpen && (
-        <aside className="team-chat-drawer" role="dialog" aria-label="Ekip Sohbet Penceresi" style={viewport.w <= 600 && visualViewport ? ({ "--arix-chat-vh": `${visualViewport.height}px`, "--arix-chat-top": `${visualViewport.offsetTop}px` } as React.CSSProperties) : drawerStyle}>
+        <>
+          {viewport.w <= 600 && <div className="team-chat-mobile-backdrop" />}
+          <aside className={`team-chat-drawer ${isKeyboardOpen ? "keyboard-open" : ""}`} role="dialog" aria-label="Ekip Sohbet Penceresi" style={viewport.w <= 600 && visualViewport ? ({ "--arix-chat-vh": `${visualViewport.height}px`, "--arix-chat-top": `${visualViewport.offsetTop}px` } as React.CSSProperties) : drawerStyle}>
           {/* Top AriX Gradient Strip */}
           <div className="team-chat-header-accent" />
 
@@ -1627,13 +1638,19 @@ export function TeamChatWidget({
                   }}
                 >
                   {selectedChannel.type === "dm" ? (
-                    <div
-                      className="team-chat-avatar sm"
-                      style={{ background: getAvatarGradient(selectedChannel.name) }}
-                    >
-                      {selectedChannel.avatar ? <img src={selectedChannel.avatar} alt="" /> : <span>{selectedChannel.id.startsWith("assistant:") ? "🤖" : getInitials(selectedChannel.name)}</span>}
-                      {selectedChannel.isOnline && <span className="team-chat-status-dot online" />}
-                    </div>
+                    selectedChannel.id.startsWith("assistant:") || selectedChannel.name?.includes("Asistan") ? (
+                      <div className="flex items-center justify-center mr-1">
+                        <AriXMascot size="sm" state={isAssistantThinking ? "thinking" : "idle"} interactive={false} />
+                      </div>
+                    ) : (
+                      <div
+                        className="team-chat-avatar sm"
+                        style={{ background: getAvatarGradient(selectedChannel.name) }}
+                      >
+                        {selectedChannel.avatar ? <img src={selectedChannel.avatar} alt="" /> : <span>{getInitials(selectedChannel.name)}</span>}
+                        {selectedChannel.isOnline && <span className="team-chat-status-dot online" />}
+                      </div>
+                    )
                   ) : (
                     <span className="team-chat-channel-icon">{selectedChannel.icon || "💬"}</span>
                   )}
@@ -1641,7 +1658,9 @@ export function TeamChatWidget({
                   <div className="wa-chat-header-meta">
                     <strong className="wa-chat-title">{selectedChannel.name}</strong>
                     <small className={`wa-chat-subtitle ${selectedChannel.isOnline ? "is-online" : ""}`}>
-                      {selectedChannel.type === "dm"
+                      {selectedChannel.id.startsWith("assistant:") || selectedChannel.name?.includes("Asistan")
+                        ? (isAssistantThinking ? "düşünüyor ve analiz ediyor..." : "Akıllı Saha Asistanı · Çevrim içi")
+                        : selectedChannel.type === "dm"
                         ? getDisplayPresence(selectedChannel)
                         : "Grup bilgisi için dokunun"}
                     </small>
@@ -1653,6 +1672,8 @@ export function TeamChatWidget({
                     type="file"
                     ref={documentInputRef}
                     hidden
+                    tabIndex={-1}
+                    aria-hidden="true"
                     accept=".pdf,.xlsx,.xls,.docx,.csv,.txt"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
@@ -2324,9 +2345,13 @@ export function TeamChatWidget({
                         {!isMine && (
                           <div
                             className="team-chat-msg-avatar"
-                            style={{ background: getAvatarGradient(m.senderName) }}
+                            style={{ background: (m.senderId === "system" || m.senderName?.includes("Asistan")) ? "#ffffff" : getAvatarGradient(m.senderName) }}
                           >
-                            {m.senderId === "system" ? "🤖" : getInitials(m.senderName)}
+                            {(m.senderId === "system" || m.senderName?.includes("Asistan")) ? (
+                              <img src="/arix-mascot.jpg" alt="AriX" className="arix-mascot-msg-avatar" />
+                            ) : (
+                              getInitials(m.senderName)
+                            )}
                           </div>
                         )}
 
@@ -2590,6 +2615,14 @@ export function TeamChatWidget({
                 <div ref={messagesEndRef} />
               </div>
 
+              {isAssistantThinking && (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 18px", color: "#0284c7", fontSize: "12px", fontWeight: 600 }}>
+                  <div style={{ width: "24px", height: "24px" }}>
+                    <AriXMascot size="xs" state="thinking" interactive={false} />
+                  </div>
+                  <span>AriX Asistan düşünüyor ve operasyon kayıtlarını tarıyor...</span>
+                </div>
+              )}
               {typingNames.length>0&&<small style={{padding:"4px 16px"}}>{typingNames.join(", ")} yazıyor…</small>}
               {/* Quoted Message (Reply Preview Banner) */}
               {replyingTo && (
@@ -2759,33 +2792,49 @@ export function TeamChatWidget({
                   </div>
                 </div>
               ) : (
-                <form className="team-chat-composer" onSubmit={handleSendMessage}>
-                  {/* Hidden file input for camera/gallery */}
+                <>
+                  {/* Hidden file input for camera/gallery kept outside of form */}
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept="image/*"
+                    tabIndex={-1}
+                    aria-hidden="true"
                     style={{ display: "none" }}
                     onChange={handleImageSelect}
                   />
+                  <form className="team-chat-composer" onSubmit={handleSendMessage} action="javascript:void(0);">
+                    {/* Attachment + Toggle Button */}
+                    <button
+                      type="button"
+                      className={`team-chat-attach-toggle-btn ${attachMenuOpen ? "is-open" : (attachOrder || attachProduct || attachImage ? "has-item" : "")}`}
+                      onClick={() => setAttachMenuOpen((prev) => !prev)}
+                      title={attachMenuOpen ? "Menüyü Kapat" : "Fotoğraf, Sipariş veya Ürün Ekle"}
+                      aria-label="Eklenti Ekle"
+                    >
+                      <Plus size={18} />
+                    </button>
 
-                  {/* Attachment + Toggle Button */}
-                  <button
-                    type="button"
-                    className={`team-chat-attach-toggle-btn ${attachMenuOpen ? "is-open" : (attachOrder || attachProduct || attachImage ? "has-item" : "")}`}
-                    onClick={() => setAttachMenuOpen((prev) => !prev)}
-                    title={attachMenuOpen ? "Menüyü Kapat" : "Fotoğraf, Sipariş veya Ürün Ekle"}
-                    aria-label="Eklenti Ekle"
-                  >
-                    <Plus size={18} />
-                  </button>
-
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    inputMode="text"
-                    placeholder="Mesajınızı yazın (veya resim yapıştırın)..."
-                    value={text}
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      name="chatMessage"
+                      id="chatMessageInput"
+                      inputMode="text"
+                      enterKeyHint="send"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="sentences"
+                      spellCheck="true"
+                      placeholder="Mesajınızı yazın (veya resim yapıştırın)..."
+                      value={text}
+                      onFocus={() => {
+                        window.scrollTo(0, 0);
+                        document.body.scrollTop = 0;
+                        setTimeout(() => {
+                          if (streamRef.current) streamRef.current.scrollTop = streamRef.current.scrollHeight;
+                        }, 120);
+                      }}
                     onChange={(e) => {setText(e.target.value);if(selectedChannel && Date.now()-typingAt.current>2500){typingAt.current=Date.now();void api("/api/orders/chat/typing",{method:"POST",body:JSON.stringify({channelId:selectedChannel.id})}).catch(()=>{});}if(selectedChannel)try{localStorage.setItem(`arix-chat-draft:${currentUser.id}:${selectedChannel.id}`,JSON.stringify({text:e.target.value,image:attachImage,order:attachOrder,product:attachProduct,reply:replyingTo}));}catch{}}}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -2821,6 +2870,7 @@ export function TeamChatWidget({
                     </button>
                   )}
                 </form>
+                </>
               )}
             </div>
           )}
@@ -2876,7 +2926,13 @@ export function TeamChatWidget({
                             className="team-chat-avatar"
                             style={{ background: getAvatarGradient(contact.name) }}
                           >
-                            {contact.avatar?<img src={contact.avatar} alt=""/>:<span>{contact.id.startsWith("assistant:")?"🤖":getInitials(contact.name)}</span>}
+                            {contact.avatar ? (
+                              <img src={contact.avatar} alt="" />
+                            ) : contact.id.startsWith("assistant:") || contact.name?.includes("Asistan") ? (
+                              <img src="/arix-mascot.jpg" alt="AriX" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                            ) : (
+                              <span>{getInitials(contact.name)}</span>
+                            )}
                             {contact.isOnline && <span className="team-chat-status-dot online" />}
                           </div>
 
@@ -3262,6 +3318,7 @@ export function TeamChatWidget({
             </div>
           )}
         </aside>
+        </>
       )}
     </>
   );
