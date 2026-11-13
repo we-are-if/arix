@@ -22,11 +22,13 @@ const dateLabel = (value) => {
 
 const NOISE_WORDS = new Set([
   "fiyat", "fiyati", "fiyatı", "kac", "kaç", "para", "ne", "kadar", "stok", "stokta", "stoklar", "stogu", "stoğu",
-  "var", "mi", "mı", "mu", "mü", "varmi", "varmı", "siparis", "sipariş", "durum", "durumu", "nedir", "oldur", "oldu", "bakiye", "borc",
+  "var", "mi", "mı", "mu", "mü", "varmi", "varmı", "siparis", "sipariş", "durum", "durumu", "durumunu", "nedir", "oldur", "oldu", "bakiye", "borc",
   "borç", "alacak", "hesap", "lutfen", "lütfen", "acaba", "bana", "icin", "için", "tane", "goster", "göster",
   "soyle", "söyle", "bekleyen", "onay", "onayi", "onayı", "teslim", "sevk", "sevkiyat", "geciken", "gecikmis",
   "gecikmiş", "bugun", "bugün", "ozet", "özet", "liste", "listesi", "kacta", "kaçta", "hangi", "neler", "nelerdir",
-  "elimizde", "elde", "bizde", "depoda", "depomuzda", "ambarda", "antrepoda", "kaldı", "kaldi", "kalan", "metre", "metrekare", "adet", "top", "rulo",
+  "elimizde", "elimizdeki", "elimizdekiler", "elde", "bizde", "bizdeki", "depoda", "depomuzda", "ambarda", "antrepoda",
+  "kaldı", "kaldi", "kalan", "metre", "metrekare", "adet", "top", "rulo",
+  "miktari", "miktarı", "sayisi", "sayısı", "mevcudu", "toplami", "toplamı", "toplam", "hepsi", "genel",
 ]);
 
 export function stripAssistantNoise(text) {
@@ -767,7 +769,7 @@ ${cOrders.map((o) => `  · ${o}`).join("\n") || "  Kayıt yok"}`);
 
 export async function queryOllamaAssistant(db, user, question, permissions = {}) {
   const ollamaHost = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
-  const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:3b";
+  const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
 
   const contextText = buildOllamaContext(db, user, question, permissions);
   const systemPrompt = `Sen AriX ERP ve Sipariş Yönetim Sistemi bünyesinde çalışan üst düzey, zeki ve tam yetkili yapay zeka asistanısın (AriX Asistan).
