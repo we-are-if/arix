@@ -177,6 +177,75 @@ export const ASSISTANT_HELP = [
   "· bugün — günün özeti",
 ].join("\n");
 
+export function answerCustomerProductShipment(db, question) {
+  const normQ = chatNormalize(question);
+  const isShipmentQuery = has(normQ, [
+    "gitmis mi", "gitmiş mi", "gitti mi", "sevk edildi mi", "sevk oldu mu", "cikti mi", "çıktı mı",
+    "gonderildi mi", "gönderildi mi", "verildi mi", "aldi mi", "aldı mı", "siparis var mi", "sipariş var mı",
+    "siparis verdiler mi", "sipariş verdiler mi"
+  ]);
+  if (!isShipmentQuery) return null;
+
+  const bestCust = findChatCustomer(db, question);
+  if (!bestCust) return null;
+
+  const products = matchAssistantProducts(db.products, question).map((m) => m.product);
+
+  const orders = (db.orderBoard || [])
+    .filter((o) => chatNormalize(o.customerName) === chatNormalize(bestCust.name))
+    .sort((a, b) => String(b.businessDate || b.createdAt).localeCompare(String(a.businessDate || a.createdAt)));
+
+  if (!orders.length) {
+    return { text: `${bestCust.name} firmasına ait sistemde herhangi bir sipariş veya sevkiyat kaydı bulunamadı.` };
+  }
+
+  if (products.length) {
+    const targetProduct = products[0];
+    const targetCode = chatNormalize(targetProduct.code);
+    const targetSku = chatNormalize(targetProduct.sku);
+    const targetName = chatNormalize(targetProduct.name);
+
+    const matchedOrders = [];
+    for (const order of orders) {
+      for (const item of order.items || []) {
+        const itemCode = chatNormalize(item.code || item.sku || "");
+        const itemName = chatNormalize(item.productName || item.name || "");
+        if ((targetCode && itemCode.includes(targetCode)) ||
+            (targetSku && itemCode.includes(targetSku)) ||
+            (targetName && itemName.includes(targetName)) ||
+            (targetName && targetName.includes(itemName) && itemName.length > 4)) {
+          matchedOrders.push({ order, item });
+        }
+      }
+    }
+
+    if (matchedOrders.length) {
+      const lines = matchedOrders.slice(0, 3).map(({ order, item }) => {
+        const qty = item.quantity || item.qty || item.amount || "";
+        const unit = item.unit || "mt";
+        return `· Sipariş ${order.number} (${dateLabel(order.businessDate || order.createdAt)}): ${qty} ${unit} — ${statusLabel(order.status)}`;
+      });
+      return {
+        text: `Evet, ${bestCust.name} firmasına ${targetProduct.name} (${targetProduct.code || targetProduct.sku || ""}) kaydı bulunmaktadır:\n${lines.join("\n")}`
+      };
+    } else {
+      const recentItems = [];
+      for (const o of orders.slice(0, 3)) {
+        for (const i of o.items || []) {
+          const iname = i.productName || i.name || i.code;
+          if (iname && !recentItems.includes(iname)) recentItems.push(iname);
+        }
+      }
+      const recentDesc = recentItems.slice(0, 3).join(", ");
+      return {
+        text: `Hayır, ${bestCust.name} firmasının geçmiş sipariş ve sevkiyatlarında ${targetProduct.name} (${targetProduct.code || targetProduct.sku || ""}) bulunmuyor.${recentDesc ? `\nSon sevk edilen ürünler: ${recentDesc}.` : ""}`
+      };
+    }
+  }
+
+  return null;
+}
+
 export function answerAssistant(db, user, text, permissions = {}) {
   const canProducts = permissions.products !== false;
   const canOrders = permissions.orders !== false;
@@ -189,6 +258,11 @@ export function answerAssistant(db, user, text, permissions = {}) {
   if (!question) return { text: ASSISTANT_HELP };
   if (has(normalized, ["yardim", "yardım", "ne yapabilirsin", "komut", "help", "neler sorabilirim"]) || ["merhaba", "selam", "hey", "kimsin"].includes(normalized)) {
     return { text: ASSISTANT_HELP };
+  }
+
+  if (canOrders && canCustomers) {
+    const shipmentAnswer = answerCustomerProductShipment(db, question);
+    if (shipmentAnswer) return shipmentAnswer;
   }
 
   const order = canOrders ? findAssistantOrder(db, question) : null;
@@ -254,26 +328,25 @@ export function buildOllamaContext(db, user, question, permissions = {}) {
   sections.push(`Bugünün Tarihi: ${dateLabel(today)}`);
   sections.push(`Para Birimi: ${currency}`);
 
-  // 1. Matched Customers
+  // 1. Matched Customer & their order items
   if (canCustomers) {
-    const matchedCustomers = (db.counterparties || []).filter((c) => {
-      if (!c?.name) return false;
-      const cNorm = chatNormalize(c.name);
-      return cNorm && (normalized.includes(cNorm) || cNorm.split(/\s+/).some((w) => w.length > 3 && normalized.includes(w)));
-    }).slice(0, 3);
-
-    if (matchedCustomers.length) {
-      const custLines = matchedCustomers.map((c) => {
-        const cOrders = canOrders
-          ? (db.orderBoard || [])
-              .filter((o) => chatNormalize(o.customerName) === chatNormalize(c.name))
-              .slice(-3)
-              .reverse()
-              .map((o) => `${o.number} (${statusLabel(o.status)}, ${dateLabel(o.businessDate || o.createdAt)}, ${money(o.total || o.grandTotal, currency)})`)
-          : [];
-        return `- ${c.name}: Bakiye = ${money(c.balance, currency)}${cOrders.length ? `, Son Siparişler: ${cOrders.join(" · ")}` : ""}`;
-      });
-      sections.push(`Müşteri Bilgileri:\n${custLines.join("\n")}`);
+    const matchedCustomer = findChatCustomer(db, question);
+    if (matchedCustomer) {
+      const cOrders = canOrders
+        ? (db.orderBoard || [])
+            .filter((o) => chatNormalize(o.customerName) === chatNormalize(matchedCustomer.name))
+            .slice(-6)
+            .reverse()
+            .map((o) => {
+              const items = (o.items || []).map((i) => `${i.productName || i.name || i.code} (${i.quantity || i.amount || "?"} ${i.unit || "mt"})`).join(", ");
+              return `Sipariş ${o.number} [Durum: ${statusLabel(o.status)}, Tarih: ${dateLabel(o.businessDate || o.createdAt)}]: ${items || "Kalem yok"}`;
+            })
+        : [];
+      sections.push(`Müşteri Kaydı:
+- Adı: ${matchedCustomer.name}
+- Bakiye: ${money(matchedCustomer.balance, currency)}
+- Son Sipariş ve Sevkiyatlar:
+${cOrders.map((o) => `  · ${o}`).join("\n") || "  Kayıt yok"}`);
     }
   }
 

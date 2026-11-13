@@ -34,13 +34,33 @@ export function findChatCustomer(db, query) {
   const needle = chatNormalize(query);
   if (!needle) return null;
   let best = null;
+  // 1. Direct inclusion
   for (const item of db.counterparties || []) {
     if (item?.kind && item.kind !== "customer") continue;
     const name = chatNormalize(item?.name);
     if (!name || !needle.includes(name)) continue;
     if (!best || name.length > chatNormalize(best.name).length) best = item;
   }
-  return best;
+  if (best) return best;
+
+  // 2. Word matching (e.g. "arma balona" matching "ARMA BALON KAPAK")
+  const qWords = needle.split(/[\s,?.!]+/).filter((w) => w.length > 2);
+  let bestScore = 0;
+  for (const item of db.counterparties || []) {
+    if (item?.kind && item.kind !== "customer") continue;
+    const name = chatNormalize(item?.name);
+    if (!name) continue;
+    const cWords = name.split(/\s+/).filter((w) => w.length > 2);
+    let score = 0;
+    for (const w of cWords) {
+      if (qWords.some((qw) => qw.includes(w) || w.includes(qw))) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = item;
+    }
+  }
+  return bestScore > 0 ? best : null;
 }
 
 function stripCustomerWords(query, customer) {
