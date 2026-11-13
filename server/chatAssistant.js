@@ -22,10 +22,11 @@ const dateLabel = (value) => {
 
 const NOISE_WORDS = new Set([
   "fiyat", "fiyati", "fiyatı", "kac", "kaç", "para", "ne", "kadar", "stok", "stokta", "stoklar", "stogu", "stoğu",
-  "var", "mi", "mı", "mu", "mü", "siparis", "sipariş", "durum", "durumu", "nedir", "oldur", "oldu", "bakiye", "borc",
+  "var", "mi", "mı", "mu", "mü", "varmi", "varmı", "siparis", "sipariş", "durum", "durumu", "nedir", "oldur", "oldu", "bakiye", "borc",
   "borç", "alacak", "hesap", "lutfen", "lütfen", "acaba", "bana", "icin", "için", "tane", "goster", "göster",
   "soyle", "söyle", "bekleyen", "onay", "onayi", "onayı", "teslim", "sevk", "sevkiyat", "geciken", "gecikmis",
   "gecikmiş", "bugun", "bugün", "ozet", "özet", "liste", "listesi", "kacta", "kaçta", "hangi", "neler", "nelerdir",
+  "elimizde", "elde", "bizde", "depoda", "depomuzda", "ambarda", "antrepoda", "kaldı", "kaldi", "kalan", "metre", "metrekare", "adet", "top", "rulo",
 ]);
 
 export function stripAssistantNoise(text) {
@@ -35,6 +36,45 @@ export function stripAssistantNoise(text) {
     .filter(Boolean)
     .filter((word) => !NOISE_WORDS.has(chatNormalize(word)));
   return words.join(" ").trim();
+}
+
+export function matchAssistantProducts(products, query) {
+  const normQ = chatNormalize(query);
+  const cleaned = stripAssistantNoise(query);
+  const normCleaned = chatNormalize(cleaned);
+
+  // 1. Exact code, sku, or full product name in query or cleaned query
+  const exact = (products || []).filter((p) => {
+    if (!p || p.active === false) return false;
+    const code = chatNormalize(p.code);
+    const sku = chatNormalize(p.sku);
+    const name = chatNormalize(p.name);
+    return (code && (normQ.includes(code) || normCleaned.includes(code))) ||
+           (sku && (normQ.includes(sku) || normCleaned.includes(sku))) ||
+           (name && name.length >= 3 && (normQ.includes(name) || normCleaned.includes(name)));
+  });
+  if (exact.length) {
+    return exact.sort((a, b) => (b.code?.length || 0) - (a.code?.length || 0)).slice(0, 3).map((product) => ({ product, score: 3 }));
+  }
+
+  // 2. Token / word matches (e.g. "011" matching "ERSA 011")
+  const tokens = normCleaned.split(/[\s,-]+/).filter((w) => w.length >= 2);
+  if (tokens.length) {
+    const tokenMatched = (products || []).filter((p) => {
+      if (!p || p.active === false) return false;
+      const codeWords = chatNormalize(p.code).split(/[\s,-]+/);
+      const skuWords = chatNormalize(p.sku).split(/[\s,-]+/);
+      return tokens.some((t) => codeWords.includes(t) || skuWords.includes(t));
+    });
+    if (tokenMatched.length) {
+      return tokenMatched.slice(0, 3).map((product) => ({ product, score: 2 }));
+    }
+  }
+
+  // 3. Fallback to matchChatProducts
+  const m1 = matchChatProducts(products, cleaned);
+  if (m1.length) return m1;
+  return matchChatProducts(products, query);
 }
 
 export function findAssistantOrder(db, text) {
@@ -63,7 +103,7 @@ function orderAnswer(db, order) {
 }
 
 function stockAnswer(db, query) {
-  const matches = matchChatProducts(db.products, query);
+  const matches = matchAssistantProducts(db.products, query);
   if (!matches.length) return { text: `“${query}” için ürün bulunamadı.` };
   const describe = (product) => {
     const warehouses = Object.entries(product.warehouses || {}).filter(([, value]) => Number(value));
@@ -152,17 +192,26 @@ export function answerAssistant(db, user, text, permissions = {}) {
   }
 
   const order = canOrders ? findAssistantOrder(db, question) : null;
-  const asksPrice = has(normalized, ["fiyat", "kac para", "kaç para", "ne kadar"]);
-  const asksStock = has(normalized, ["stok", "stokta", "stogu", "stoğu", "mevcut"]);
+  const asksStock = has(normalized, [
+    "stok", "stokta", "stogu", "stoğu", "stoklar", "mevcut",
+    "elimizde", "elde", "bizde", "depoda",
+    "kaldı", "kaldi", "kalan",
+    "ne kadar var", "kac var", "kaç var",
+    "kac metre", "kaç metre", "kac adet", "kaç adet"
+  ]);
+  const asksPrice = !asksStock && (
+    has(normalized, ["fiyat", "fiyati", "fiyatı", "kac para", "kaç para", "tutar", "tutari", "tutarı", "qiymet", "qiymət"]) ||
+    (has(normalized, ["ne kadar", "kac", "kaç"]) && !has(normalized, ["var", "kaldı", "kaldi", "elimizde", "depoda"]))
+  );
   if (order && !asksPrice && !asksStock) return orderAnswer(db, order);
 
-  if (asksPrice) {
-    if (!canProducts) return { text: "Fiyat bilgisini görmek için ürün görüntüleme izniniz olmalı." };
-    return resolvePriceAnswer(db, cleaned || question, { allowed: true });
-  }
   if (asksStock) {
     if (!canProducts) return { text: "Stok bilgisini görmek için ürün görüntüleme izniniz olmalı." };
     return stockAnswer(db, cleaned || question);
+  }
+  if (asksPrice) {
+    if (!canProducts) return { text: "Fiyat bilgisini görmek için ürün görüntüleme izniniz olmalı." };
+    return resolvePriceAnswer(db, cleaned || question, { allowed: true });
   }
   if (has(normalized, ["onay", "bekleyen form", "onaylanmayan"])) {
     if (!canOrders) return { text: "Onay listesini görmek için sipariş görüntüleme izniniz olmalı." };
@@ -230,12 +279,7 @@ export function buildOllamaContext(db, user, question, permissions = {}) {
 
   // 2. Matched Products
   if (canProducts) {
-    const tokens = stripAssistantNoise(question).split(/\s+/).filter((t) => t.length > 1);
-    const matchedProducts = (db.products || []).filter((p) => {
-      if (!p?.name && !p?.code && !p?.sku) return false;
-      const pText = chatNormalize(`${p.code || ""} ${p.sku || ""} ${p.name || ""}`);
-      return tokens.some((t) => pText.includes(chatNormalize(t)));
-    }).slice(0, 5);
+    const matchedProducts = matchAssistantProducts(db.products, question).slice(0, 5).map(({ product }) => product);
 
     if (matchedProducts.length) {
       const prodLines = matchedProducts.map((p) => {
@@ -325,7 +369,7 @@ export async function answerAssistantAsync(db, user, text, permissions = {}) {
 
   // 1. Fast deterministic rule-based check
   const baseAnswer = answerAssistant(db, user, question, permissions);
-  const isFallback = baseAnswer?.text?.startsWith("Bunu anlayamadım");
+  const isFallback = baseAnswer?.text?.startsWith("Bunu anlayamadım") || baseAnswer?.text?.includes("için ürün bulunamadı");
   const isGreeting = ["merhaba", "selam", "hey", "kimsin"].includes(normalized);
 
   if (!isFallback && !isGreeting) {
