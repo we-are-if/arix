@@ -37,6 +37,9 @@ output/
 daily-app/data/
 daily-app-first/
 
+# Real financial seed data generated from internal spreadsheets; never commit
+server/dailySparexpertSeed.js
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
