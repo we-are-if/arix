@@ -90,12 +90,60 @@ const has = (text, words) => words.some((word) => chatNormalize(text).includes(c
 function orderAnswer(db, order) {
   const form = order.approvalForm;
   const lines = [
-    `${order.number} · ${order.customerName || "Müşteri belirtilmemiş"} · ${statusLabel(order.status)}`,
+    `📦 ${order.number} · ${order.customerName || "Müşteri belirtilmemiş"} · ${statusLabel(order.status)}`,
     `Tarih: ${dateLabel(order.businessDate || order.createdAt)}`,
   ];
-  if (form?.number) lines.push(`Form: ${form.number} · ${form.status === "approved" ? "Onaylandı" : form.status === "rejected" ? "Reddedildi" : form.submittedForApproval ? "Onay bekliyor" : "Taslak"}`);
-  if (order.despatchNumber) lines.push(`İrsaliye: ${order.despatchNumber}`);
-  if (order.withoutDespatch) lines.push("İrsaliyesiz sevk");
+
+  // 1. Ürün Kalemleri
+  if (order.items && order.items.length) {
+    const itemSummaries = order.items.map((i) => {
+      const q = i.preparedQuantity || i.quantity || i.amount || "";
+      const u = i.unit || "mt";
+      const rolls = i.preparedRollCount ? ` (${i.preparedRollCount} rulo)` : "";
+      return `· ${i.productName || i.name || i.code || i.query}: ${q} ${u}${rolls}`;
+    });
+    lines.push(`Ürünler:\n${itemSummaries.join("\n")}`);
+  }
+
+  // 2. Hazırlık Bilgisi
+  const preparedPerson = order.preparedBy || order.items?.find((i) => i.preparedBy)?.preparedBy;
+  const preparedTime = order.preparedAt || order.readyAt || order.items?.find((i) => i.preparedAt)?.preparedAt;
+  if (preparedPerson) {
+    const timeStr = preparedTime ? ` (${dateLabel(preparedTime)} ${new Date(preparedTime).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })})` : "";
+    lines.push(`Hazırlayan: ${preparedPerson}${timeStr}`);
+  }
+
+  // 3. İrsaliye
+  if (order.despatchNumber) {
+    lines.push(`İrsaliye: ${order.despatchNumber}${order.despatchReadyBy ? ` (${order.despatchReadyBy})` : ""}`);
+  } else if (order.withoutDespatch) {
+    lines.push("İrsaliye: İrsaliyesiz sevk");
+  }
+
+  // 4. Teslimat & Teslim Eden
+  if (order.deliveredBy) {
+    const timeStr = order.deliveredAt ? ` (${dateLabel(order.deliveredAt)} ${new Date(order.deliveredAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })})` : "";
+    lines.push(`Teslim Eden: ${order.deliveredBy}${timeStr}`);
+  }
+  if (order.deliveryNote) {
+    lines.push(`Teslimat Notu: ${order.deliveryNote}`);
+  }
+
+  // 5. Teslimat Fotoğrafları & Belgeler
+  const proofs = (order.attachments || []).filter((a) => a.kind === "deliveryProof" || a.mimeType?.startsWith("image/"));
+  const docs = (order.attachments || []).filter((a) => a.kind !== "deliveryProof" && !a.mimeType?.startsWith("image/"));
+  if (proofs.length) {
+    lines.push(`📸 Teslimat Fotoğrafı: ${proofs.length} adet mevcut (${proofs.map((p) => p.name).join(", ")})`);
+  }
+  if (docs.length) {
+    lines.push(`📄 Ek Belgeler: ${docs.map((d) => d.name).join(", ")}`);
+  }
+
+  // 6. Onay Formu
+  if (form?.number) {
+    lines.push(`Onay Formu: ${form.number} · ${form.status === "approved" ? "Onaylandı" : form.status === "rejected" ? "Reddedildi" : form.submittedForApproval ? "Onay bekliyor" : "Taslak"}`);
+  }
+
   return {
     text: lines.join("\n"),
     orderReference: { id: String(order.id), number: String(order.number || ""), customerName: String(order.customerName || ""), status: statusLabel(order.status) },
@@ -246,6 +294,82 @@ export function answerCustomerProductShipment(db, question) {
   return null;
 }
 
+export function answerOperationalQuery(db, question) {
+  const normQ = chatNormalize(question);
+
+  const asksPreparation = [
+    "kim hazirladi", "kim hazirlamis", "hazirlayan kim", "kim kesti", "kesen kim", "hazirlik durumu"
+  ].some((w) => normQ.includes(w));
+
+  const asksDelivery = [
+    "kim teslim etti", "kim teslim etmis", "teslim eden kim", "teslimatci kim", "teslimatci", "kime teslim edildi", "teslimat saati", "teslimat notu"
+  ].some((w) => normQ.includes(w));
+
+  const asksDespatch = [
+    "irsaliye", "irsaliyesi", "irsaliye no", "irsaliye numarasi", "irsaliye kesildi mi", "irsaliye var mi"
+  ].some((w) => normQ.includes(w));
+
+  const asksPhoto = [
+    "teslimat resmi", "teslimat fotografi", "fotografi var mi", "resmi var mi", "fotograf", "kanit", "resim", "teslim kaniti"
+  ].some((w) => normQ.includes(w));
+
+  if (!asksPreparation && !asksDelivery && !asksDespatch && !asksPhoto) return null;
+
+  // Find order either by order number or by customer name
+  let order = findAssistantOrder(db, question);
+  if (!order) {
+    const cust = findChatCustomer(db, question);
+    if (cust) {
+      order = (db.orderBoard || [])
+        .filter((o) => chatNormalize(o.customerName) === chatNormalize(cust.name))
+        .sort((a, b) => String(b.businessDate || b.createdAt).localeCompare(String(a.businessDate || a.createdAt)))[0];
+    }
+  }
+
+  if (!order) return null;
+
+  const prep = order.preparedBy || order.items?.find((i) => i.preparedBy)?.preparedBy;
+  const prepTime = order.preparedAt || order.readyAt;
+  const deliv = order.deliveredBy;
+  const delivTime = order.deliveredAt;
+  const desp = order.despatchNumber || (order.withoutDespatch ? "İrsaliyesiz sevk" : null);
+  const proofs = (order.attachments || []).filter((a) => a.kind === "deliveryProof" || a.mimeType?.startsWith("image/"));
+
+  if (asksPreparation) {
+    if (prep) {
+      const timeStr = prepTime ? ` (${dateLabel(prepTime)} ${new Date(prepTime).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })})` : "";
+      return { text: `📦 ${order.number} (${order.customerName}):\nBu siparişi hazırlayan: ${prep}${timeStr}` };
+    }
+    return { text: `📦 ${order.number} (${order.customerName}):\nHazırlayan personel bilgisi henüz sisteme girilmemiş (Durum: ${statusLabel(order.status)}).` };
+  }
+
+  if (asksDelivery) {
+    if (deliv) {
+      const timeStr = delivTime ? ` (${dateLabel(delivTime)} ${new Date(delivTime).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })})` : "";
+      const noteStr = order.deliveryNote ? `\nTeslimat notu: ${order.deliveryNote}` : "";
+      return { text: `🚚 ${order.number} (${order.customerName}):\nTeslim eden: ${deliv}${timeStr}${noteStr}` };
+    }
+    return { text: `🚚 ${order.number} (${order.customerName}):\nBu sipariş henüz teslim edilmemiş (Durum: ${statusLabel(order.status)}).` };
+  }
+
+  if (asksDespatch) {
+    if (desp) {
+      return { text: `📄 ${order.number} (${order.customerName}):\nİrsaliye Numarası: ${desp}${order.despatchReadyBy ? ` (${order.despatchReadyBy})` : ""}` };
+    }
+    return { text: `📄 ${order.number} (${order.customerName}):\nİrsaliye henüz kesilmemiş (Durum: ${statusLabel(order.status)}).` };
+  }
+
+  if (asksPhoto) {
+    if (proofs.length) {
+      const proofNames = proofs.map((p) => `· ${p.name}`).join("\n");
+      return { text: `📸 ${order.number} (${order.customerName}) için ${proofs.length} adet teslimat kanıt fotoğrafı mevcut:\n${proofNames}` };
+    }
+    return { text: `📸 ${order.number} (${order.customerName}) için henüz yüklenmiş bir teslimat fotoğrafı bulunmuyor.` };
+  }
+
+  return null;
+}
+
 export function answerAssistant(db, user, text, permissions = {}) {
   const canProducts = permissions.products !== false;
   const canOrders = permissions.orders !== false;
@@ -258,6 +382,11 @@ export function answerAssistant(db, user, text, permissions = {}) {
   if (!question) return { text: ASSISTANT_HELP };
   if (has(normalized, ["yardim", "yardım", "ne yapabilirsin", "komut", "help", "neler sorabilirim"]) || ["merhaba", "selam", "hey", "kimsin"].includes(normalized)) {
     return { text: ASSISTANT_HELP };
+  }
+
+  if (canOrders) {
+    const operationalAnswer = answerOperationalQuery(db, question);
+    if (operationalAnswer) return operationalAnswer;
   }
 
   if (canOrders && canCustomers) {
@@ -338,14 +467,20 @@ export function buildOllamaContext(db, user, question, permissions = {}) {
             .slice(-6)
             .reverse()
             .map((o) => {
-              const items = (o.items || []).map((i) => `${i.productName || i.name || i.code} (${i.quantity || i.amount || "?"} ${i.unit || "mt"})`).join(", ");
-              return `Sipariş ${o.number} [Durum: ${statusLabel(o.status)}, Tarih: ${dateLabel(o.businessDate || o.createdAt)}]: ${items || "Kalem yok"}`;
+              const items = (o.items || []).map((i) => `${i.productName || i.name || i.code || i.query} (${i.preparedQuantity || i.quantity || i.amount || "?"} ${i.unit || "mt"}${i.preparedRollCount ? `, ${i.preparedRollCount} rulo` : ""})`).join(", ");
+              const prep = o.preparedBy || o.items?.find((i) => i.preparedBy)?.preparedBy || "-";
+              const deliv = o.deliveredBy ? `${o.deliveredBy} (${dateLabel(o.deliveredAt)})` : "Teslim edilmedi";
+              const desp = o.despatchNumber || (o.withoutDespatch ? "İrsaliyesiz" : "-");
+              const proofs = (o.attachments || []).filter((a) => a.kind === "deliveryProof" || a.mimeType?.startsWith("image/")).length;
+              return `Sipariş ${o.number} [Durum: ${statusLabel(o.status)}, Tarih: ${dateLabel(o.businessDate || o.createdAt)}]:
+    Ürünler: ${items || "Kalem yok"}
+    Hazırlayan: ${prep} | Teslim Eden: ${deliv} | İrsaliye: ${desp} | Teslimat Kanıt Fotoğrafı: ${proofs} adet`;
             })
         : [];
       sections.push(`Müşteri Kaydı:
 - Adı: ${matchedCustomer.name}
 - Bakiye: ${money(matchedCustomer.balance, currency)}
-- Son Sipariş ve Sevkiyatlar:
+- Son Sipariş ve Sevkiyat Detayları:
 ${cOrders.map((o) => `  · ${o}`).join("\n") || "  Kayıt yok"}`);
     }
   }
@@ -375,7 +510,14 @@ ${cOrders.map((o) => `  · ${o}`).join("\n") || "  Kayıt yok"}`);
 
     if (matchedOrders.length) {
       const ordLines = matchedOrders.map((o) => {
-        return `- Sipariş ${o.number}: Müşteri: ${o.customerName || "-"}, Durum: ${statusLabel(o.status)}, Tarih: ${dateLabel(o.businessDate || o.createdAt)}, Tutar: ${money(o.total || o.grandTotal, currency)}`;
+        const prep = o.preparedBy || o.items?.find((i) => i.preparedBy)?.preparedBy || "-";
+        const deliv = o.deliveredBy ? `${o.deliveredBy} (${dateLabel(o.deliveredAt)})` : "Teslim edilmedi";
+        const desp = o.despatchNumber || (o.withoutDespatch ? "İrsaliyesiz" : "-");
+        const proofs = (o.attachments || []).filter((a) => a.kind === "deliveryProof" || a.mimeType?.startsWith("image/")).length;
+        const items = (o.items || []).map((i) => `${i.productName || i.name || i.code}: ${i.preparedQuantity || i.quantity || "?"} ${i.unit || "mt"}`).join(", ");
+        return `- Sipariş ${o.number} (${o.customerName}): Durum: ${statusLabel(o.status)}, Tarih: ${dateLabel(o.businessDate || o.createdAt)}
+  Ürünler: ${items}
+  Hazırlayan: ${prep} | Teslim Eden: ${deliv} | İrsaliye: ${desp} | Fotoğraf: ${proofs} adet`;
       });
       sections.push(`Sipariş Detayı:\n${ordLines.join("\n")}`);
     }
@@ -397,15 +539,16 @@ export async function queryOllamaAssistant(db, user, question, permissions = {})
 
   const contextText = buildOllamaContext(db, user, question, permissions);
   const systemPrompt = `Sen AriX ERP ve Sipariş Yönetim Sistemi bünyesinde çalışan yapay zeka asistanısın (AriX Asistan).
-Şirket çalışanına (Adı: ${user?.name || "Kullanıcı"}) yardımcı oluyorsun.
+Şirketin tüm sipariş, depo hazırlık, sevkiyat, irsaliye, teslimatçı, teslimat kanıt fotoğrafı, stok ve cari kayıtlarına tam hâkimsin.
+Kullanıcıya (Adı: ${user?.name || "Kullanıcı"}) şirket içi operasyonlarda yardımcı oluyorsun.
 
 Şirket Anlık Sistem Kayıtları:
 ${contextText}
 
 Talimatlar:
-1. Kullanıcının sorusunu yukarıdaki şirket kayıtlarına dayanarak Türkçe, kısa, samimi ve net bir dille yanıtla.
-2. Aranan ürünün veya müşterinin kaydı yukarıdaki listede varsa stok miktarını, depoyu veya bakiyeyi doğrudan söyle.
-3. Gereksiz giriş-çıkış yapma, doğrudan soruya cevap ver.`;
+1. Kullanıcı siparişin kim tarafından hazırlandığını, kimin teslim ettiğini, irsaliye numarasını, teslimat fotoğraflarını, ürün stoklarını veya müşteri bakiyelerini sorduğunda yukarıdaki anlık verilere dayanarak Türkçe, kısa, samimi, net ve net bir dille yanıtla.
+2. Eğer sorulan bilgi yukarıdaki kayıtlarda varsa doğrudan ve net bir şekilde ver.
+3. Gereksiz giriş-çıkış veya felsefe yapma, doğrudan soruya cevap ver.`;
 
   const res = await fetch(`${ollamaHost}/api/chat`, {
     method: "POST",
