@@ -5,14 +5,27 @@ export type MascotState = "idle" | "thinking" | "happy";
 interface AriXLiveMascotProps {
   onAskQuestion?: (question: string) => Promise<string | null>;
   currentUser?: { id: string; name: string };
+  orders?: any[];
+  products?: any[];
+  customers?: any[];
+  approvalOrders?: any[];
+  deliveryWaiting?: any[];
 }
 
-export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotProps) {
+export function AriXLiveMascot({
+  onAskQuestion,
+  currentUser,
+  orders = [],
+  products = [],
+  customers = [],
+  approvalOrders = [],
+  deliveryWaiting = [],
+}: AriXLiveMascotProps) {
   const [state, setState] = useState<MascotState>("idle");
   const [isOpen, setIsOpen] = useState(false);
   const [questionText, setQuestionText] = useState("");
   const [answerText, setAnswerText] = useState<string | null>(null);
-  const [bubbleMessage, setBubbleMessage] = useState<string>("Selam! Ben AriX 👋");
+  const [bubbleMessage, setBubbleMessage] = useState<string>("Selam! Ben AriX, her şeye hâkimim 👋");
   const [isMinimized, setIsMinimized] = useState(false);
 
   // Dragging support
@@ -30,7 +43,7 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
   const handlePointerDown = (e: React.PointerEvent) => {
     // Only drag on mascot itself, not inner controls
     const target = e.target as HTMLElement;
-    if (target.closest("button") || target.closest("input") || target.closest("form")) return;
+    if (target.closest("button") || target.closest("input") || target.closest("form") || target.closest(".arix-mascot-dialog-card")) return;
 
     const el = e.currentTarget as HTMLElement;
     const rect = el.getBoundingClientRect();
@@ -69,13 +82,164 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
     dragRef.current = null;
   };
 
-  // Quick Ask
+  // =========================================================================
+  // SMART CONTEXT AWARENESS (HOVER & MOBILE TOUCH OBSERVER)
+  // "Mausum neyin üzerinde olsa, telefonda neye dokunsam kafasında uygun fikir/teklif çıksın"
+  // =========================================================================
+  useEffect(() => {
+    let lastTarget: HTMLElement | null = null;
+    let idleTimer: any = null;
+    let throttleTimer: any = null;
+
+    const analyzeElement = (target: HTMLElement | null): string | null => {
+      if (!target || typeof target.closest !== "function") return null;
+      if (target.closest(".arix-live-mascot-container")) return null;
+
+      const text = (target.textContent || "").trim();
+
+      // 1. Order Match
+      const orderMatch = text.match(/(?:ORD|SOF|PRF)-\d{4,}/i);
+      let matchedOrder: any = null;
+
+      if (orderMatch && orders.length) {
+        const num = orderMatch[0].toUpperCase();
+        matchedOrder = orders.find((o) => o.number?.toUpperCase() === num || o.approvalForm?.number?.toUpperCase() === num);
+      }
+      if (!matchedOrder && orders.length) {
+        const cardEl = target.closest(".order-card, .approval-form-row, .order-block, tr, [data-order-id]");
+        if (cardEl) {
+          const cardText = (cardEl.textContent || "").trim();
+          const m = cardText.match(/(?:ORD|SOF|PRF)-\d{4,}/i);
+          if (m) {
+            const num = m[0].toUpperCase();
+            matchedOrder = orders.find((o) => o.number?.toUpperCase() === num);
+          }
+        }
+      }
+
+      if (matchedOrder) {
+        const prep = matchedOrder.preparedBy || matchedOrder.items?.find((i: any) => i.preparedBy)?.preparedBy;
+        const deliv = matchedOrder.deliveredBy;
+        const hasDespatch = matchedOrder.despatchNumber || matchedOrder.withoutDespatch;
+        const proofCount = (matchedOrder.attachments || []).filter((a: any) => a.kind === "deliveryProof" || a.mimeType?.startsWith("image/")).length;
+        const itemCount = matchedOrder.items?.length || 0;
+
+        switch (matchedOrder.status) {
+          case "waiting":
+            return `⏳ ${matchedOrder.number} (${matchedOrder.customerName}): Hazırlık bekliyor. ${itemCount} kalem ürün var, depoya öncelik verelim mi?`;
+          case "preparing":
+            return `⚙️ ${matchedOrder.number} (${matchedOrder.customerName}): Hazırlanıyor (${prep || "Depo"}). ${hasDespatch ? "İrsaliye hazır." : "İrsaliye henüz kesilmedi, sevk için hazırlansın mı?"}`;
+          case "ready":
+            return `✅ ${matchedOrder.number} (${matchedOrder.customerName}) hazır! ${hasDespatch ? "Kuryeye verilebilir." : "Sevk irsaliyesi yazdırılmaya hazır."}`;
+          case "on_way":
+            return `🚚 ${matchedOrder.number} (${matchedOrder.customerName}) yolda! Kurye: ${deliv || "Zimmetli"}. Teslimat fotoğrafı bekleniyor.`;
+          case "delivered":
+            return `🎉 ${matchedOrder.number} (${matchedOrder.customerName}): Teslim edildi (${deliv || "Kurye"}). ${proofCount ? `${proofCount} teslimat fotoğrafı mevcut.` : ""}`;
+          default:
+            return `📦 ${matchedOrder.number} (${matchedOrder.customerName}): Durum: ${matchedOrder.status}. ${itemCount} kalem mevcut.`;
+        }
+      }
+
+      // 2. Customer Match
+      if (customers.length) {
+        for (const c of customers) {
+          if (c.name && c.name.length >= 3 && text.includes(c.name)) {
+            const bal = Number(c.balance || 0);
+            if (bal < 0) {
+              return `👤 ${c.name}: Bakiye borçlu (${bal.toLocaleString("tr-TR")} ₼). Yeni sipariş öncesi tahsilat öneririm.`;
+            } else if (bal > 0) {
+              return `👤 ${c.name}: Bakiye alacaklı (+${bal.toLocaleString("tr-TR")} ₼). Güvenilir cari hesap.`;
+            } else {
+              return `👤 ${c.name}: Bakiye kapalı (0 ₼). Hesap düzenli.`;
+            }
+          }
+        }
+      }
+
+      // 3. Product Match
+      if (products.length) {
+        for (const p of products.slice(0, 80)) {
+          if ((p.code && text.includes(p.code)) || (p.name && p.name.length >= 4 && text.includes(p.name))) {
+            const wh = Object.entries(p.warehouses || {}).filter(([, v]) => Number(v));
+            const totalStock = wh.reduce((sum, [, v]) => sum + (Number(v) || 0), 0);
+            return `🏷️ ${p.name} (${p.code || "-"}): Toplam Stok: ${totalStock} ${p.unit || "mt"}. Fiyat: ${p.salePrice || 0} ₼.`;
+          }
+        }
+      }
+
+      // 4. Interactive Buttons & Form Actions
+      const btn = target.closest("button, a, input, select");
+      if (btn) {
+        const bText = (btn.textContent || "").trim().toLowerCase();
+        const bTitle = (btn.getAttribute("title") || btn.getAttribute("aria-label") || "").toLowerCase();
+        const combined = `${bText} ${bTitle}`;
+
+        if (combined.includes("yeni sipariş") || combined.includes("sipariş oluştur")) {
+          return "✨ Yeni bir müşteri sipariş formu oluşturmak için tıklayın.";
+        }
+        if (combined.includes("yazdır") || combined.includes("pdf") || combined.includes("irsaliye")) {
+          return "📄 Sevk irsaliyesi, çeki listesi veya depo fişini yazdırmak için tıklayın.";
+        }
+        if (combined.includes("onay")) {
+          return "✔️ Sipariş formunu onaylayıp hazırlık sürecine aktarabilirsiniz.";
+        }
+        if (btn.tagName === "INPUT" && (btn.getAttribute("type") === "text" || btn.getAttribute("type") === "search")) {
+          return "🔍 Sipariş numarası, müşteri adı veya ürün aramak için yazmaya başlayın.";
+        }
+      }
+
+      return null;
+    };
+
+    const handlePointerAction = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (target === lastTarget) return;
+      lastTarget = target;
+
+      if (throttleTimer) return;
+      throttleTimer = setTimeout(() => {
+        throttleTimer = null;
+        const tip = analyzeElement(target);
+        if (tip) {
+          setBubbleMessage(tip);
+          clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            rotateIdle();
+          }, 9000);
+        }
+      }, 90);
+    };
+
+    const rotateIdle = () => {
+      const tips = [
+        "💡 Bir sipariş veya müşterinin üzerine gelin, analiz edeyim!",
+        "📊 Tüm siparişler, cari bakiyeler ve depolar anlık kontrolümde.",
+        "💬 Aklınıza gelen her şeyi sormak için üzerime tıklayabilirsiniz!",
+        "⚡ Hazır olan siparişlerin sevk irsaliyelerini tek tıkla yazdırabilirsiniz.",
+      ];
+      setBubbleMessage(tips[Math.floor(Math.random() * tips.length)]);
+    };
+
+    document.addEventListener("mouseover", handlePointerAction, { passive: true });
+    document.addEventListener("touchstart", handlePointerAction, { passive: true });
+    document.addEventListener("focusin", handlePointerAction as any, { passive: true });
+
+    return () => {
+      document.removeEventListener("mouseover", handlePointerAction);
+      document.removeEventListener("touchstart", handlePointerAction);
+      document.removeEventListener("focusin", handlePointerAction as any);
+      clearTimeout(idleTimer);
+      clearTimeout(throttleTimer);
+    };
+  }, [orders, products, customers]);
+
+  // Quick Ask Universal Engine
   const handleAsk = async (query: string) => {
     if (!query.trim()) return;
     setQuestionText("");
     setState("thinking");
     setAnswerText(null);
-    setBubbleMessage("Kayıtları tarıyorum, bir saniye... 🔍");
+    setBubbleMessage("Sistem kayıtlarını analiz ediyorum... 🔍");
 
     try {
       let reply: string | null = null;
@@ -97,17 +261,17 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
       if (reply) {
         setState("happy");
         setAnswerText(reply);
-        setBubbleMessage("Cevap hazır! 🎉");
+        setBubbleMessage("Cevap hazır! 🚀");
         setTimeout(() => setState("idle"), 4000);
       } else {
         setState("idle");
-        setAnswerText("Bu konuda bilgi bulunamadı.");
-        setBubbleMessage("Tam bulamadım, tekrar dener misiniz?");
+        setAnswerText("Bu konuda detaylı bilgi bulunamadı.");
+        setBubbleMessage("Sorunuzu biraz daha detaylandırabilir misiniz?");
       }
     } catch {
       setState("idle");
-      setAnswerText("Bir hata oluştu, lütfen tekrar deneyin.");
-      setBubbleMessage("Bağlantı sağlanamadı.");
+      setAnswerText("Bağlantı sağlanamadı, lütfen tekrar deneyin.");
+      setBubbleMessage("Bağlantı hatası.");
     }
   };
 
@@ -128,7 +292,7 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       role="region"
-      aria-label="AriX Canlı Saha Asistanı"
+      aria-label="AriX Akıllı Saha ve Operasyon Asistanı"
     >
       {/* 1. Speech / Interaction Dialog Card */}
       {isOpen && (
@@ -140,7 +304,12 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
           <div className="arix-mascot-dialog-header">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-              <strong className="text-sm font-bold text-slate-800 dark:text-slate-100">AriX Saha Asistanı</strong>
+              <div>
+                <strong className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                  AriX Saha Asistanı <span className="text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold px-1.5 py-0.5 rounded-full">Yapay Zeka</span>
+                </strong>
+                <p className="text-[10px] text-slate-400 leading-none mt-0.5">Sipariş, Stok, Cari, Sevkiyat & Operasyon Uzmanı</p>
+              </div>
             </div>
             <button
               type="button"
@@ -156,48 +325,55 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
             {state === "thinking" ? (
               <div className="flex items-center gap-2.5 text-xs text-blue-600 font-semibold p-3 bg-blue-50 dark:bg-blue-950/40 rounded-xl animate-pulse">
                 <span className="animate-spin text-base">⚙️</span>
-                <span>Depo hazırlık, teslimat ve irsaliye kayıtları taranıyor...</span>
+                <span>Tüm operasyonel veritabanı taranıyor...</span>
               </div>
             ) : answerText ? (
-              <div className="text-xs bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+              <div className="text-xs bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto font-sans">
                 {answerText}
               </div>
             ) : (
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Merhaba {currentUser?.name ? `${currentUser.name} Bey` : ""}! 
-                İrsaliye numaraları, teslimat kanıt fotoğrafları, kimin hazırlayıp teslim ettiği ve stok durumlarını sorabilirsiniz.
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                Merhaba {currentUser?.name ? `${currentUser.name} Bey` : ""}!
+                Şirketin tüm siparişleri, cari borç-alacak durumları, depo stokları, kurye teslimatları veya operasyonel tavsiyeler hakkında <strong>aklınıza gelen her şeyi</strong> sorabilirsiniz.
               </p>
             )}
 
-            {/* Quick Action Chips */}
+            {/* Smart Multi-Category Action Chips */}
             <div className="flex flex-wrap gap-1.5 mt-2">
               <button
                 type="button"
                 className="chip-btn"
-                onClick={() => handleAsk("Form grup son siparişini kim hazırladı?")}
+                onClick={() => handleAsk("Bugünün genel operasyon ve sipariş durumu nedir?")}
               >
-                📦 Form Grup Hazırlık
+                📊 Genel Durum
               </button>
               <button
                 type="button"
                 className="chip-btn"
-                onClick={() => handleAsk("Form grubun irsaliye numarası nedir?")}
+                onClick={() => handleAsk("Hangi siparişler gecikti?")}
               >
-                📄 İrsaliye No
+                ⚠️ Gecikenler
               </button>
               <button
                 type="button"
                 className="chip-btn"
-                onClick={() => handleAsk("ORD-0315660 teslimat fotoğrafları var mı?")}
+                onClick={() => handleAsk("En çok borcu olan müşteriler kimler?")}
               >
-                📸 Teslimat Kanıtı
+                💰 Borçlu Cariler
               </button>
               <button
                 type="button"
                 className="chip-btn"
-                onClick={() => handleAsk("ersa 011 elimizde ne kadar var?")}
+                onClick={() => handleAsk("Operasyonel olarak ne önerirsin, neye dikkat etmeliyiz?")}
               >
-                📊 Ersa 011 Stok
+                💡 Operasyonel Teklif
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                onClick={() => handleAsk("011 folyo stok durumu nedir?")}
+              >
+                📦 011 Folyo Stok
               </button>
             </div>
           </div>
@@ -212,7 +388,7 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
           >
             <input
               type="text"
-              placeholder="Sorunuzu yazın (örn: irsaliye no, kim hazırladı?)..."
+              placeholder="Her şeyi sorabilirsiniz (örn: gecikenler, borçlular, ne önerirsin)..."
               value={questionText}
               onChange={(e) => setQuestionText(e.target.value)}
               className="text-xs flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -220,7 +396,7 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
             <button
               type="submit"
               disabled={!questionText.trim() || state === "thinking"}
-              className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl disabled:opacity-50"
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl disabled:opacity-50"
             >
               Sor
             </button>
@@ -228,7 +404,7 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
         </div>
       )}
 
-      {/* 2. Floating Thought / Greeting Bubble (When closed) */}
+      {/* 2. Floating Thought / Context Tip Bubble (When closed) */}
       {!isOpen && (
         <div className="arix-mascot-floating-bubble">
           <span>{bubbleMessage}</span>

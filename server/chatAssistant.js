@@ -370,6 +370,48 @@ export function answerOperationalQuery(db, question) {
   return null;
 }
 
+function debtorsAnswer(db, currency) {
+  const customers = (db.customers || [])
+    .filter((c) => Number(c.balance || 0) < 0)
+    .sort((a, b) => Number(a.balance || 0) - Number(b.balance || 0))
+    .slice(0, 5);
+
+  if (!customers.length) {
+    return { text: "🎉 Tebrikler! Sistemde borcu (negatif bakiyesi) olan müşteri bulunmuyor." };
+  }
+
+  const lines = customers.map((c) => `· ${c.name}: ${money(c.balance, currency)}`);
+  return {
+    text: `⚠️ En yüksek borcu olan ${customers.length} müşteri:\n${lines.join("\n")}\n\nDetaylı hesap dökümü için müşterinin üzerine gelebilir veya adını yazabilirsiniz.`
+  };
+}
+
+function operationalAdviceAnswer(db, currency) {
+  const overdue = (db.orderBoard || []).filter(
+    (o) => !["delivered", "fulfilled", "cancelled"].includes(o.status) && String(o.businessDate || "").slice(0, 10) < dayKey()
+  );
+  const pendingPrep = (db.orderBoard || []).filter((o) => ["waiting", "preparing"].includes(o.status));
+  const debtors = (db.customers || []).filter((c) => Number(c.balance || 0) < -1000);
+
+  const tips = [];
+  if (overdue.length > 0) {
+    tips.push(`📌 ${overdue.length} sipariş termin tarihini aşmış görünüyor, öncelikle bu siparişlerin sevkiyatına odaklanılmasını öneririm.`);
+  }
+  if (pendingPrep.length > 5) {
+    tips.push(`⚙️ Depoda ${pendingPrep.length} sipariş hazırlık bekliyor, hazırlık ekibine destek verilebilir.`);
+  }
+  if (debtors.length > 0) {
+    tips.push(`💰 ${debtors.length} müşterinin bakiyesi -1.000 ${currency} üzerinde, yeni sipariş onaylamadan önce tahsilat hatırlatması yapılabilir.`);
+  }
+  if (!tips.length) {
+    tips.push(`✨ Harika! Tüm siparişler zamanında ilerliyor, kritik gecikme veya acil risk görünmüyor.`);
+  }
+
+  return {
+    text: `💡 AriX Operasyonel Değerlendirme & Teklifler:\n\n${tips.join("\n\n")}`
+  };
+}
+
 export function answerAssistant(db, user, text, permissions = {}) {
   const canProducts = permissions.products !== false;
   const canOrders = permissions.orders !== false;
@@ -424,13 +466,20 @@ export function answerAssistant(db, user, text, permissions = {}) {
     if (!canOrders) return { text: "Sipariş listesini görmek için sipariş görüntüleme izniniz olmalı." };
     return overdueAnswer(db);
   }
+  if (has(normalized, ["borclu", "borçlu", "borclular", "borçlular", "en cok borc", "en çok borç", "kim borclu", "kim borçlu"])) {
+    if (!canCustomers) return { text: "Müşteri bakiyesini görmek için cari görüntüleme izniniz olmalı." };
+    return debtorsAnswer(db, currency);
+  }
+  if (has(normalized, ["tavsiye", "oneri", "öneri", "teklif", "ne yapmaliyim", "ne yapmalıyım", "ne onerirsin", "ne önerirsin", "fikir"])) {
+    return operationalAdviceAnswer(db, currency);
+  }
   if (has(normalized, ["bakiye", "borc", "borç", "alacak", "hesap"])) {
     if (!canCustomers) return { text: "Müşteri bakiyesini görmek için cari görüntüleme izniniz olmalı." };
     const customer = findChatCustomer(db, question);
-    if (!customer) return { text: "Hangi müşteri? Örnek: “Abanoz bakiye”." };
+    if (!customer) return debtorsAnswer(db, currency);
     return customerAnswer(db, customer, currency);
   }
-  if (has(normalized, ["bugun", "bugün", "ozet", "özet", "gunluk", "günlük"])) {
+  if (has(normalized, ["bugun", "bugün", "ozet", "özet", "gunluk", "günlük", "durum"])) {
     if (!canOrders) return { text: "Gün özetini görmek için sipariş görüntüleme izniniz olmalı." };
     return summaryAnswer(db, currency);
   }
@@ -457,8 +506,51 @@ export function buildOllamaContext(db, user, question, permissions = {}) {
   sections.push(`Bugünün Tarihi: ${dateLabel(today)}`);
   sections.push(`Para Birimi: ${currency}`);
 
-  // 1. Matched Customer & their order items
+  // 1. General Operational Overview
+  if (canOrders) {
+    const allOrders = db.orderBoard || [];
+    const todays = allOrders.filter((o) => String(o.businessDate || o.createdAt || "").slice(0, 10) === today && !o.isTest);
+    const pendingAppr = pendingApprovalItems(db);
+    const overdue = allOrders.filter((o) => !["delivered", "fulfilled", "cancelled"].includes(o.status) && String(o.businessDate || "").slice(0, 10) < today);
+    const inPrep = allOrders.filter((o) => ["waiting", "preparing"].includes(o.status));
+    const readyToShip = allOrders.filter((o) => o.status === "ready");
+    const deliveredToday = allOrders.filter((o) => o.status === "delivered" && String(o.deliveredAt || o.businessDate || "").slice(0, 10) === today);
+
+    sections.push(`Genel Sipariş ve Operasyon Durumu:
+- Bugün açılan sipariş sayısı: ${todays.length}
+- Hazırlık bekleyen veya hazırlanan: ${inPrep.length}
+- Hazırlandı, sevk bekliyor: ${readyToShip.length}
+- Bugün teslim edilen: ${deliveredToday.length}
+- Geciken sipariş sayısı: ${overdue.length}
+- Onay bekleyen form sayısı: ${pendingAppr.length}`);
+
+    if (overdue.length) {
+      const overdueSnippet = overdue.slice(0, 5).map((o) => `· ${o.number} (${o.customerName}) - ${statusLabel(o.status)}, Tarih: ${dateLabel(o.businessDate)}`).join("\n");
+      sections.push(`Gecikmiş Siparişlerden Örnekler:\n${overdueSnippet}`);
+    }
+
+    const latestOrders = allOrders.slice(-5).reverse().map((o) => {
+      const prep = o.preparedBy || o.items?.find((i) => i.preparedBy)?.preparedBy || "-";
+      const deliv = o.deliveredBy || "-";
+      const desp = o.despatchNumber || (o.withoutDespatch ? "İrsaliyesiz" : "-");
+      return `· ${o.number} (${o.customerName}) - Durum: ${statusLabel(o.status)} | Hazırlayan: ${prep} | Teslim: ${deliv} | İrsaliye: ${desp}`;
+    }).join("\n");
+    sections.push(`Son İşlem Gören Siparişler:\n${latestOrders}`);
+  }
+
+  // 2. Customers Overview & Matched Customer
   if (canCustomers) {
+    const customers = db.customers || [];
+    const debtors = customers
+      .filter((c) => Number(c.balance || 0) < 0)
+      .sort((a, b) => Number(a.balance || 0) - Number(b.balance || 0))
+      .slice(0, 5);
+
+    if (debtors.length) {
+      const debtorLines = debtors.map((c) => `· ${c.name}: ${money(c.balance, currency)}`).join("\n");
+      sections.push(`En Yüksek Borçlu Müşteriler:\n${debtorLines}`);
+    }
+
     const matchedCustomer = findChatCustomer(db, question);
     if (matchedCustomer) {
       const cOrders = canOrders
@@ -477,7 +569,7 @@ export function buildOllamaContext(db, user, question, permissions = {}) {
     Hazırlayan: ${prep} | Teslim Eden: ${deliv} | İrsaliye: ${desp} | Teslimat Kanıt Fotoğrafı: ${proofs} adet`;
             })
         : [];
-      sections.push(`Müşteri Kaydı:
+      sections.push(`Sorgulanan Müşteri Detayı:
 - Adı: ${matchedCustomer.name}
 - Bakiye: ${money(matchedCustomer.balance, currency)}
 - Son Sipariş ve Sevkiyat Detayları:
@@ -485,10 +577,12 @@ ${cOrders.map((o) => `  · ${o}`).join("\n") || "  Kayıt yok"}`);
     }
   }
 
-  // 2. Matched Products
+  // 3. Products & Stock
   if (canProducts) {
-    const matchedProducts = matchAssistantProducts(db.products, question).slice(0, 5).map(({ product }) => product);
+    const products = db.products || [];
+    sections.push(`Toplam Ürün Çeşidi: ${products.length} adet.`);
 
+    const matchedProducts = matchAssistantProducts(products, question).slice(0, 5).map(({ product }) => product);
     if (matchedProducts.length) {
       const prodLines = matchedProducts.map((p) => {
         const warehouses = Object.entries(p.warehouses || {}).filter(([, v]) => Number(v));
@@ -500,7 +594,7 @@ ${cOrders.map((o) => `  · ${o}`).join("\n") || "  Kayıt yok"}`);
     }
   }
 
-  // 3. Matched Orders
+  // 4. Matched Orders
   if (canOrders) {
     const digits = question.match(/\d{2,}/g) || [];
     const matchedOrders = (db.orderBoard || []).filter((o) => {
@@ -521,13 +615,6 @@ ${cOrders.map((o) => `  · ${o}`).join("\n") || "  Kayıt yok"}`);
       });
       sections.push(`Sipariş Detayı:\n${ordLines.join("\n")}`);
     }
-
-    // General order stats
-    const todays = (db.orderBoard || []).filter((o) => String(o.businessDate || o.createdAt || "").slice(0, 10) === today && !o.isTest);
-    const pendingAppr = pendingApprovalItems(db);
-    const overdue = (db.orderBoard || []).filter((o) => !["delivered", "fulfilled", "cancelled"].includes(o.status) && String(o.businessDate || "").slice(0, 10) < today);
-
-    sections.push(`Genel Sipariş Durumu:\n- Bugün açılan sipariş sayısı: ${todays.length}\n- Onay bekleyen form sayısı: ${pendingAppr.length}\n- Teslim edilmeyi bekleyen gecikmiş sipariş sayısı: ${overdue.length}`);
   }
 
   return sections.join("\n\n");
@@ -538,17 +625,17 @@ export async function queryOllamaAssistant(db, user, question, permissions = {})
   const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:3b";
 
   const contextText = buildOllamaContext(db, user, question, permissions);
-  const systemPrompt = `Sen AriX ERP ve Sipariş Yönetim Sistemi bünyesinde çalışan yapay zeka asistanısın (AriX Asistan).
-Şirketin tüm sipariş, depo hazırlık, sevkiyat, irsaliye, teslimatçı, teslimat kanıt fotoğrafı, stok ve cari kayıtlarına tam hâkimsin.
-Kullanıcıya (Adı: ${user?.name || "Kullanıcı"}) şirket içi operasyonlarda yardımcı oluyorsun.
+  const systemPrompt = `Sen AriX ERP ve Sipariş Yönetim Sistemi bünyesinde çalışan üst düzey, zeki ve tam yetkili yapay zeka asistanısın (AriX Asistan).
+Şirketin tüm süreçlerine (siparişler, cari bakiyeler, borç-alacak, depo stokları, kurye ve teslimat kanıtları, irsaliye/faturalar, operasyonel işleyiş, ekip rolleri, günlük durum ve teklifler) tam anlamıyla hâkimsin.
+Kullanıcıya (Adı: ${user?.name || "Kullanıcı"}) her türlü operasyonel ve genel konuda yardımcı oluyorsun.
 
-Şirket Anlık Sistem Kayıtları:
+Şirket Anlık Sistem Kayıtları ve Operasyonel Veriler:
 ${contextText}
 
 Talimatlar:
-1. Kullanıcı siparişin kim tarafından hazırlandığını, kimin teslim ettiğini, irsaliye numarasını, teslimat fotoğraflarını, ürün stoklarını veya müşteri bakiyelerini sorduğunda yukarıdaki anlık verilere dayanarak Türkçe, kısa, samimi, net ve net bir dille yanıtla.
-2. Eğer sorulan bilgi yukarıdaki kayıtlarda varsa doğrudan ve net bir şekilde ver.
-3. Gereksiz giriş-çıkış veya felsefe yapma, doğrudan soruya cevap ver.`;
+1. Kullanıcı sana NE SORARSA SORSUN (siparişler, gecikmeler, borçlu müşteriler, kimin ne hazırladığı/teslim ettiği, irsaliye numaraları, fotoğraflar, ürün stokları, şirket gidişatı, operasyonel tavsiyeler, genel sorular veya teklifler) yukarıdaki verilere ve operasyonel tecrübene dayanarak akıllıca, Türkçe, samimi, net ve çözüm odaklı yanıtla.
+2. Kendini asla belirli birkaç soruyla sınırlandırma. Kullanıcının işini kolaylaştıracak yaratıcı fikirler ve operasyonel teklifler sun.
+3. Eğer sorulan bilgi kayıtlarda net varsa doğrudan ver; genel bir tavsiye veya analiz soruluyorsa sistem verilerini yorumlayarak net fikir ve teklif belirt.`;
 
   const res = await fetch(`${ollamaHost}/api/chat`, {
     method: "POST",

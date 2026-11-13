@@ -1360,23 +1360,35 @@
   animation: arixMascotAuraPulse 1.8s infinite ease-in-out;
 }
 
-/* Floating Greeting Bubble */
+/* Floating Greeting & Context Tip Bubble */
 .arix-mascot-floating-bubble {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 10px);
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
   color: #0f172a;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  padding: 6px 12px;
-  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 8px 14px;
+  border-radius: 16px;
   font-size: 11px;
+  line-height: 1.45;
   font-weight: 600;
-  white-space: nowrap;
-  box-shadow: 0 8px 20px -4px rgba(15, 23, 42, 0.15);
+  white-space: normal;
+  max-width: 280px;
+  min-width: 140px;
+  text-align: center;
+  box-shadow: 0 10px 25px -4px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(56, 189, 248, 0.25);
   pointer-events: none;
+  z-index: 10000;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dark .arix-mascot-floating-bubble {
+  background: rgba(15, 23, 42, 0.96);
+  color: #f1f5f9;
+  border-color: rgba(51, 65, 85, 0.8);
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(56, 189, 248, 0.3);
 }
 .arix-mascot-floating-bubble .bubble-tail {
   position: absolute;
@@ -1385,9 +1397,14 @@
   transform: translateX(-50%) rotate(45deg);
   width: 8px;
   height: 8px;
-  background: rgba(255, 255, 255, 0.95);
-  border-right: 1px solid rgba(226, 232, 240, 0.9);
-  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  border-right: 1px solid rgba(148, 163, 184, 0.35);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+}
+.dark .arix-mascot-floating-bubble .bubble-tail {
+  background: rgba(15, 23, 42, 0.96);
+  border-right-color: rgba(51, 65, 85, 0.8);
+  border-bottom-color: rgba(51, 65, 85, 0.8);
 }
 
 /* Interaction Dialog Card */
@@ -1395,7 +1412,8 @@
   position: absolute;
   bottom: calc(100% + 14px);
   left: 0;
-  width: 320px;
+  width: 360px;
+  max-width: min(360px, calc(100vw - 32px));
   background: #ffffff;
   border-radius: 20px;
   border: 1px solid #e2e8f0;

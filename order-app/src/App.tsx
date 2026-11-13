@@ -3559,7 +3559,14 @@ export default function App() {
         />
       )}
       {session && (
-        <AriXLiveMascot currentUser={session} />
+        <AriXLiveMascot
+          currentUser={session}
+          orders={orders}
+          products={products}
+          customers={customers}
+          approvalOrders={approvalOrders}
+          deliveryWaiting={deliveryWaiting}
+        />
       )}
     </main>
   );
