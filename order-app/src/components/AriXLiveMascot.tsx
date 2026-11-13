@@ -323,16 +323,16 @@ export function AriXLiveMascot({
           {/* Quick Context / Answer Area */}
           <div className="arix-mascot-dialog-body">
             {state === "thinking" ? (
-              <div className="flex items-center gap-2.5 text-xs text-blue-600 font-semibold p-3 bg-blue-50 dark:bg-blue-950/40 rounded-xl animate-pulse">
+              <div className="flex items-center gap-2.5 text-xs text-blue-600 dark:text-blue-400 font-semibold p-3.5 bg-blue-50 dark:bg-blue-950/60 rounded-xl border border-blue-200 dark:border-blue-900 animate-pulse">
                 <span className="animate-spin text-base">⚙️</span>
                 <span>Tüm operasyonel veritabanı taranıyor...</span>
               </div>
             ) : answerText ? (
-              <div className="text-xs bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto font-sans">
+              <div className="arix-mascot-answer-box font-sans">
                 {answerText}
               </div>
             ) : (
-              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+              <p className="arix-mascot-intro-box">
                 Merhaba {currentUser?.name ? `${currentUser.name} Bey` : ""}!
                 Şirketin tüm siparişleri, cari borç-alacak durumları, depo stokları, kurye teslimatları veya operasyonel tavsiyeler hakkında <strong>aklınıza gelen her şeyi</strong> sorabilirsiniz.
               </p>
@@ -391,7 +391,7 @@ export function AriXLiveMascot({
               placeholder="Her şeyi sorabilirsiniz (örn: gecikenler, borçlular, ne önerirsin)..."
               value={questionText}
               onChange={(e) => setQuestionText(e.target.value)}
-              className="text-xs flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="arix-mascot-input"
             />
             <button
               type="submit"

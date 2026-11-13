@@ -422,8 +422,30 @@ export function answerAssistant(db, user, text, permissions = {}) {
   const normalized = chatNormalize(question);
 
   if (!question) return { text: ASSISTANT_HELP };
-  if (has(normalized, ["yardim", "yardım", "ne yapabilirsin", "komut", "help", "neler sorabilirim"]) || ["merhaba", "selam", "hey", "kimsin"].includes(normalized)) {
+  if (has(normalized, ["yardim", "yardım", "ne yapabilirsin", "komut", "help", "neler sorabilirim"])) {
     return { text: ASSISTANT_HELP };
+  }
+
+  // Friendly conversational intents
+  if (has(normalized, ["nasilsin", "nasılsın", "naber", "ne haber", "keyifler", "iyi misin", "halin nedir"])) {
+    return {
+      text: `Harikayım, teşekkürler! 🚀 Şirketin tüm siparişlerini, depolarını ve sevkiyatlarını anlık takip ediyorum.\n\nSiz nasılsınız? Bugün kontrol etmemi istediğiniz bir sipariş veya cari hesap var mı?`
+    };
+  }
+  if (has(normalized, ["merhaba", "selam", "selamlar", "gunaydin", "günaydın", "iyi gunler", "iyi günler", "iyi aksamlar", "iyi akşamlar", "kolay gelsin"])) {
+    return {
+      text: `Merhaba ${user?.name ? `${user.name} Bey` : ""}! Hoş geldiniz. 😊\nTüm sipariş süreçleri, irsaliyeler, stok durumları ve cari hesaplar hazır. Size nasıl yardımcı olabilirim?`
+    };
+  }
+  if (has(normalized, ["kimsin", "adin ne", "adın ne", "ismin ne", "sen kimsin"])) {
+    return {
+      text: `Ben AriX Saha ve Operasyon Asistanıyım! 🤖\nŞirketin sipariş hazırlık süreçlerine, irsaliye ve faturalarına, depo stoklarına ve cari hesaplarına hâkim yapay zeka yardımcınızım.`
+    };
+  }
+  if (has(normalized, ["tesekkur", "teşekkür", "sagol", "sağol", "eyvallah", "eline saglik", "eline sağlık"])) {
+    return {
+      text: `Rica ederim, her zaman buradayım! Başka bir sorunuz veya kontrol etmemi istediğiniz bir detay olursa söylemeniz yeterli. ✨`
+    };
   }
 
   if (canOrders) {
