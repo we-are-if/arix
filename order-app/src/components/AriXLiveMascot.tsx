@@ -236,121 +236,42 @@ export function AriXLiveMascot({ onAskQuestion, currentUser }: AriXLiveMascotPro
         </div>
       )}
 
-      {/* 3. Fully-Rigged Articulated SVG Character */}
-      <div className="arix-mascot-rig-wrap">
-        <svg viewBox="0 0 200 220" className="arix-mascot-svg" width="96" height="106">
-          <defs>
-            <linearGradient id="liveBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ffffff" />
-              <stop offset="70%" stopColor="#f8fafc" />
-              <stop offset="100%" stopColor="#cbd5e1" />
-            </linearGradient>
+      {/* 3. Original High-Res 3D Mascot with Preserved Logos & Live Animation */}
+      <div className="arix-mascot-body-wrap">
+        {/* Glowing Aura around character during thinking */}
+        <div className={`arix-mascot-3d-aura ${state === "thinking" ? "is-thinking" : ""}`} />
 
-            <linearGradient id="liveBlueAccent" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#38bdf8" />
-              <stop offset="100%" stopColor="#2563eb" />
-            </linearGradient>
+        {/* 100% Original High-Res 3D Image */}
+        <img
+          src="/arix-mascot.jpg"
+          alt="AriX 3D Asistan Maskotu"
+          className="arix-mascot-3d-img"
+          draggable={false}
+        />
 
-            <linearGradient id="liveGreenAccent" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#34d399" />
-              <stop offset="100%" stopColor="#059669" />
-            </linearGradient>
+        {/* Dynamic Visor Overlay during Thinking */}
+        {state === "thinking" && (
+          <div className="arix-mascot-3d-scanner">
+            <div className="arix-mascot-3d-scanline" />
+            <span className="text-[10px] font-mono font-bold text-cyan-300">ANALİZ...</span>
+          </div>
+        )}
 
-            <linearGradient id="liveVisorGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#0f172a" />
-              <stop offset="60%" stopColor="#1e1b4b" />
-              <stop offset="100%" stopColor="#0f172a" />
-            </linearGradient>
+        {/* Animated Hand Sparkles for Waving Right Hand */}
+        {state !== "thinking" && (
+          <div className="arix-mascot-sparkle-wave">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M4 18 L10 12" stroke="#34d399" strokeWidth="3" strokeLinecap="round" />
+              <path d="M12 20 L20 12" stroke="#38bdf8" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          </div>
+        )}
 
-            <radialGradient id="liveThrusterCyan" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.85" />
-              <stop offset="60%" stopColor="#06b6d4" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
-            </radialGradient>
-          </defs>
-
-          {/* Floor Ambient Thruster Glow */}
-          <ellipse cx="100" cy="208" rx="36" ry="8" fill="url(#liveThrusterCyan)" className="rig-thruster" />
-
-          {/* Legs & Boots */}
-          <g className="rig-legs">
-            <rect x="74" y="145" width="18" height="26" rx="9" fill="url(#liveBodyGrad)" />
-            <ellipse cx="83" cy="172" rx="12" ry="7" fill="url(#liveBlueAccent)" />
-            <rect x="108" y="145" width="18" height="26" rx="9" fill="url(#liveBodyGrad)" />
-            <ellipse cx="117" cy="172" rx="12" ry="7" fill="url(#liveBlueAccent)" />
-          </g>
-
-          {/* Left Arm (Gentle breathing) */}
-          <g className="rig-arm-left">
-            <path d="M65 125 C50 135 48 148 55 160" stroke="url(#liveBodyGrad)" strokeWidth="15" strokeLinecap="round" fill="none" />
-            <circle cx="55" cy="162" r="10" fill="url(#liveBlueAccent)" />
-            <circle cx="59" cy="158" r="4" fill="url(#liveBlueAccent)" />
-          </g>
-
-          {/* Torso */}
-          <g className="rig-torso">
-            <rect x="66" y="108" width="68" height="52" rx="26" fill="url(#liveBodyGrad)" stroke="#e2e8f0" strokeWidth="1.5" />
-            <polygon points="86,140 94,122 101,122 93,140" fill="url(#liveGreenAccent)" />
-            <path d="M102 127 L114 139" stroke="url(#liveBlueAccent)" strokeWidth="4.5" strokeLinecap="round" />
-            <path d="M114 127 L102 139" stroke="url(#liveBlueAccent)" strokeWidth="4.5" strokeLinecap="round" />
-            <ellipse cx="100" cy="110" rx="22" ry="4.5" fill="#38bdf8" opacity="0.75" />
-          </g>
-
-          {/* Right Arm (Articulated Waving / Thinking / Pointing) */}
-          <g className="rig-arm-right">
-            <path d="M135 122 C146 126 156 116 158 98" stroke="url(#liveBodyGrad)" strokeWidth="15" strokeLinecap="round" fill="none" />
-            <circle cx="158" cy="95" r="10.5" fill="url(#liveBlueAccent)" />
-            <circle cx="150" cy="94" r="4.5" fill="url(#liveBlueAccent)" />
-            {state !== "thinking" && (
-              <g className="rig-wave-sparks">
-                <path d="M168 85 C172 87 174 91 172 95" stroke="#34d399" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-                <path d="M174 88 C178 91 180 96 177 101" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" fill="none" />
-              </g>
-            )}
-          </g>
-
-          {/* Head & Tilting Visor */}
-          <g className="rig-head">
-            {/* Headphones */}
-            <ellipse cx="46" cy="74" rx="9" ry="16" fill="url(#liveBodyGrad)" stroke="#cbd5e1" strokeWidth="1" />
-            <ellipse cx="44" cy="74" rx="4.5" ry="10" fill="#38bdf8" />
-            <ellipse cx="154" cy="74" rx="9" ry="16" fill="url(#liveBodyGrad)" stroke="#cbd5e1" strokeWidth="1" />
-            <ellipse cx="156" cy="74" rx="4.5" ry="10" fill="#38bdf8" />
-
-            {/* Helmet */}
-            <rect x="48" y="30" width="104" height="88" rx="44" fill="url(#liveBodyGrad)" stroke="#e2e8f0" strokeWidth="1.5" />
-            <polygon points="72,31 82,31 104,50 94,50" fill="url(#liveGreenAccent)" />
-
-            {/* Top X Mark */}
-            <g transform="translate(112, 33)">
-              <rect x="0" y="3" width="16" height="5" rx="2.5" fill="url(#liveBlueAccent)" transform="rotate(45 8 5.5)" />
-              <rect x="0" y="3" width="16" height="5" rx="2.5" fill="url(#liveBlueAccent)" transform="rotate(-45 8 5.5)" />
-            </g>
-
-            {/* Visor Screen */}
-            <rect x="62" y="50" width="76" height="52" rx="24" fill="url(#liveVisorGrad)" stroke="#38bdf8" strokeWidth="1.2" />
-
-            {/* Eyes depending on state */}
-            {state === "thinking" ? (
-              <g className="rig-eyes-thinking">
-                <rect x="74" y="68" width="52" height="4" rx="2" fill="#38bdf8" opacity="0.9" />
-                <circle cx="85" cy="78" r="3" fill="#34d399" />
-                <circle cx="100" cy="78" r="3.5" fill="#38bdf8" />
-                <circle cx="115" cy="78" r="3" fill="#34d399" />
-              </g>
-            ) : (
-              <g className="rig-eyes-normal">
-                <path d="M76 75 C79 69 87 69 90 75" stroke="#38bdf8" strokeWidth="4.5" strokeLinecap="round" fill="none" />
-                <path d="M110 75 C113 69 121 69 124 75" stroke="#38bdf8" strokeWidth="4.5" strokeLinecap="round" fill="none" />
-                <path d="M96 84 C98 88 102 88 104 84" stroke="#38bdf8" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-                <line x1="72" y1="83" x2="75" y2="87" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
-                <line x1="76" y1="83" x2="79" y2="87" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
-                <line x1="121" y1="83" x2="124" y2="87" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
-                <line x1="125" y1="83" x2="128" y2="87" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
-              </g>
-            )}
-          </g>
-        </svg>
+        {/* 3D Ambient Floor Shadow & Cyan Glow */}
+        <div className="arix-mascot-3d-floor">
+          <div className="floor-shadow" />
+          <div className="floor-glow" />
+        </div>
       </div>
     </aside>
   );
