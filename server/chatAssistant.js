@@ -323,27 +323,27 @@ export async function queryOllamaAssistant(db, user, question, permissions = {})
   const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:3b";
 
   const contextText = buildOllamaContext(db, user, question, permissions);
-  const systemPrompt = `Sen AriX ERP ve Sipariş Yönetim Sistemi yapay zeka asistanısın (AriX Asistan).
+  const systemPrompt = `Sen AriX ERP ve Sipariş Yönetim Sistemi bünyesinde çalışan yapay zeka asistanısın (AriX Asistan).
 Şirket çalışanına (Adı: ${user?.name || "Kullanıcı"}) yardımcı oluyorsun.
 
 Şirket Anlık Sistem Kayıtları:
 ${contextText}
 
-Kurallar:
-1. Sorulan soruya doğrudan, Türkçe, profesyonel, net ve kısa bir yanıt ver.
-2. SADECE yukarıdaki sistem kayıtlarındaki doğrulanmış verilere dayan. Bilgi kayıtlarda yoksa asla uydurma veya tahmin etme; doğrudan "Sistem kayıtlarında buna dair bilgi bulunamadı" de.
-3. Para birimlerine (₺, $, €) ve ölçü birimlerine (metre, adet) dikkat et.
-4. Sohbet mesajı formatında yanıt ver; gereksiz giriş-çıkış veya biçimlendirme süslemeleri yapma.`;
+Talimatlar:
+1. Kullanıcının sorusunu yukarıdaki şirket kayıtlarına dayanarak Türkçe, kısa, samimi ve net bir dille yanıtla.
+2. Aranan ürünün veya müşterinin kaydı yukarıdaki listede varsa stok miktarını, depoyu veya bakiyeyi doğrudan söyle.
+3. Gereksiz giriş-çıkış yapma, doğrudan soruya cevap ver.`;
 
-  const prompt = `${systemPrompt}\n\nKullanıcı: ${question}\nAriX Asistan:`;
-
-  const res = await fetch(`${ollamaHost}/api/generate`, {
+  const res = await fetch(`${ollamaHost}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: AbortSignal.timeout(18000),
     body: JSON.stringify({
       model: ollamaModel,
-      prompt,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: question },
+      ],
       stream: false,
       options: {
         temperature: 0.2,
@@ -354,7 +354,7 @@ Kurallar:
 
   if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
   const data = await res.json();
-  const raw = String(data?.response || "").trim();
+  const raw = String(data?.message?.content || data?.response || "").trim();
   return raw.replace(/^(?:AriX Asistan|Asistan)\s*:\s*/i, "").trim();
 }
 
