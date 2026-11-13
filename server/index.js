@@ -6,7 +6,7 @@ import { chatRateLimit, configureChatRateLimit } from "./chatRateLimit.js";
 import { approvalSlaLevel, approvalSlaLimits, approvalWaitHours, describeApprovalWait, pendingApprovalItems } from "./approvalSla.js";
 import { createChatTask, dueTaskReminders, listChatTasks, setChatTaskStatus } from "./chatTasks.js";
 import { chatPriceAnswer } from "./chatPriceQuery.js";
-import { answerAssistant } from "./chatAssistant.js";
+import { answerAssistant, answerAssistantAsync } from "./chatAssistant.js";
 import { resolvedCustomerPrice } from "./customerPricing.js";
 import { canWithdrawApproval } from "../shared/approvalPermissions.js";
 import { createExportPdfAuthority, selectExportDocument } from "./exportPdfAuthority.js";
@@ -5024,7 +5024,8 @@ async function handleOrderBoard(req, res, url, parts) {
             orders: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "orders.view"),
             customers: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "counterparties.view"),
           };
-          assistantReply = postSystemMessage(db, message.channelId, answerAssistant(db, req.authUser, String(body?.text || ""), permissions));
+          const answer = await answerAssistantAsync(db, req.authUser, String(body?.text || ""), permissions);
+          assistantReply = postSystemMessage(db, message.channelId, answer);
         }
         await writeDb(db);
 

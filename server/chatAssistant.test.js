@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {ASSISTANT_HELP,answerAssistant,findAssistantOrder,stripAssistantNoise} from './chatAssistant.js';
+import {ASSISTANT_HELP,answerAssistant,answerAssistantAsync,findAssistantOrder,stripAssistantNoise} from './chatAssistant.js';
 
 const today=new Date().toISOString().slice(0,10);
 const products=[
@@ -94,4 +94,11 @@ test('noise stripping keeps product and customer words',()=>{
  assert.equal(stripAssistantNoise('00233 fiyat ne kadar?'),'00233');
  assert.equal(stripAssistantNoise('Abanoz 00233 fiyatı'),'Abanoz 00233');
  assert.equal(findAssistantOrder(setup(),'ORD-1042')?.id,'o1');
+});
+
+test('answerAssistantAsync falls back gracefully when Ollama is offline or answers with AI',()=>{
+  const db = setup();
+  return answerAssistantAsync(db, { id: 'u1', name: 'Arif' }, '00233 fiyat').then((res) => {
+    assert.match(res.text, /Liste fiyatı: 5,96/);
+  });
 });

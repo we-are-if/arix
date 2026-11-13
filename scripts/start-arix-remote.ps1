@@ -78,6 +78,28 @@ function Start-TunnelIfNeeded {
     }
 }
 
+function Start-OllamaIfNeeded {
+    if (-not (Test-PortListening -Port 11434)) {
+        $OllamaExe = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
+        if (Test-Path $OllamaExe) {
+            Start-Process -FilePath $OllamaExe -ArgumentList "serve" -WindowStyle Hidden
+        }
+    }
+}
+
+function Start-OllamaTunnelIfNeeded {
+    $SshKey = "C:\Users\ArifMahmud\.ssh\arix_production"
+    if (Test-Path $SshKey) {
+        $tunnelRunning = Get-CimInstance Win32_Process -Filter "Name = 'ssh.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -like "*11434:127.0.0.1:11434*" }
+        if (-not $tunnelRunning) {
+            Start-Process -FilePath "ssh.exe" `
+                -ArgumentList "-i `"$SshKey`" -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -N -R 11434:127.0.0.1:11434 root@2.31.126.121" `
+                -WindowStyle Hidden
+        }
+    }
+}
+
 try {
     while ($true) {
         try { Start-ApiIfNeeded } catch { $_ | Out-File (Join-Path $ProjectRoot ".watchdog-error.log") -Append }
@@ -85,6 +107,8 @@ try {
         try { Start-OrdersIfNeeded } catch { $_ | Out-File (Join-Path $ProjectRoot ".watchdog-error.log") -Append }
         try { Start-MarketingIfNeeded } catch { $_ | Out-File (Join-Path $ProjectRoot ".watchdog-error.log") -Append }
         try { Start-TunnelIfNeeded } catch { $_ | Out-File (Join-Path $ProjectRoot ".watchdog-error.log") -Append }
+        try { Start-OllamaIfNeeded } catch { $_ | Out-File (Join-Path $ProjectRoot ".watchdog-error.log") -Append }
+        try { Start-OllamaTunnelIfNeeded } catch { $_ | Out-File (Join-Path $ProjectRoot ".watchdog-error.log") -Append }
         Start-Sleep -Seconds 15
     }
 }

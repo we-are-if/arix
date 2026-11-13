@@ -192,3 +192,155 @@ export function answerAssistant(db, user, text, permissions = {}) {
   }
   return { text: `Bunu anlayamadım.\n\n${ASSISTANT_HELP}` };
 }
+
+export function buildOllamaContext(db, user, question, permissions = {}) {
+  const canProducts = permissions.products !== false;
+  const canOrders = permissions.orders !== false;
+  const canCustomers = permissions.customers !== false;
+  const currency = String(db.companySettings?.profile?.currencySymbol || db.companySettings?.profile?.baseCurrency || "₺");
+  const today = dayKey();
+  const normalized = chatNormalize(question);
+
+  const sections = [];
+  sections.push(`Bugünün Tarihi: ${dateLabel(today)}`);
+  sections.push(`Para Birimi: ${currency}`);
+
+  // 1. Matched Customers
+  if (canCustomers) {
+    const matchedCustomers = (db.counterparties || []).filter((c) => {
+      if (!c?.name) return false;
+      const cNorm = chatNormalize(c.name);
+      return cNorm && (normalized.includes(cNorm) || cNorm.split(/\s+/).some((w) => w.length > 3 && normalized.includes(w)));
+    }).slice(0, 3);
+
+    if (matchedCustomers.length) {
+      const custLines = matchedCustomers.map((c) => {
+        const cOrders = canOrders
+          ? (db.orderBoard || [])
+              .filter((o) => chatNormalize(o.customerName) === chatNormalize(c.name))
+              .slice(-3)
+              .reverse()
+              .map((o) => `${o.number} (${statusLabel(o.status)}, ${dateLabel(o.businessDate || o.createdAt)}, ${money(o.total || o.grandTotal, currency)})`)
+          : [];
+        return `- ${c.name}: Bakiye = ${money(c.balance, currency)}${cOrders.length ? `, Son Siparişler: ${cOrders.join(" · ")}` : ""}`;
+      });
+      sections.push(`Müşteri Bilgileri:\n${custLines.join("\n")}`);
+    }
+  }
+
+  // 2. Matched Products
+  if (canProducts) {
+    const tokens = stripAssistantNoise(question).split(/\s+/).filter((t) => t.length > 1);
+    const matchedProducts = (db.products || []).filter((p) => {
+      if (!p?.name && !p?.code && !p?.sku) return false;
+      const pText = chatNormalize(`${p.code || ""} ${p.sku || ""} ${p.name || ""}`);
+      return tokens.some((t) => pText.includes(chatNormalize(t)));
+    }).slice(0, 5);
+
+    if (matchedProducts.length) {
+      const prodLines = matchedProducts.map((p) => {
+        const warehouses = Object.entries(p.warehouses || {}).filter(([, v]) => Number(v));
+        const total = warehouses.reduce((sum, [, v]) => sum + (Number(v) || 0), 0);
+        const whDesc = warehouses.map(([wName, wQty]) => `${wName}: ${Number(wQty)}`).join(", ");
+        return `- ${p.name} (Kod: ${p.code || p.sku || "-"}): Fiyat: ${money(p.salePrice, currency)}, Toplam Stok: ${total} ${p.unit || "mt"}${whDesc ? ` [${whDesc}]` : ""}`;
+      });
+      sections.push(`Ürün ve Stok Bilgileri:\n${prodLines.join("\n")}`);
+    }
+  }
+
+  // 3. Matched Orders
+  if (canOrders) {
+    const digits = question.match(/\d{2,}/g) || [];
+    const matchedOrders = (db.orderBoard || []).filter((o) => {
+      const oDigits = digitsOf(o?.number);
+      return digits.some((d) => oDigits === d) || (o?.number && normalized.includes(chatNormalize(o.number)));
+    }).slice(0, 3);
+
+    if (matchedOrders.length) {
+      const ordLines = matchedOrders.map((o) => {
+        return `- Sipariş ${o.number}: Müşteri: ${o.customerName || "-"}, Durum: ${statusLabel(o.status)}, Tarih: ${dateLabel(o.businessDate || o.createdAt)}, Tutar: ${money(o.total || o.grandTotal, currency)}`;
+      });
+      sections.push(`Sipariş Detayı:\n${ordLines.join("\n")}`);
+    }
+
+    // General order stats
+    const todays = (db.orderBoard || []).filter((o) => String(o.businessDate || o.createdAt || "").slice(0, 10) === today && !o.isTest);
+    const pendingAppr = pendingApprovalItems(db);
+    const overdue = (db.orderBoard || []).filter((o) => !["delivered", "fulfilled", "cancelled"].includes(o.status) && String(o.businessDate || "").slice(0, 10) < today);
+
+    sections.push(`Genel Sipariş Durumu:\n- Bugün açılan sipariş sayısı: ${todays.length}\n- Onay bekleyen form sayısı: ${pendingAppr.length}\n- Teslim edilmeyi bekleyen gecikmiş sipariş sayısı: ${overdue.length}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+export async function queryOllamaAssistant(db, user, question, permissions = {}) {
+  const ollamaHost = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
+  const ollamaModel = process.env.OLLAMA_MODEL || "qwen2.5:3b";
+
+  const contextText = buildOllamaContext(db, user, question, permissions);
+  const systemPrompt = `Sen AriX ERP ve Sipariş Yönetim Sistemi yapay zeka asistanısın (AriX Asistan).
+Şirket çalışanına (Adı: ${user?.name || "Kullanıcı"}) yardımcı oluyorsun.
+
+Şirket Anlık Sistem Kayıtları:
+${contextText}
+
+Kurallar:
+1. Sorulan soruya doğrudan, Türkçe, profesyonel, net ve kısa bir yanıt ver.
+2. SADECE yukarıdaki sistem kayıtlarındaki doğrulanmış verilere dayan. Bilgi kayıtlarda yoksa asla uydurma veya tahmin etme; doğrudan "Sistem kayıtlarında buna dair bilgi bulunamadı" de.
+3. Para birimlerine (₺, $, €) ve ölçü birimlerine (metre, adet) dikkat et.
+4. Sohbet mesajı formatında yanıt ver; gereksiz giriş-çıkış veya biçimlendirme süslemeleri yapma.`;
+
+  const prompt = `${systemPrompt}\n\nKullanıcı: ${question}\nAriX Asistan:`;
+
+  const res = await fetch(`${ollamaHost}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(18000),
+    body: JSON.stringify({
+      model: ollamaModel,
+      prompt,
+      stream: false,
+      options: {
+        temperature: 0.2,
+        top_p: 0.9,
+      },
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+  const data = await res.json();
+  const raw = String(data?.response || "").trim();
+  return raw.replace(/^(?:AriX Asistan|Asistan)\s*:\s*/i, "").trim();
+}
+
+export async function answerAssistantAsync(db, user, text, permissions = {}) {
+  const question = String(text || "").trim();
+  const normalized = chatNormalize(question);
+
+  if (!question) return { text: ASSISTANT_HELP };
+  if (has(normalized, ["yardim", "yardım", "ne yapabilirsin", "komut", "help", "neler sorabilirim"])) {
+    return { text: ASSISTANT_HELP };
+  }
+
+  // 1. Fast deterministic rule-based check
+  const baseAnswer = answerAssistant(db, user, question, permissions);
+  const isFallback = baseAnswer?.text?.startsWith("Bunu anlayamadım");
+  const isGreeting = ["merhaba", "selam", "hey", "kimsin"].includes(normalized);
+
+  if (!isFallback && !isGreeting) {
+    return baseAnswer;
+  }
+
+  // 2. Ollama intelligent reasoning
+  try {
+    const aiAnswer = await queryOllamaAssistant(db, user, question, permissions);
+    if (aiAnswer) {
+      return { text: aiAnswer };
+    }
+  } catch (err) {
+    // If Ollama is offline or times out, fallback seamlessly
+  }
+
+  return baseAnswer;
+}
