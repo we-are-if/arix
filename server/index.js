@@ -4993,6 +4993,17 @@ async function handleOrderBoard(req, res, url, parts) {
         return send(res, 201, { data: { task, message } });
       }
     }
+    if (sub === "assistant-query" && req.method === "POST") {
+      const body = await parseBody(req);
+      const question = String(body?.question || "").trim();
+      const permissions = {
+        products: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "products.view"),
+        orders: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "orders.view"),
+        customers: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "counterparties.view"),
+      };
+      const answer = await answerAssistantAsync(db, req.authUser, question, permissions);
+      return send(res, 200, { data: answer, text: answer?.text || "" });
+    }
     if (sub === "messages") {
       if (req.method === "GET") {
         const channelId = url.searchParams.get("channelId") || "general";

@@ -1570,11 +1570,11 @@ export function TeamChatWidget({
         </div>
       )}
 
-      {/* DRAGGABLE ARIX LIVING MASCOT FAB */}
+      {/* DRAGGABLE ARIX FAB BUTTON */}
       <button
         ref={fabRef}
         type="button"
-        className={`team-chat-fab arix-mascot-fab ${isOpen ? "is-active" : ""} ${totalUnread > 0 ? "has-unread" : ""} ${isDragging ? "is-dragging" : ""}`}
+        className={`team-chat-fab ${isOpen ? "is-active" : ""} ${totalUnread > 0 ? "has-unread" : ""} ${isDragging ? "is-dragging" : ""}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1585,16 +1585,41 @@ export function TeamChatWidget({
           bottom: "auto",
           right: "auto",
         } : undefined}
-        aria-label="AriX Asistan"
-        title="AriX Akıllı Saha Asistanı (Sürükleyip istediğiniz yere bırakabilirsiniz)"
+        aria-label="AriX Ekip Sohbeti"
+        title="AriX Ekip Sohbeti (Sürükleyip istediğiniz yere bırakabilirsiniz)"
       >
-        <AriXMascot
-          size="fab"
-          state={isAssistantThinking ? "thinking" : totalUnread > 0 ? "alert" : "idle"}
-          badgeCount={totalUnread}
-          showBubble={false}
-          interactive={false}
-        />
+        <div className="team-chat-fab-pulse" />
+        
+        {/* AriX Custom Floating Speech Emblem */}
+        <div className="team-chat-fab-emblem">
+          <svg viewBox="0 0 60 60" width="56" height="56" fill="none">
+            <defs>
+              <linearGradient id="arixFabBorderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#34d399" />
+                <stop offset="50%" stopColor="#38bdf8" />
+                <stop offset="100%" stopColor="#4f7ddc" />
+              </linearGradient>
+            </defs>
+            {/* Elegant Speech Bubble Shape */}
+            <path
+              d="M30 6C16.745 6 6 16.745 6 30C6 34.62 7.305 38.935 9.56 42.6L7 52.5L17.225 50.15C20.89 52.585 25.285 54 30 54C43.255 54 54 43.255 54 30C54 16.745 43.255 6 30 6Z"
+              fill="#ffffff"
+              stroke="url(#arixFabBorderGrad)"
+              strokeWidth="2.5"
+              strokeLinejoin="round"
+            />
+            {/* Centered geometric AriX Logo */}
+            <g transform="translate(7.5, 8.5) scale(0.40)">
+              <polygon points="30,80 46,20 70,20 54,80" fill="#34d399" />
+              <path d="M62 40 L84 62" stroke="#4f7ddc" strokeWidth={10} strokeLinecap="round" />
+              <path d="M84 40 L62 62" stroke="#4f7ddc" strokeWidth={10} strokeLinecap="round" />
+            </g>
+          </svg>
+        </div>
+
+        {totalUnread > 0 && (
+          <span className="team-chat-fab-badge">{totalUnread > 99 ? "99+" : totalUnread}</span>
+        )}
       </button>
 
       {/* CHAT DRAWER */}

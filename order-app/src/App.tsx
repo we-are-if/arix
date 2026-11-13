@@ -8,6 +8,7 @@ import AriXLogo from "../../src/components/AriXLogo";
 import { matchOrderFormItems, mergeFormWarning } from "../../shared/orderFormItems.js";
 import { sortApprovalHistory } from "../../shared/approvalFormHistory.js";
 import { TeamChatWidget } from "./components/TeamChatWidget";
+import { AriXLiveMascot } from "./components/AriXLiveMascot";
 import { AriXContextMenu, ContextMenuTarget } from "./components/AriXContextMenu";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -3556,6 +3557,9 @@ export default function App() {
             setChatPresetProduct(null);
           }}
         />
+      )}
+      {session && (
+        <AriXLiveMascot currentUser={session} />
       )}
     </main>
   );
