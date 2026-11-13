@@ -150,9 +150,80 @@ function orderAnswer(db, order) {
   };
 }
 
+function generalStockSummary(db) {
+  const products = db.products || [];
+  if (!products.length) return { text: "📦 Sistemde kayıtlı ürün bulunamadı." };
+
+  let totalMeters = 0;
+  const warehouseTotals = {};
+  const zeroStock = [];
+  const topStock = [];
+
+  for (const p of products) {
+    const wh = Object.entries(p.warehouses || {}).filter(([, v]) => Number(v));
+    const pTotal = wh.reduce((sum, [, v]) => sum + (Number(v) || 0), 0);
+    totalMeters += pTotal;
+
+    for (const [whName, qty] of wh) {
+      warehouseTotals[whName] = (warehouseTotals[whName] || 0) + (Number(qty) || 0);
+    }
+
+    if (pTotal <= 0) {
+      zeroStock.push(p);
+    } else {
+      topStock.push({ p, total: pTotal });
+    }
+  }
+
+  topStock.sort((a, b) => b.total - a.total);
+
+  const whLines = Object.entries(warehouseTotals).map(
+    ([name, qty]) => `· ${name}: ${Number(qty).toLocaleString("tr-TR")} mt`
+  );
+
+  const topLines = topStock.slice(0, 5).map(
+    ({ p, total }) => `· ${p.name} (${p.code || "-"}): ${total.toLocaleString("tr-TR")} ${p.unit || "mt"}`
+  );
+
+  const zeroNote = zeroStock.length > 0
+    ? `\n⚠️ Kritik: ${zeroStock.length} ürünün stoku 0 seviyesinde.`
+    : `\n✨ Tüm kayıtlı ürünlerde pozitif stok mevcut.`;
+
+  return {
+    text: `📊 Depo ve Stok Genel Özeti:
+· Kayıtlı Toplam Ürün: ${products.length} çeşit
+· Depolardaki Toplam Stok: ${totalMeters.toLocaleString("tr-TR")} mt
+
+Depo Dağılımı:
+${whLines.join("\n") || "· Depo verisi yok"}
+
+En Yüksek Stoklu Ürünler:
+${topLines.join("\n") || "· Veri yok"}
+${zeroNote}
+
+Tek bir ürünün stok veya fiyatını öğrenmek için örneğin “011 stok” veya “00233 fiyat” yazabilirsiniz.`
+  };
+}
+
 function stockAnswer(db, query) {
-  const matches = matchAssistantProducts(db.products, query);
-  if (!matches.length) return { text: `“${query}” için ürün bulunamadı.` };
+  const norm = chatNormalize(query || "");
+  const generalTerms = [
+    "elimizdeki", "miktari", "miktarı", "durumu", "genel", "toplam", "hepsi", "depo", "depolar",
+    "elimizdeki miktari", "elimizdeki miktarı", "stok durumu", "stoklar", "mevcut", "kalan", "ne kadar"
+  ];
+  const isGeneralQuery = !query || generalTerms.some((term) => norm === term || norm.includes(term));
+
+  const matches = query && !isGeneralQuery ? matchAssistantProducts(db.products, query) : [];
+
+  if (!matches.length) {
+    if (query && !isGeneralQuery && query.length >= 3) {
+      return {
+        text: `“${query}” adında belirli bir ürün bulunamadı.\n\n${generalStockSummary(db).text}`
+      };
+    }
+    return generalStockSummary(db);
+  }
+
   const describe = (product) => {
     const warehouses = Object.entries(product.warehouses || {}).filter(([, value]) => Number(value));
     const total = warehouses.reduce((sum, [, value]) => sum + (Number(value) || 0), 0);
@@ -298,11 +369,13 @@ export function answerOperationalQuery(db, question) {
   const normQ = chatNormalize(question);
 
   const asksPreparation = [
-    "kim hazirladi", "kim hazirlamis", "hazirlayan kim", "kim kesti", "kesen kim", "hazirlik durumu"
+    "kim hazirladi", "kim ne hazirladi", "kim hazirlamis", "hazirlayan kim", "kim kesti", "kesen kim",
+    "hazirlik durumu", "hazirlananlar", "hazirlanan siparisler", "ne hazirlandi"
   ].some((w) => normQ.includes(w));
 
   const asksDelivery = [
-    "kim teslim etti", "kim teslim etmis", "teslim eden kim", "teslimatci kim", "teslimatci", "kime teslim edildi", "teslimat saati", "teslimat notu"
+    "kim teslim etti", "kim ne teslim etti", "kim teslim etmis", "teslim eden kim", "teslimatci kim",
+    "teslimatci", "kime teslim edildi", "teslimat saati", "teslimat notu", "teslim edilenler", "teslim edilen siparisler", "kuryeler"
   ].some((w) => normQ.includes(w));
 
   const asksDespatch = [
@@ -326,7 +399,57 @@ export function answerOperationalQuery(db, question) {
     }
   }
 
-  if (!order) return null;
+  if (!order) {
+    if (asksPreparation) {
+      const preparedOrders = (db.orderBoard || [])
+        .filter((o) => o.preparedBy || o.items?.some((i) => i.preparedBy))
+        .slice(-10)
+        .reverse();
+
+      if (!preparedOrders.length) {
+        return { text: "📦 Sistemde henüz hazırlık kaydı girilmiş bir sipariş bulunmuyor." };
+      }
+
+      const byPerson = {};
+      for (const o of preparedOrders) {
+        const p = o.preparedBy || o.items?.find((i) => i.preparedBy)?.preparedBy || "Depo";
+        byPerson[p] = (byPerson[p] || 0) + 1;
+      }
+
+      const personLines = Object.entries(byPerson).map(([p, count]) => `· ${p}: ${count} sipariş`);
+      const recentLines = preparedOrders.slice(0, 5).map((o) => `· ${o.number} (${o.customerName}): ${o.preparedBy || o.items?.find((i) => i.preparedBy)?.preparedBy || "Depo"}`);
+
+      return {
+        text: `👷 Depo Hazırlık Dağılımı:\n${personLines.join("\n")}\n\nSon Hazırlanan Siparişler:\n${recentLines.join("\n")}\n\nBelirli bir sipariş için örneğin “ORD-0315660 kim hazırladı” yazabilirsiniz.`
+      };
+    }
+
+    if (asksDelivery) {
+      const deliveredOrders = (db.orderBoard || [])
+        .filter((o) => o.status === "delivered" || o.deliveredBy)
+        .slice(-10)
+        .reverse();
+
+      if (!deliveredOrders.length) {
+        return { text: "🚚 Henüz teslim edilmiş bir sipariş kaydı bulunmuyor." };
+      }
+
+      const byPerson = {};
+      for (const o of deliveredOrders) {
+        const d = o.deliveredBy || "Kurye";
+        byPerson[d] = (byPerson[d] || 0) + 1;
+      }
+
+      const personLines = Object.entries(byPerson).map(([d, count]) => `· ${d}: ${count} teslimat`);
+      const recentLines = deliveredOrders.slice(0, 5).map((o) => `· ${o.number} (${o.customerName}): ${o.deliveredBy || "Kurye"}`);
+
+      return {
+        text: `🚚 Sevkiyat ve Teslimat Dağılımı:\n${personLines.join("\n")}\n\nSon Teslim Edilen Siparişler:\n${recentLines.join("\n")}\n\nBelirli bir sipariş için örneğin “ORD-0315660 kim teslim etti” yazabilirsiniz.`
+      };
+    }
+
+    return null;
+  }
 
   const prep = order.preparedBy || order.items?.find((i) => i.preparedBy)?.preparedBy;
   const prepTime = order.preparedAt || order.readyAt;
