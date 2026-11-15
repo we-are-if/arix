@@ -1,0 +1,1 @@
+export function canWithdrawApproval(form: {status?: string; submittedForApproval?: boolean; preparedByUserId?: string; preparedBy?: string} | null | undefined, user: {id?: string | number; name?: string}, isOwner?: boolean): boolean;

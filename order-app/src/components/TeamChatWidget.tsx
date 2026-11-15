@@ -367,6 +367,7 @@ export function TeamChatWidget({
 }: TeamChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
+  const [assistantPartial, setAssistantPartial] = useState<{ channelId: string; text: string } | null>(null);
   const [infoOpen,setInfoOpen]=useState<"self"|"channel"|null>(null);
   const [menuMessage,setMenuMessage]=useState<ChatMessage|null>(null);
   const [taskSource,setTaskSource]=useState<ChatMessage|null>(null);
@@ -928,12 +929,23 @@ export function TeamChatWidget({
       let change:any;
       try{change=JSON.parse(event.data);}catch{return;}
       const activeId=selectedChannelRef.current?.id;
+      if(change.type==='assistant-delta'){
+        if(change.channelId===activeId) {
+          setIsAssistantThinking(true);
+          setAssistantPartial({channelId: change.channelId, text: change.text});
+        }
+        return;
+      }
       if(change.type==='typing'){
         if(change.channelId===activeId)showTyping((change.typing||[]).map((u:any)=>u.name));
         return;
       }
       if(change.type==='message'){
         const incoming=change.message;
+        if(change.channelId===activeId && activeId?.startsWith('assistant:') && incoming?.senderId==='system') {
+          setAssistantPartial(null);
+          setIsAssistantThinking(false);
+        }
         if(incoming && activeId && change.channelId===activeId && !(searchRef.current)){
           setMessages(prev=>prev.some(m=>m.id===incoming.id)?prev:[...prev,incoming].sort((a,b)=>a.createdAt.localeCompare(b.createdAt)));
           if(visibleChatRef.current && document.visibilityState==='visible' && nearBottomRef.current && readThroughRef.current[activeId]!==incoming.id){
@@ -1299,9 +1311,11 @@ export function TeamChatWidget({
       }
       setChatError(''); void loadChannels();
       setIsAssistantThinking(false);
+      setAssistantPartial(null);
       return message;
     } catch {
       setIsAssistantThinking(false);
+      setAssistantPartial(null);
       setChatError('Mesaj gönderilemedi. Aşağıdaki bekleyen mesajdan yeniden deneyin.');
       return null;
     }
@@ -1328,6 +1342,7 @@ export function TeamChatWidget({
     if(!text.trim() && !attachImage && !attachOrder && !attachProduct)return;
     if (selectedChannel.id.startsWith("assistant:") || selectedChannel.name?.includes("Asistan")) {
       setIsAssistantThinking(true);
+      setAssistantPartial(null);
     }
     const id=crypto.randomUUID();
     const entry={id,payload:{clientMessageId:id,channelId:selectedChannel.id,text:text.trim(),imageUrl:attachImage,orderReference:attachOrder,productReference:attachProduct,replyToReference:replyingTo}};
@@ -2645,7 +2660,7 @@ export function TeamChatWidget({
                   <div style={{ width: "24px", height: "24px" }}>
                     <AriXMascot size="xs" state="thinking" interactive={false} />
                   </div>
-                  <span>AriX Asistan düşünüyor ve operasyon kayıtlarını tarıyor...</span>
+                  <span style={{ whiteSpace: "pre-wrap", maxHeight: "30vh", overflowY: "auto" }}>{assistantPartial?.channelId === selectedChannel?.id ? assistantPartial.text : "AriX Asistan düşünüyor..."}</span>
                 </div>
               )}
               {typingNames.length>0&&<small style={{padding:"4px 16px"}}>{typingNames.join(", ")} yazıyor…</small>}

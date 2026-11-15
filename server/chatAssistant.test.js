@@ -1,5 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {ASSISTANT_HELP,answerAssistant,answerAssistantAsync,findAssistantOrder,stripAssistantNoise} from './chatAssistant.js';
+import { relevantOllamaContext, queryOllamaAssistant } from './chatAssistant.js';
+import { readAssistantStream } from '../shared/assistantStream.js';
 
 const today=new Date().toISOString().slice(0,10);
 const products=[
@@ -96,9 +98,65 @@ test('noise stripping keeps product and customer words',()=>{
  assert.equal(findAssistantOrder(setup(),'ORD-1042')?.id,'o1');
 });
 
-test('answerAssistantAsync falls back gracefully when Ollama is offline or answers with AI',()=>{
-  const db = setup();
-  return answerAssistantAsync(db, { id: 'u1', name: 'Arif' }, '00233 fiyat').then((res) => {
-    assert.match(res.text, /Liste fiyatı: 5,96/);
+test('all questions including counts and greetings reach AI interpretation', async (t) => {
+  let calls=0;
+  t.mock.method(globalThis,'fetch',async (_url, options)=>{
+    calls++;
+    const body=JSON.parse(options.body);
+    assert.ok(body.format);
+    return {ok:true,json:async()=>({message:{content:JSON.stringify({action:'general',query:'',reply:'Test yanıtı'})}})};
   });
+  for(const question of ['Kaç ürün var?','00233 fiyat','merhaba']) {
+    assert.equal((await answerAssistantAsync(setup(),{},question)).text,'Test yanıtı');
+  }
+  assert.equal(calls,3);
+});
+
+test('offline Ollama is reported rather than hidden behind a canned answer', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('fetch failed'); });
+  const result = await answerAssistantAsync(setup(), {}, 'Bir cümleyle kendini anlat');
+  assert.match(result.text, /bağlantısı şu anda kapalı/);
+});
+
+test('Ollama timeout and empty response are explicit failures', async (t) => {
+  const mock = t.mock.method(globalThis, 'fetch', async () => { throw new DOMException('timeout', 'TimeoutError'); });
+  assert.match((await answerAssistantAsync(setup(), {}, 'Bir cümleyle kendini anlat')).text, /zamanında tamamlanamadı/);
+  mock.mock.mockImplementation(async () => ({ ok: true, json: async () => ({ message: { content: '' } }) }));
+  assert.match((await answerAssistantAsync(setup(), {}, 'Bir cümleyle kendini anlat')).text, /bağlantısı şu anda kapalı/);
+});
+
+test('streaming decodes split UTF-8 and delivers partial answers before completion', async (t) => {
+  const bytes = new TextEncoder().encode(JSON.stringify({message:{content:'Türkçe ışık'}})+'\n'+JSON.stringify({done:true})+'\n');
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    assert.equal(JSON.parse(options.body).stream, true);
+    return { ok:true, body: new ReadableStream({ start(controller) {
+      for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+      controller.close();
+    } }) };
+  });
+  const deltas=[];
+  const answer=await queryOllamaAssistant(setup(), {}, 'Kendini anlat', {}, delta=>deltas.push(delta));
+  assert.deepEqual(deltas,['Türkçe ışık']);
+  assert.equal(answer,'Türkçe ışık');
+});
+
+test('a cut-off generation is not presented as a completed answer', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => ({ok:true, body:new Response('{"message":{"content":"Yarım"}}\n').body}));
+  await assert.rejects(queryOllamaAssistant(setup(),{},'Kendini anlat',{},()=>{}), /incomplete/);
+});
+
+test('context excludes unrelated data and respects denied permissions', () => {
+  const db=setup({customers:[{name:'Gizli Musteri',balance:-5000}]});
+  const greeting=relevantOllamaContext(db,{},'Kendini tanıt');
+  assert.doesNotMatch(greeting,/Gizli Musteri|ORD-1042|Ürün Çeşidi/);
+  const stock=relevantOllamaContext(db,{},'00233 stok');
+  assert.match(stock,/Soft Touch/);
+  assert.doesNotMatch(stock,/Gizli Musteri|ORD-1042/);
+  assert.doesNotMatch(relevantOllamaContext(db,{},'genel operasyon',{orders:false,products:false,customers:false}),/Gizli Musteri|ORD-1042/);
+});
+
+test('stream parser accepts a final line without newline', async () => {
+  const result=[];
+  for await (const event of readAssistantStream(new Response('{"type":"done","text":"tamam"}').body)) result.push(event);
+  assert.deepEqual(result,[{type:'done',text:'tamam'}]);
 });

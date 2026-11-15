@@ -5001,6 +5001,15 @@ async function handleOrderBoard(req, res, url, parts) {
         orders: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "orders.view"),
         customers: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "counterparties.view"),
       };
+      if (body?.stream === true) {
+        res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
+        res.flushHeaders?.();
+        const emit = (event) => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify(event) + "\n"); };
+        const answer = await answerAssistantAsync(db, req.authUser, question, permissions, delta => emit({ type: "delta", delta }));
+        emit({ type: "done", text: answer.text });
+        res.end();
+        return;
+      }
       const answer = await answerAssistantAsync(db, req.authUser, question, permissions);
       return send(res, 200, { data: answer, text: answer?.text || "" });
     }
@@ -5035,7 +5044,14 @@ async function handleOrderBoard(req, res, url, parts) {
             orders: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "orders.view"),
             customers: orderWorkflowRole(req.authUser) === "owner" || hasPermission(req.authUser, "counterparties.view"),
           };
-          const answer = await answerAssistantAsync(db, req.authUser, String(body?.text || ""), permissions);
+          let partial = "";
+          const history = (db.chatMessages || [])
+            .filter(item => item.channelId === message.channelId && item.id !== message.id && !item.deletedAt)
+            .slice(-6).map(item => ({ role: item.senderId === "system" ? "assistant" : "user", content: String(item.text || "").slice(0, 600) }));
+          const answer = await answerAssistantAsync(db, req.authUser, String(body?.text || ""), permissions, delta => {
+            partial += delta;
+            notifyChatStreams(db, message.channelId, { type: "assistant-delta", requestId: message.id, text: partial });
+          }, history);
           assistantReply = postSystemMessage(db, message.channelId, answer);
         }
         await writeDb(db);

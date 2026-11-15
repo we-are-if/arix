@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { readAssistantStream } from "../../../shared/assistantStream.js";
 
 export type MascotState = "idle" | "thinking" | "happy";
 
@@ -250,11 +251,26 @@ export function AriXLiveMascot({
         const res = await fetch("/api/orders/chat/assistant-query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: query }),
+          body: JSON.stringify({ question: query, stream: true }),
         });
         if (res.ok) {
-          const data = await res.json();
-          reply = data?.text || data?.answer || null;
+          if (res.headers.get("content-type")?.includes("ndjson")) {
+            let partial = "";
+            let completed = false;
+            for await (const event of readAssistantStream(res.body)) {
+              if (event.type === "delta") {
+                partial += event.delta;
+                setAnswerText(partial);
+              } else if (event.type === "done") {
+                reply = event.text;
+                completed = true;
+              }
+            }
+            if (!completed) throw new Error("Incomplete answer");
+          } else {
+            const data = await res.json();
+            reply = data?.text || data?.answer || null;
+          }
         }
       }
 
@@ -322,10 +338,10 @@ export function AriXLiveMascot({
 
           {/* Quick Context / Answer Area */}
           <div className="arix-mascot-dialog-body">
-            {state === "thinking" ? (
+            {state === "thinking" && !answerText ? (
               <div className="flex items-center gap-2.5 text-xs text-blue-600 dark:text-blue-400 font-semibold p-3.5 bg-blue-50 dark:bg-blue-950/60 rounded-xl border border-blue-200 dark:border-blue-900 animate-pulse">
                 <span className="animate-spin text-base">⚙️</span>
-                <span>Tüm operasyonel veritabanı taranıyor...</span>
+                <span>Yanıt hazırlanıyor...</span>
               </div>
             ) : answerText ? (
               <div className="arix-mascot-answer-box font-sans">

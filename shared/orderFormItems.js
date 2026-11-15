@@ -16,6 +16,8 @@ export function mergeFormWarning(orders) {
 
 export function orderLineMatchesItem(line, item) {
   if (!line || !item) return false;
+  // An extra manual document row must not consume a catalog order row.
+  if (line.manual === true && !item.manual && item.productId != null) return false;
   if (line.productId != null && item.productId != null && String(line.productId) === String(item.productId)) {
     return true;
   }
