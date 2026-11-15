@@ -1,0 +1,66 @@
+/* Keep mobile operation details readable without light surfaces in dark mode. */
+:root[data-theme="dark"] .operation-row .operation-mobile-card :is(.op-m-time,.op-m-category) {
+  background: #283548 !important; color: #e2e8f0 !important; border-color: #42516a !important;
+}
+:root[data-theme="dark"] .operation-row :is(.op-m-channel-pill.bank,.op-m-status.transfer,.channel-pill.bank,.kind-badge.transfer) {
+  background: #303450 !important; color: #c7d2fe !important; border-color: #555986 !important;
+}
+:root[data-theme="dark"] .operation-row :is(.op-m-channel-pill.cash,.op-m-status.income,.channel-pill.cash,.kind-badge.income) {
+  background: #173e36 !important; color: #6ee7b7 !important; border-color: #2b6654 !important;
+}
+:root[data-theme="dark"] .operation-row :is(.op-m-status.expense,.kind-badge.expense) {
+  background: #452b3b !important; color: #fda4af !important; border-color: #774052 !important;
+}
+:root[data-theme="dark"] .operation-row :is(.op-m-status.pending,.op-m-channel-pill.diff-bank,.expense-method-tag.diff-bank) {
+  background: #443923 !important; color: #fcd34d !important; border-color: #796339 !important;
+}
+:root[data-theme="dark"] .operation-row :is(.op-m-channel-pill.same-bank,.expense-method-tag.same-bank) {
+  background: #203d51 !important; color: #7dd3fc !important; border-color: #366580 !important;
+}
+:root[data-theme="dark"] .operation-row .operation-mobile-card .op-m-amount.income { color: #6ee7b7 !important; }
+:root[data-theme="dark"] .operation-row .operation-mobile-card .op-m-amount.expense { color: #fda4af !important; }
+:root[data-theme="dark"] .operation-row .operation-mobile-card .op-m-amount.transfer { color: #c7d2fe !important; }
+
+/* Installed iOS apps draw beneath the transparent status bar. Reserve that
+   space once; keep the sticky header below it and the bottom canvas themed. */
+html[data-ios-standalone="true"] body {
+  padding-top: env(safe-area-inset-top, 0px);
+  box-sizing: border-box;
+}
+html[data-ios-standalone="true"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--arix-page, #f5f7fb);
+  pointer-events: none;
+  z-index: 2147483646;
+}
+html[data-ios-standalone="true"] .topbar { top: env(safe-area-inset-top, 0px) !important; }
+html[data-ios-standalone="true"] .app-shell { min-height: calc(100dvh - env(safe-area-inset-top, 0px)); }
+@media (max-width: 760px) {
+  html[data-ios-standalone="true"] .workspace {
+    min-height: calc(100dvh - 58px - env(safe-area-inset-top, 0px)) !important;
+  }
+}
+@media (display-mode: standalone) {
+  html, body { background-color: var(--arix-page, #f5f7fb) !important; }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: auto 0 0;
+    height: env(safe-area-inset-bottom, 0px);
+    background: var(--arix-page, #f5f7fb);
+    pointer-events: none;
+    z-index: 49;
+  }
+}
+:root[data-theme="dark"] .operation-row .operation-mobile-card .op-m-kind-icon.income {
+  background: #173e36 !important; color: #6ee7b7 !important; border-color: #2b6654 !important;
+}
+:root[data-theme="dark"] .operation-row .operation-mobile-card .op-m-kind-icon.expense {
+  background: #452b3b !important; color: #fda4af !important; border-color: #774052 !important;
+}
+:root[data-theme="dark"] .operation-row .operation-mobile-card .op-m-kind-icon.transfer {
+  background: #303450 !important; color: #c7d2fe !important; border-color: #555986 !important;
+}

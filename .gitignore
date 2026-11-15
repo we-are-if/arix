@@ -39,6 +39,16 @@ daily-app-first/
 
 # Real financial seed data generated from internal spreadsheets; never commit
 server/dailySparexpertSeed.js
+server/data/db.json
+server/data/daily/
+daily-app/src/importedData.ts
+daily-app/src/sparexpertDefaults.ts
+daily-app/src/investorOpening.local.ts
+daily-app/src/productCatalog.ts
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+__pycache__/
 
 # Editor directories and files
 .vscode/*

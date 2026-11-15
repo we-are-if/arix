@@ -1,0 +1,82 @@
+.ledger-toolbar-actions .note-summary-trigger { flex: 0 0 auto; }
+.ledger-toolbar-actions .note-summary-trigger svg { flex: none; }
+@media (max-width: 760px) {
+  .ledger-toolbar-actions .note-summary-trigger span { display: none; }
+  .ledger-toolbar-actions .note-summary-trigger { inline-size: 34px; padding-inline: 0; }
+}
+.note-summary-dialog {
+  box-sizing: border-box; inline-size: min(34rem, calc(100% - 1.25rem)); max-inline-size: calc(100% - 1.25rem);
+  max-block-size: min(85dvh, 46rem); padding: 0; border: 1px solid var(--arix-line);
+  border-radius: 1rem; background: var(--arix-panel, Canvas); color: var(--arix-text, CanvasText);
+  box-shadow: 0 20px 65px #10182840;
+}
+.note-summary-dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
+.note-summary-dialog::backdrop { background: #1018288c; }
+.note-summary-header {
+  display: flex; align-items: center; gap: .45rem; padding: .75rem;
+  border-bottom: 1px solid var(--arix-line);
+}
+.note-summary-heading { flex: 1; min-inline-size: 0; }
+.note-summary-heading h2 { margin: 0; font-size: 1rem; line-height: 1.2; overflow-wrap: anywhere; }
+.note-summary-dialog small { color: var(--arix-muted); }
+.note-summary-emblem, .note-summary-icon {
+  display: inline-grid; place-items: center; flex: 0 0 auto; inline-size: 2.25rem; block-size: 2.25rem;
+  border-radius: .65rem; padding: 0;
+}
+.note-summary-emblem, .note-summary-icon[aria-expanded="true"] { background: var(--arix-nav-active, #eeedff); }
+.note-summary-icon { color: inherit; background: transparent; border: 1px solid var(--arix-line); cursor: pointer; }
+.note-summary-icon:hover { background: var(--arix-nav-active, #eeedff); }
+.note-summary-dialog fieldset {
+  margin: .45rem .75rem 0; padding: .35rem .45rem; min-inline-size: 0;
+  border: 1px solid var(--arix-line); border-radius: .65rem;
+}
+.note-summary-dialog fieldset[hidden] { display: none; }
+.note-summary-dialog legend { font-size: .8rem; font-weight: 600; }
+.note-summary-levels { display: flex; flex-wrap: wrap; gap: .3rem; }
+.note-summary-levels label { display: flex; align-items: center; gap: .25rem; padding: .3rem; cursor: pointer; }
+.note-summary-levels label:has(input:checked) { background: var(--arix-nav-active, #eeedff); border-radius: .4rem; }
+.note-summary-list {
+  min-block-size: 0; overflow: auto; overscroll-behavior: contain;
+  display: grid; gap: .45rem; padding: .7rem .75rem;
+}
+.note-summary-list > p { margin: 0; padding: .7rem .4rem; color: var(--arix-muted); }
+.note-summary-list details { border: 1px solid var(--arix-line); border-radius: .7rem; }
+.note-summary-list summary { display: block; padding: .55rem .6rem; cursor: pointer; overflow-wrap: anywhere; }
+.note-summary-list summary::-webkit-details-marker { display: none; }
+.note-summary-group-title, .note-summary-list li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: .4rem;
+}
+.note-summary-group-title strong { flex: 1; min-inline-size: 0; }
+.note-summary-group-title small, .note-summary-group-title svg { flex-shrink: 0; }
+.note-summary-list details[open] .note-summary-group-title svg { transform: rotate(180deg); }
+.note-summary-totals { display: flex; flex-wrap: wrap; gap: .2rem .55rem; margin-top: .3rem; font-size: .8rem; }
+.note-summary-totals b, .note-summary-list li b { white-space: nowrap; }
+.note-summary-list ul { margin: 0; padding: 0 .6rem; }
+.note-summary-list li { padding: .4rem 0; border-top: 1px solid var(--arix-line); overflow-wrap: anywhere; }
+.note-summary-list li small { display: block; }
+@media (max-width: 380px) { .note-summary-emblem { display: none; } }
+
+@media (max-width: 760px) {
+  .ledger-toolbar-actions:has(.note-summary-trigger) {
+    grid-template-columns: minmax(0, 1fr) auto auto !important;
+  }
+  .ledger-toolbar-actions:has(.note-summary-trigger) > .search-box {
+    min-width: 0 !important;
+  }
+  .ledger-toolbar-actions:has(.note-summary-trigger) > .panel-expand-btn {
+    display: none !important;
+  }
+}
+
+.note-summary-merge-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; padding: .5rem .75rem 0; font-size: .8rem; }
+.note-summary-merge-tools button, .note-summary-split { padding: .35rem .55rem; border: 1px solid var(--arix-line); border-radius: .55rem; background: var(--arix-panel); color: inherit; cursor: pointer; font: inherit; }
+.note-summary-merge-tools button:disabled { opacity: .5; cursor: default; }
+.note-summary-select { display: flex; align-items: center; gap: .35rem; padding: .25rem .45rem; font-size: .78rem; overflow-wrap: anywhere; }
+.note-summary-split { margin: .4rem .6rem; font-size: .78rem; }
+.note-summary-group-title small { flex-shrink: 1; text-align: end; }
+
+.note-summary-total-label { flex-basis: 100%; }
+.note-summary-part { margin: .35rem .55rem; border: 1px solid var(--arix-line); border-radius: .55rem; }
+.note-summary-part h3 { margin: 0; padding: .4rem .6rem; font-size: .85rem; overflow-wrap: anywhere; }
+
+.note-summary-combined-total { margin-inline-start: auto; font-weight: 700; }

@@ -15,7 +15,15 @@
     "build:marketing": "vite build --config marketing-app/vite.config.ts",
     "lint": "eslint .",
     "preview": "npm run build && wrangler dev",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "dev:daily": "vite --config daily-app/vite.config.ts",
+    "build:daily": "tsc -p daily-app/tsconfig.json && vite build --config daily-app/vite.config.ts",
+    "test:qaime-parser": "node --test daily-app/scripts/qaime-parser.test.mjs",
+    "test:daily-sync": "node --test daily-app/scripts/daily-snapshot-merge.test.mjs",
+    "test:qaime-preview": "node --test daily-app/scripts/qaime-preview-integrity.test.mjs",
+    "test:daily-notification": "node --test daily-app/scripts/daily-notification-integrity.test.mjs",
+    "test:daily-resilience": "node --test daily-app/scripts/invoice-approval-resilience.test.mjs",
+    "setup:daily:dev": "node scripts/prepare-daily-dev.mjs"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

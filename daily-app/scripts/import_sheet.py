@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import zipfile
@@ -11,8 +12,10 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-SOURCE = Path(__file__).resolve().parents[1] / "data" / "arix-daily-source.xlsx"
-TARGET = Path(__file__).resolve().parents[1] / "src" / "importedData.ts"
+APP_ROOT = Path(__file__).resolve().parents[1]
+SOURCE = Path(os.environ.get("ARIX_DAILY_SOURCE_XLSX", APP_ROOT / "data" / "arix-daily-source.xlsx"))
+OPENING_SOURCE = Path(os.environ.get("ARIX_DAILY_OPENING_XLSX", APP_ROOT / "data" / "arix-daily-opening.xlsx"))
+TARGET = Path(os.environ.get("ARIX_DAILY_IMPORTED_TARGET", APP_ROOT / "src" / "importedData.ts"))
 WEEK_SHEETS = ["I Həftə", "II Həftə", "III Həftə", "IV Həftə", "V Həftə", "VI Həftə"]
 DAY_STARTS = [2, 94, 186, 278, 370, 462, 554]
 
@@ -93,6 +96,7 @@ with zipfile.ZipFile(SOURCE) as z:
     categories: OrderedDict[str, None] = OrderedDict()
     people: OrderedDict[str, None] = OrderedDict()
     bank_codes: OrderedDict[str, None] = OrderedDict()
+    seen_days: set[str] = set()
 
     method_names = {
         "OO": "Onlayn Ödəniş",
@@ -107,6 +111,12 @@ with zipfile.ZipFile(SOURCE) as z:
             day = excel_date(sheet.get(base, {}).get("C"))
             if not day:
                 continue
+            # Copied future-week templates can retain an earlier week's dates.
+            # Keep the first real occurrence so a later template cannot replace
+            # its reconciliation snapshot or duplicate its transactions.
+            if day in seen_days:
+                continue
+            seen_days.add(day)
 
             rows: list[list[object]] = []
             for r in range(base + 3, base + 50):
@@ -248,6 +258,7 @@ with zipfile.ZipFile(SOURCE) as z:
             balance = number(rv.get("I"))
             status = clean(rv.get("J"))
             limit_rem = number(rv.get("K"))
+            monthly_limit = round(limit_rem - cash_out - diff_bank + balance, 2) if bank_code in {"K", "B"} else 0.0
             rows_list.append({
                 "person": person,
                 "opening": opening,
@@ -258,6 +269,7 @@ with zipfile.ZipFile(SOURCE) as z:
                 "cashOut": cash_out,
                 "balance": balance,
                 "status": status,
+                "monthlyLimit": monthly_limit,
                 "limitRemaining": limit_rem,
             })
         card_report.append({
@@ -352,12 +364,13 @@ with zipfile.ZipFile(SOURCE) as z:
             seen_sup_dates.add(item["date"])
             dedup_daily_supplier.append(item)
 
-    # Also extract customer initial debts (Borc) and past month uninvoiced (Baza!F) from qaime-musteri-borcu.xlsx
-    qaime_source = Path(__file__).resolve().parents[1] / "data" / "qaime-musteri-borcu.xlsx"
+    # Opening customer debts are the single carry-over source. Older unpaid
+    # amounts are already rolled into these balances and must not be deducted
+    # from a future invoice a second time.
     customer_debts: OrderedDict[str, float] = OrderedDict()
     past_month_uninvoiced: OrderedDict[str, float] = OrderedDict()
-    if qaime_source.exists():
-        with zipfile.ZipFile(qaime_source) as qz:
+    if OPENING_SOURCE.exists():
+        with zipfile.ZipFile(OPENING_SOURCE) as qz:
             qwb = ET.fromstring(qz.read("xl/workbook.xml"))
             qrels = ET.fromstring(qz.read("xl/_rels/workbook.xml.rels"))
             qrel_map = {r.attrib["Id"]: r.attrib["Target"] for r in qrels}
@@ -402,15 +415,6 @@ with zipfile.ZipFile(SOURCE) as z:
                     v_raw = clean(row.get(v_col))
                     if nm and nm != "Ad" and v_raw != "":
                         customer_debts[nm] = number(v_raw)
-
-            qbaza_sheet = load_qsheet("Baza")
-            for r_idx, row in sorted(qbaza_sheet.items()):
-                if r_idx < 2:
-                    continue
-                nm = clean(row.get("B"))
-                f_val = number(row.get("F"))
-                if nm and nm != "m" and f_val != 0:
-                    past_month_uninvoiced[nm] = f_val
 
     payloads = {
         "IMPORTED_ACCOUNTS": accounts,

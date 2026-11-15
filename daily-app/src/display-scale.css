@@ -1,0 +1,416 @@
+.display-scale-control { position: static; flex: 0 0 auto; }
+.display-scale-toggle { list-style: none; cursor: pointer; justify-content: center; min-width: 44px; color: var(--arix-text); }
+.display-scale-toggle::-webkit-details-marker { display: none; }
+.display-scale-toggle .display-scale-symbol { display: inline-flex !important; align-items: baseline; font-size: 18px; font-weight: 750; letter-spacing: -.04em; }
+.display-scale-toggle .display-scale-symbol > span { display: inline !important; font-size: 13px; }
+.display-scale-control[open] > summary { border-color: var(--arix-primary, #4f46e5) !important; }
+.display-scale-toggle:focus-visible, .display-scale-panel button:focus-visible, .display-scale-panel input:focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
+.display-scale-panel { position: absolute; z-index: 100; top: calc(100% + 8px); right: 12px; width: 280px; max-height: calc((100dvh - 140px) / var(--daily-display-scale, 1)); overflow-y: auto; max-width: calc(100vw / var(--daily-display-scale, 1) - 24px); padding: 16px; border: 1px solid var(--arix-line); border-radius: 16px; background: var(--arix-panel); color: var(--arix-text); box-shadow: 0 12px 32px #0f172a26; }
+.display-scale-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; font-weight: 700; }
+.display-scale-heading output { color: var(--arix-primary, #4f46e5); font-variant-numeric: tabular-nums; }
+.display-scale-panel p { margin: 8px 0 12px; color: var(--arix-muted); font-size: 12px; line-height: 1.5; }
+.display-scale-slider { display: flex; align-items: center; gap: 8px; }
+.display-scale-slider input { flex: 1; min-width: 0; width: 100%; height: 44px; accent-color: #6366f1; cursor: pointer; }
+.display-scale-slider button { flex: 0 0 44px; height: 44px; border: 1px solid var(--arix-line); border-radius: 10px; background: var(--arix-panel); color: var(--arix-text); font-size: 16px; font-weight: 700; cursor: pointer; }
+.display-scale-reset { margin-top: 12px; width: 100%; min-height: 40px; border: 1px solid var(--arix-line); border-radius: 10px; background: var(--arix-panel); color: var(--arix-text); font-size: 12px; cursor: pointer; }
+
+/* Screen magnification reflows layout; printed documents retain their original scale. */
+@media screen {
+  html[data-daily-display-scale] { zoom: var(--daily-display-scale, 1); }
+  html[data-daily-display-scale]:not([data-daily-display-scale="100"]) .modal-backdrop > .modal {
+    max-height: calc((100dvh - 32px) / var(--daily-display-scale)) !important;
+    overflow-y: auto;
+  }
+  html[data-daily-display-scale]:not([data-daily-display-scale="100"]) .top-popover {
+    right: 12px;
+    top: calc(100% + 8px);
+    max-width: calc(100vw / var(--daily-display-scale) - 24px);
+    max-height: calc((100dvh - 160px) / var(--daily-display-scale));
+    overflow-y: auto;
+  }
+  html[data-daily-display-scale]:not([data-daily-display-scale="100"]) .topbar .topbar-menu-wrap { position: static; }
+}
+@media screen and (max-width: 760px) {
+  /* Anchor every header menu to the full header, not to its narrow button. */
+  .topbar {
+    isolation: isolate;
+  }
+  .topbar :is(.topbar-actions, .topbar-menu-wrap, .display-scale-control) {
+    position: static !important;
+  }
+  html .topbar :is(.top-popover, .display-scale-panel) {
+    position: absolute !important;
+    inset: calc(100% + 4px) max(8px, env(safe-area-inset-right)) auto max(8px, env(safe-area-inset-left)) !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 84px - env(safe-area-inset-bottom)) !important;
+    box-sizing: border-box;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  html[data-daily-display-scale] .app-shell {
+    height: calc(100dvh / var(--daily-display-scale));
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  html[data-daily-display-scale] .topbar {
+    zoom: calc(1 / var(--daily-display-scale));
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding-inline: 10px !important;
+  }
+  html[data-daily-display-scale] .topbar-brand { flex: 1 1 0; gap: 6px; }
+  html[data-daily-display-scale] .topbar-brand > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html[data-daily-display-scale] .topbar-actions { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px !important; }
+  html[data-daily-display-scale] .topbar-actions :is(.topbar-option, .top-profile, .notification-button) {
+    width: 42px !important;
+    min-width: 42px !important;
+    padding-inline: 0 !important;
+    justify-content: center;
+  }
+  html[data-daily-display-scale] .topbar :is(.top-popover, .display-scale-panel) {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 90px);
+    overflow-y: auto;
+  }
+  html[data-daily-display-scale] .workspace {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-height: 0 !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    align-items: stretch;
+  }
+  html[data-daily-display-scale] .workspace > main {
+    grid-row: 1;
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    align-content: start;
+    grid-auto-rows: max-content;
+    overflow: auto;
+    padding: 10px !important;
+  }
+  /* A grid row keeps the end of reports clear of the mobile navigation,
+     including when the content and navigation use different zoom levels. */
+  html[data-daily-display-scale] .workspace > main.spare-reports-view::after {
+    content: "";
+    min-height: calc(24px / var(--daily-display-scale, 1));
+    pointer-events: none;
+  }
+  html[data-daily-display-scale] .workspace > main > .summary-grid { flex-shrink: 0; padding-block: 2px 4px !important; }
+  html[data-daily-display-scale] .workspace > main .daily-book-layout {
+    height: auto !important;
+    max-height: none !important;
+    flex: 1 0 240px;
+    align-items: stretch;
+    padding-bottom: 3px !important;
+  }
+  html[data-daily-display-scale] .daily-book-layout :is(.operation-ledger, .reconciliation-panel) {
+    height: auto !important;
+    align-self: stretch;
+    max-height: none !important;
+    border-radius: 10px !important;
+    overflow: hidden;
+  }
+  html[data-daily-display-scale] .reconciliation-mobile-card { container: daily-account / inline-size; gap: 6px; }
+  html[data-daily-display-scale] .recon-m-pills {
+    grid-template-columns: repeat(4, minmax(max-content, 1fr));
+    gap: 4px;
+    overflow-x: auto;
+  }
+  html[data-daily-display-scale] .recon-m-pill { padding: 3px 5px; gap: 1px; }
+  html[data-daily-display-scale] .recon-m-pill .pill-val {
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  /* Keep four on one row where possible; narrow cards get two compact rows. */
+  @container daily-account (max-width: 360px) {
+    html[data-daily-display-scale] .recon-m-pills {
+      grid-template-columns: repeat(2, minmax(max-content, 1fr));
+    }
+  }
+  html:is([data-daily-display-scale="110"], [data-daily-display-scale="120"], [data-daily-display-scale="130"], [data-daily-display-scale="140"], [data-daily-display-scale="150"]) .recon-m-pills {
+    grid-template-columns: repeat(2, minmax(max-content, 1fr));
+  }
+  html[data-daily-display-scale] .workspace > .sidebar-shell {
+    grid-row: 2;
+    zoom: calc(1 / var(--daily-display-scale));
+    width: auto !important;
+    padding: 4px 10px max(8px, env(safe-area-inset-bottom));
+  }
+  html[data-daily-display-scale] .sidebar-shell > .sidebar { position: static !important; width: 100% !important; }
+
+
+}
+
+
+.display-theme-toggle { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 10px; margin-bottom: 12px; border: 1px solid var(--arix-line); border-radius: 10px; background: var(--arix-panel); color: var(--arix-text); font-size: 13px; cursor: pointer; }
+.display-theme-toggle span { color: var(--arix-muted); }
+
+@media screen {
+  html[data-daily-display-scale] .customers-view { min-width: 0; container: daily-customers / inline-size; }
+  html[data-daily-display-scale] .customers-view .customer-cards-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
+  html[data-daily-display-scale] .customers-view :is(.customer-card-item, .directory-panel, .directory-toolbar > *, .page-heading > *) { min-width: 0; }
+  html[data-daily-display-scale] .customers-view :is(.page-heading, .page-heading > div, .directory-toolbar, .cust-title-row, .cust-title-actions) { flex-wrap: wrap; }
+  html[data-daily-display-scale] .customers-view :is(.page-heading p, .cust-card-name, .cust-title-row h1) { overflow-wrap: anywhere; }
+  html[data-daily-display-scale] .customers-view .approval-forms-table { max-width: 100%; overflow-x: auto; }
+  html[data-daily-display-scale] .crm-modal-backdrop > .crm-modal { max-height: calc((100dvh - 24px) / var(--daily-display-scale)); overflow-y: auto; }
+  @container daily-customers (max-width: 340px) {
+    html[data-daily-display-scale] .customers-view :is(.customer-summary-kpis, .crm-modal-grid) { grid-template-columns: minmax(0, 1fr); }
+    html[data-daily-display-scale] .customers-view :is(.pay-card-line1, .pay-card-line2, .customer-detail-tabs) { flex-wrap: wrap; }
+    html[data-daily-display-scale] .customers-view .cust-card-top { flex-wrap: wrap; }
+    html[data-daily-display-scale] .customers-view .cust-card-identity { flex-basis: 100%; }
+    html[data-daily-display-scale] .customers-view .cust-card-debt-wrap { text-align: left; }
+  }
+}
+
+/* Fit more ledger entries on screen when the user chooses a smaller scale. */
+@media screen and (max-width: 760px) {
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row > .operation-mobile-card {
+    padding: 6px 8px !important;
+    gap: 3px !important;
+  }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .operation-mobile-card .op-m-row-top {
+    align-items: center !important;
+    gap: 5px !important;
+  }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .operation-mobile-card .op-m-identity {
+    gap: 5px !important;
+    flex: 1 1 0;
+  }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .operation-mobile-card .op-m-kind-icon {
+    width: 24px !important;
+    height: 24px !important;
+    flex-basis: 24px !important;
+  }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .operation-mobile-card .op-m-amount-wrap {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 4px !important;
+  }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .operation-mobile-card .op-m-row-meta {
+    padding-left: 29px !important;
+    gap: 3px !important;
+  }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .operation-mobile-card .op-m-note {
+    padding: 3px 0 0 29px !important;
+    margin: 0 !important;
+  }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .operation-mobile-card .op-m-note-placeholder {
+    display: none !important;
+  }
+}
+
+.op-m-compact-kind { display: none; }
+@media screen and (max-width: 760px) {
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .op-m-amount-wrap > .op-m-status { display: none !important; }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .op-m-compact-kind { display: inline-flex; }
+  html:is([data-daily-display-scale="80"], [data-daily-display-scale="90"]) .operation-row .op-m-bank-full { display: none; }
+}
+
+.mobile-entry-approvals, .mobile-reports-label, .mobile-report-sections { display: none !important; }
+@media screen and (max-width: 760px) {
+  html[data-daily-display-scale] .topbar-actions:has(.mobile-entry-approvals) :is(.topbar-option, .top-profile, .notification-button) {
+    width: 38px !important;
+    min-width: 38px !important;
+  }
+  html[data-daily-display-scale] .topbar-actions .mobile-entry-approvals {
+    display: inline-flex !important;
+    position: relative;
+  }
+  html[data-daily-display-scale] .topbar-actions .mobile-entry-approvals .mobile-approvals-count {
+    display: block !important;
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 15px;
+    padding: 1px 3px;
+    border-radius: 10px;
+    background: #be123c;
+    color: white;
+    font-size: 9px;
+    line-height: 13px;
+    text-align: center;
+  }
+  html[data-daily-display-scale] .sidebar .mobile-reports-link .accounts-label { display: none !important; }
+  html[data-daily-display-scale] .sidebar .mobile-reports-link .mobile-reports-label { display: inline !important; }
+  html[data-daily-display-scale] .sidebar .page-tabs .mobile-reports-current { color: var(--arix-primary); background: color-mix(in srgb, var(--arix-primary) 10%, transparent); }
+  html[data-daily-display-scale] .mobile-report-sections { display: flex !important; gap: 5px; flex-wrap: wrap; }
+  .mobile-report-sections button {
+    flex: 1 1 auto;
+    padding: 7px 8px;
+    border: 1px solid var(--arix-line);
+    border-radius: 9px;
+    background: var(--arix-panel);
+    color: var(--arix-text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mobile-report-sections button[aria-pressed="true"] { border-color: var(--arix-primary); color: var(--arix-primary); }
+}
+
+.daily-personal-notifications { margin: 6px 0; padding: 8px; border: 1px solid var(--arix-line); border-radius: 10px; color: var(--arix-text); }
+.daily-personal-notifications p { margin: 4px 0; color: var(--arix-muted); font-size: 12px; }
+.daily-personal-notifications label { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 4px 0; font-size: 13px; cursor: pointer; }
+.daily-personal-notifications input { flex: 0 0 auto; width: 18px; height: 18px; accent-color: #4f46e5; }
+
+/* Keep customer navigation visible while the active tab has a long list. */
+@media (min-width: 761px) {
+  html[data-daily-display-scale] .customer-detail-tabs {
+    flex: 0 0 auto !important;
+    min-block-size: max-content !important;
+    overflow: visible !important;
+  }
+  html[data-daily-display-scale] .customer-detail-tabs > button { min-block-size: 36px !important; }
+  html[data-daily-display-scale] .customer-tab-content { min-block-size: 0; }
+}
+.close-list .close-actual-field > input { box-sizing: border-box; width: 100%; min-width: 0; }
+@media (max-width: 760px) {
+  html[data-daily-display-scale] .close-modal .close-head { display: none; }
+  html[data-daily-display-scale] .close-modal .close-list > label {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .4rem;
+    align-items: start;
+    padding: .55rem .65rem;
+  }
+  html[data-daily-display-scale] .close-modal .close-list > label > span { grid-column: 1 / -1; }
+  html[data-daily-display-scale] .close-modal .close-list [data-close-label] {
+    display: grid;
+    gap: .2rem;
+    min-width: 0;
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
+  html[data-daily-display-scale] .close-modal .close-list [data-close-label]::before {
+    content: attr(data-close-label);
+    color: var(--muted);
+    font-size: .72em;
+    font-weight: 600;
+  }
+  html[data-daily-display-scale] .close-modal .close-list input {
+    height: 30px;
+    padding-inline: .35rem;
+    text-align: start;
+  }
+  html[data-daily-display-scale] .close-modal .close-toolbar { flex-wrap: wrap; gap: .4rem; }
+}
+
+@media screen and (max-width: 760px) {
+  html[data-daily-display-scale] .modal-backdrop:has(> .approval-modal) {
+    padding: 0 !important;
+    overflow: hidden;
+  }
+  html[data-daily-display-scale] .modal-backdrop > .approval-modal {
+    box-sizing: border-box;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: calc(100dvh / var(--daily-display-scale, 1)) !important;
+    max-height: calc(100dvh / var(--daily-display-scale, 1)) !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: hidden !important;
+  }
+  html[data-daily-display-scale] .approval-modal > .modal-body {
+    min-width: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  html[data-daily-display-scale] .approval-modal > .modal-actions {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-height: 0;
+    max-height: calc(42dvh / var(--daily-display-scale, 1));
+    overflow-y: auto;
+    padding: 6px 8px max(6px, env(safe-area-inset-bottom));
+  }
+  html[data-daily-display-scale] .approval-modal > .modal-actions button {
+    flex: 1 1 auto;
+    min-width: 0 !important;
+    min-height: 36px;
+    height: auto;
+    white-space: normal;
+    padding: 5px 7px;
+    overflow-wrap: anywhere;
+  }
+  html[data-daily-display-scale] .approval-modal > .modal-actions button svg { flex-shrink: 0; }
+}
+
+.customer-detail-navigation { display: contents; }
+html[data-daily-display-scale] .customers-view:has(> .customer-detail-navigation) {
+  overflow-y: auto !important;
+}
+html[data-daily-display-scale] .customer-detail-navigation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: .65rem;
+  flex: 0 0 auto;
+  min-height: max-content;
+  min-width: 0;
+}
+html[data-daily-display-scale] .customer-detail-navigation > .page-heading {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: .55rem;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+html[data-daily-display-scale] .customer-detail-navigation > .page-heading p { white-space: normal; }
+html[data-daily-display-scale] .customer-detail-navigation .invoice-header-actions { margin: 0; }
+html[data-daily-display-scale] .customer-detail-navigation > .customer-summary-kpis { margin: 0; }
+html[data-daily-display-scale] .customer-detail-navigation > .customer-detail-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  height: auto !important;
+  min-height: max-content !important;
+  max-height: none !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+html[data-daily-display-scale] .customer-detail-navigation .customer-detail-tabs > button {
+  min-width: 0;
+  min-height: 36px !important;
+  height: auto !important;
+  flex-wrap: wrap;
+  white-space: normal !important;
+}
+html[data-daily-display-scale] .customer-detail-navigation .customer-detail-tabs > button > span {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
+@media screen and (max-width: 760px) {
+  html[data-daily-display-scale] .workspace > main > .daily-report-heading {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    flex: 0 0 auto;
+    min-height: max-content !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin-bottom: 4px !important;
+  }
+  html[data-daily-display-scale] .daily-report-heading .daily-report-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  html[data-daily-display-scale] .daily-report-tabs button {
+    justify-content: center;
+    min-width: 0;
+    min-height: 38px;
+    height: auto;
+    padding: 5px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  html[data-daily-display-scale] .daily-report-tabs button svg { flex-shrink: 0; }
+}

@@ -1,15 +1,29 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
-import { LockKeyhole, Mail, Moon, Sun } from "lucide-react";
+import { ArrowLeft, LockKeyhole, Mail, Moon, Sun, UserPlus } from "lucide-react";
 import AriXLogo from "./AriXLogo";
 
 const DailyWorkspace = lazy(() => import("./DailyWorkspace"));
+
+export type DailyCompanyFeatures = {
+  qaime?: boolean;
+};
+
+export type DailyCompany = {
+  id: string;
+  name: string;
+  features?: DailyCompanyFeatures;
+};
 
 export type DailySession = {
   id: string;
   name: string;
   role: string;
   email?: string;
+  picture?: string;
   permissions?: string[];
+  companyId?: string;
+  company?: DailyCompany;
+  availableCompanies?: DailyCompany[];
 };
 
 type AuthConfig = { enabled: boolean; googleClientId: string };
@@ -71,13 +85,25 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [form, setForm] = useState({ email: "", password: "" });
+  const [registration, setRegistration] = useState({ name: "", email: "", password: "", companyCode: "" });
+  const [joinCode, setJoinCode] = useState("");
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [pending, setPending] = useState(false);
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [theme, setTheme] = useState<"light" | "dark">(() => localStorage.getItem("arix-daily-theme") === "dark" ? "dark" : "light");
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const saved = localStorage.getItem("arix-daily-theme");
+    if (saved === "dark" || saved === "light") return saved;
+    if (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+    return "light";
+  });
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
     localStorage.setItem("arix-daily-theme", theme);
   }, [theme]);
 
@@ -102,9 +128,10 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
           setError("");
           void authRequest<AuthResponse>("/api/daily-auth/google", {
             method: "POST",
-            body: JSON.stringify({ credential, remember }),
+            body: JSON.stringify({ credential, remember, companyCode: joinCode }),
           }).then((payload) => {
             if (payload.data) onSuccess(payload.data);
+            else if (payload.pending) setPending(true);
             else setError("Hesabın aktivləşdirilməsi gözlənilir.");
           }).catch((cause) => setError(cause instanceof Error ? cause.message : "Google girişi alınmadı."))
             .finally(() => setBusy(false));
@@ -117,7 +144,7 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
       });
     }).catch((cause) => setError(cause instanceof Error ? cause.message : "Google giriş xidməti hazır deyil."));
     return () => { cancelled = true; };
-  }, [config, onSuccess, remember, theme]);
+  }, [config, joinCode, onSuccess, remember, theme]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -129,9 +156,28 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
         body: JSON.stringify({ ...form, remember }),
       });
       if (payload.data) onSuccess(payload.data);
+      else if (payload.pending) setPending(true);
       else setError("Hesabın aktivləşdirilməsi gözlənilir.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Giriş alınmadı.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const register = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setPending(false);
+    try {
+      const payload = await authRequest<AuthResponse>("/api/daily-auth/register", {
+        method: "POST",
+        body: JSON.stringify(registration),
+      });
+      if (payload.pending) setPending(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Giriş müraciəti göndərilmədi.");
     } finally {
       setBusy(false);
     }
@@ -143,35 +189,101 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
     </button>
     <main className="daily-auth-card">
       <div className="daily-auth-brand"><AriXLogo /><div><b>AriX Daily</b><span>Gündəlik maliyyə axını</span></div></div>
-      <div className="daily-auth-heading"><LockKeyhole size={22} /><div><h1>Hesabınıza daxil olun</h1><p>Maliyyə məlumatları yalnız icazəli istifadəçilər üçün açıqdır.</p></div></div>
-      <form onSubmit={submit}>
-        <label>E-poçt<input type="email" autoComplete="username" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} required /></label>
-        <label>Şifrə<input type="password" autoComplete="current-password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} required /></label>
-        <label className="daily-auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Məni yadda saxla</label>
+      <div className="daily-auth-heading">{mode === "login" ? <LockKeyhole size={22} /> : <UserPlus size={22} />}<div><h1>{mode === "login" ? "Hesabınıza daxil olun" : "Daily-yə qoşulma müraciəti"}</h1><p>{mode === "login" ? "Maliyyə məlumatları yalnız icazəli istifadəçilər üçün açıqdır." : "Dəvət kodu müraciət yaradır; giriş yalnız rəhbər təsdiqindən sonra açılır."}</p></div></div>
+      {pending ? <div className="daily-auth-pending"><LockKeyhole size={20} /><div><b>Müraciət göndərildi</b><span>Daily rəhbəri təsdiqlədikdən sonra hesabınızla daxil ola bilərsiniz.</span></div><button type="button" onClick={() => { setPending(false); setMode("login"); }}>Girişə qayıt</button></div> : mode === "login" ? <>
+        <form onSubmit={submit}>
+          <label>E-poçt<input type="email" autoComplete="username" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} required /></label>
+          <label>Şifrə<input type="password" autoComplete="current-password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} required /></label>
+          <label className="daily-auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Məni yadda saxla</label>
+          {error && <div className="daily-auth-error">{error}</div>}
+          <button className="daily-auth-submit" type="submit" disabled={busy}>{busy ? "Giriş edilir..." : "Daxil ol"}</button>
+        </form>
+        {config?.googleClientId && <><div className="daily-auth-divider"><span>və ya</span></div><label className="daily-auth-join-code">Dəvət kodu <small>Yalnız ilk qoşulma üçün</small><input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} maxLength={24} placeholder="XXXXXXXX" /></label><div className="daily-google-button" ref={googleButtonRef} /></>}
+        {["localhost", "127.0.0.1"].includes(window.location.hostname) && (
+          <button
+            type="button"
+            className="daily-auth-submit"
+            style={{ marginTop: 12, background: "#0284c7" }}
+            onClick={() => onSuccess({ id: "daily-local-dev", name: "Lokal İdarəçi", role: "Sahib", permissions: [] })}
+          >
+            ⚡ Lokal İdarəçi Kimi Daxil Ol (Test)
+          </button>
+        )}
+        <button type="button" className="daily-auth-mode" onClick={() => { setMode("register"); setError(""); }}><UserPlus size={15} /> Hesabınız yoxdur? Müraciət göndərin</button>
+      </> : <form onSubmit={register}>
+        <button type="button" className="daily-auth-back" onClick={() => { setMode("login"); setError(""); }}><ArrowLeft size={15} /> Girişə qayıt</button>
+        <label>Ad və soyad<input value={registration.name} onChange={(event) => setRegistration((current) => ({ ...current, name: event.target.value }))} required /></label>
+        <label>E-poçt<input type="email" autoComplete="email" value={registration.email} onChange={(event) => setRegistration((current) => ({ ...current, email: event.target.value }))} required /></label>
+        <label>Şifrə<input type="password" autoComplete="new-password" minLength={8} value={registration.password} onChange={(event) => setRegistration((current) => ({ ...current, password: event.target.value }))} required /></label>
+        <label>Dəvət kodu<input className="daily-auth-code-input" value={registration.companyCode} onChange={(event) => setRegistration((current) => ({ ...current, companyCode: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))} minLength={8} maxLength={24} required /></label>
         {error && <div className="daily-auth-error">{error}</div>}
-        <button className="daily-auth-submit" type="submit" disabled={busy}>{busy ? "Giriş edilir..." : "Daxil ol"}</button>
-      </form>
-      {config?.googleClientId && <><div className="daily-auth-divider"><span>və ya</span></div><div className="daily-google-button" ref={googleButtonRef} /></>}
+        <button className="daily-auth-submit" type="submit" disabled={busy}>{busy ? "Göndərilir..." : "Təsdiq üçün göndər"}</button>
+      </form>}
       <footer><Mail size={14} /> Giriş problemi olduqda sistem rəhbərinə müraciət edin.</footer>
     </main>
   </div>;
 }
 
 export default function App() {
-  const previewSession = ["localhost", "127.0.0.1"].includes(window.location.hostname)
-    && new URLSearchParams(window.location.search).has("preview");
-  const [session, setSession] = useState<DailySession | null | undefined>(() => previewSession
-    ? { id: "preview", name: "Demo yönetici", role: "owner", permissions: ["daily.*"] }
+  const spareRelease = import.meta.env.VITE_SPAREXPERT_RELEASE === "1";
+  const isLocalHost = Boolean(import.meta.env.DEV) && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+
+  const getLocalDevSession = (): DailySession => {
+    const urlParam = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("company") : null;
+    const saved = typeof localStorage !== "undefined" ? localStorage.getItem("arix-daily-local-company") : "sparexpert";
+    const companyId = urlParam === "azart" || urlParam === "azartmembran" ? "azartmembran" : urlParam === "sparexpert" ? "sparexpert" : (saved === "azartmembran" ? "azartmembran" : "sparexpert");
+    const isSpare = companyId === "sparexpert";
+    return {
+      id: "daily-local-dev",
+      name: "Lokal İdarəçi (Test)",
+      role: "Sahib",
+      companyId,
+      company: {
+        id: companyId,
+        name: isSpare ? "SparExpert" : "Azart Membran",
+        features: { qaime: !isSpare },
+      },
+      availableCompanies: [
+        { id: "sparexpert", name: "SparExpert", features: { qaime: false } },
+        { id: "azartmembran", name: "Azart Membran", features: { qaime: true } },
+      ],
+      permissions: [],
+    };
+  };
+
+  const [session, setSession] = useState<DailySession | null | undefined>(() => isLocalHost
+    ? getLocalDevSession()
     : undefined);
+  const [spareLedgerReady, setSpareLedgerReady] = useState<boolean | undefined>();
+  const spareSession = (session?.company?.id ?? session?.companyId) === "sparexpert";
 
   useEffect(() => {
-    if (previewSession) return;
+    if (!spareRelease || !spareSession) return;
+    let cancelled = false;
+    void authRequest<{ data?: { state?: { entries?: unknown[] } } }>("/api/daily")
+      .then(({ data }) => { if (!cancelled) setSpareLedgerReady(Boolean(data?.state?.entries?.length)); })
+      .catch(() => { if (!cancelled) setSpareLedgerReady(false); });
+    return () => { cancelled = true; };
+  }, [spareRelease, spareSession]);
+
+  useEffect(() => {
     let cancelled = false;
     void authRequest<AuthResponse>("/api/daily-auth/session")
-      .then((payload) => { if (!cancelled) setSession(payload.data ?? null); })
-      .catch(() => { if (!cancelled) setSession(null); });
+      .then((payload) => {
+        if (!cancelled) {
+          if (payload.data) setSession(payload.data);
+          else if (isLocalHost) setSession(getLocalDevSession());
+          else setSession(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          if (isLocalHost) setSession(getLocalDevSession());
+          else setSession(null);
+        }
+      });
     return () => { cancelled = true; };
-  }, [previewSession]);
+  }, [isLocalHost]);
 
   const logout = async () => {
     await authRequest("/api/daily-auth/logout", { method: "POST", body: "{}" }).catch(() => undefined);
@@ -180,5 +292,19 @@ export default function App() {
 
   if (session === undefined) return <LoadingScreen />;
   if (!session) return <Login onSuccess={setSession} />;
+  if (spareRelease && !spareSession) {
+    return <main className="daily-auth-screen"><section className="daily-auth-loading">
+      <span>Bu ünvan SpareXpert hesabı üçündür.</span>
+      <a href="/">AriX Daily-yə qayıt</a>
+      <button type="button" onClick={logout}>Başqa hesabla daxil ol</button>
+    </section></main>;
+  }
+  if (spareRelease && spareLedgerReady === undefined) return <LoadingScreen />;
+  if (spareRelease && !spareLedgerReady) {
+    return <main className="daily-auth-screen"><section className="daily-auth-loading">
+      <span>SpareXpert məlumatları hələ köçürülür.</span>
+      <button type="button" onClick={() => window.location.reload()}>Yenilə</button>
+    </section></main>;
+  }
   return <Suspense fallback={<LoadingScreen />}><DailyWorkspace session={session} onLogout={logout} /></Suspense>;
 }
