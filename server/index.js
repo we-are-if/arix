@@ -11,6 +11,7 @@ import { answerAssistant, answerAssistantAsync } from "./chatAssistant.js";
 import { resolvedCustomerPrice } from "./customerPricing.js";
 import { canWithdrawApproval } from "../shared/approvalPermissions.js";
 import { createExportPdfAuthority, selectExportDocument } from "./exportPdfAuthority.js";
+import { createPdfRenderEngine } from "./pdfRenderEngine.js";
 import { prepareDraftItems } from "./orderPreparationDraft.js";
 import { preparationContentPatch } from "./orderPreparationContent.js";
 import { upsertSequencedInvoice } from "./dailyInvoiceSequence.js";
@@ -27,7 +28,7 @@ import { createServer } from "node:http";
 import { access, mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createCipheriv, createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
@@ -2714,7 +2715,17 @@ function orderArchiveDateParts(date = new Date()) {
   };
 }
 
+let pdfRenderEngineInstance;
 async function renderOrderApprovalPdf(html) {
+  pdfRenderEngineInstance ??= createPdfRenderEngine({
+    dataDir: DATA_DIR,
+    findBrowserExecutable: findPdfBrowserExecutable,
+    execFileAsync,
+  });
+  return pdfRenderEngineInstance(html);
+}
+
+async function renderOrderApprovalPdfLegacy(html) {
   const source = String(html ?? "");
   if (!source || source.length > 5_000_000) throw new Error("PDF HTML məlumatı etibarsızdır.");
   if (/<\s*(script|iframe|object|embed|link)\b/i.test(source) || /\son[a-z]+\s*=/i.test(source)) {
@@ -7653,7 +7664,7 @@ async function handleOrderBoard(req, res, url, parts) {
     try {
       await mkdir(archiveDirectory, { recursive: true });
       await readFile(destination);
-      replacingOwnArchive = isExport || order.approvalForm.archive?.path === destination;
+      replacingOwnArchive = isExport || order.approvalForm.archive?.path === destination || filename.startsWith(`${formNumber} - `);
       if (!replacingOwnArchive) return send(res, 409, { error: `Bu PDF zaten arşivde mevcut: ${filename}` });
     } catch (error) {
       if (error?.code && error.code !== "ENOENT") {
@@ -11698,7 +11709,7 @@ async function handleApiRequest(req, res) {
       const handle = () => handleOrderBoard(req, res, url, parts.slice(1));
       // Matching only reads the catalog. Keeping it in the mutation queue makes
       // order entry wait behind slow PDF/archive operations.
-      const isReadOnlyOrderRequest = req.method === "GET" || (req.method === "POST" && ["match", "ocr"].includes(parts[2]));
+      const isReadOnlyOrderRequest = req.method === "GET" || (req.method === "POST" && (["match", "ocr"].includes(parts[2]) || isReadOnlyApprovalPreview(req.method, parts[3], parts[4]) || (parts[2] === "offers" && parts[4] === "preview-pdf")));
       return isReadOnlyOrderRequest ? await handle() : await queueOrderMutation(handle);
     }
     if (parts[1] === "employees") return await handleEmployees(req, res, parts.slice(1));
@@ -11755,7 +11766,7 @@ const server = createServer((req, res) => {
   });
   const method = String(req.method ?? "GET").toUpperCase();
   const path = String(req.url ?? "").split("?", 1)[0];
-  const readOnly = (method === "GET" || method === "HEAD" || method === "OPTIONS" || path.endsWith("/presence")) && path !== "/api/daily/management";
+  const readOnly = (method === "GET" || method === "HEAD" || method === "OPTIONS" || path.endsWith("/presence") || path.endsWith("/preview-pdf")) && path !== "/api/daily/management";
   databaseReadContext.run({ clone: !readOnly }, () => {
     if (readOnly) {
       void handleApiRequest(req, res);

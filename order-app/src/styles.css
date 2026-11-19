@@ -4338,7 +4338,8 @@ textarea {
 .approval-modal.preview-only .modal-body { display:grid; min-height:120px; place-items:center; }
 .approval-modal.preview-only .modal-body::after { content:"Belge açılıyor..."; color:#667085; font-size:13px; font-weight:750; }
 .approval-modal.preview-only .approval-workspace { position:fixed; top:0; left:-100000px; display:block; width:794px; pointer-events:none; }
-.approval-modal.preview-only .approval-editor { display:none; }
+.approval-modal.preview-only .approval-editor,
+.approval-modal.preview-only .modal-actions { display:none; }
 .approval-modal.preview-only .approval-paper-wrap { position:static; }
 .approval-modal.preview-only .approval-paper { margin-inline:auto; }
 .theme-dark .approval-modal.preview-only .modal-body::after { color:#aab4c5; }

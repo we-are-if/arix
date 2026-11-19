@@ -3249,10 +3249,13 @@ export default function App() {
             setActiveApprovalOrder(order);
           }} onShowPdf={(order, revision) => {
             const selectedOrder = { ...order, id: revision.sourceOrderId || order.id, ...(revision.sourceOrderId ? { mergedIntoOrderId: order.id, mergedIntoOrderNumber: order.number } : {}), approvalForm: revision.form };
+            const cachedBlob = clientPdfPreviewCache.get(getOrderPdfCacheKey(selectedOrder));
             const isDomesticWithoutArchive = revision.documentType === "domestic" && (!revision.isCurrent || !revision.form.archive?.path);
             setApprovalEntrySource(revision.isCurrent ? "forms" : "order");
             setApprovalHistoricalPreview(!revision.isCurrent);
-            if (!isDomesticWithoutArchive) {
+            if (cachedBlob || !isDomesticWithoutArchive) {
+              setPdfPreviewBlob(cachedBlob ?? null);
+              setPdfPreviewFilename("");
               setPdfOrder(selectedOrder);
               return;
             }
@@ -6476,6 +6479,41 @@ function ApprovalFormsPage({
   );
 }
 
+let cachedPrintStyleSheetCount = -1;
+let cachedPrintCssText = "";
+function getDocumentPrintCss(): string {
+  const sheets = Array.from(document.styleSheets);
+  if (cachedPrintCssText && sheets.length === cachedPrintStyleSheetCount) {
+    return cachedPrintCssText;
+  }
+  cachedPrintStyleSheetCount = sheets.length;
+  cachedPrintCssText = sheets
+    .flatMap((sheet) => {
+      try { return Array.from(sheet.cssRules, (rule) => rule.cssText); }
+      catch { return []; }
+    })
+    .join("\n");
+  return cachedPrintCssText;
+}
+
+const CLIENT_PDF_CACHE_LIMIT = 40;
+const clientPdfPreviewCache = new Map<string, Blob>();
+function rememberClientPdfPreview(key: string, blob: Blob) {
+  if (!key || !blob || !blob.size) return;
+  if (clientPdfPreviewCache.has(key)) clientPdfPreviewCache.delete(key);
+  clientPdfPreviewCache.set(key, blob);
+  while (clientPdfPreviewCache.size > CLIENT_PDF_CACHE_LIMIT) {
+    const oldest = clientPdfPreviewCache.keys().next().value;
+    if (!oldest) break;
+    clientPdfPreviewCache.delete(oldest);
+  }
+}
+function getOrderPdfCacheKey(order: Order): string {
+  const form = order.approvalForm;
+  if (!form) return "";
+  return `order-pdf:${order.id}:${form.documentType || "domestic"}:${form.number || ""}:${form.updatedAt || ""}:${form.status || ""}:${form.archive?.path || ""}`;
+}
+
 function ApprovalPdfViewer({ order, session, allowApproval, historical = false, previewPdfBlob, previewFilename, allowShare = true, onCustomerSend, extraActions, onClose, onEdit, onApprove, onReject, onWithdraw, onPrinted }: {
   order: Order;
   session: Session;
@@ -6527,9 +6565,12 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
   useEffect(() => {
     let objectUrl = "";
     let cancelled = false;
-    if (previewPdfBlob) {
-      setPdfBlob(previewPdfBlob);
-      objectUrl = URL.createObjectURL(previewPdfBlob);
+    const cacheKey = getOrderPdfCacheKey(order);
+    const immediateBlob = previewPdfBlob ?? (cacheKey ? clientPdfPreviewCache.get(cacheKey) : undefined);
+    if (immediateBlob) {
+      if (cacheKey) rememberClientPdfPreview(cacheKey, immediateBlob);
+      setPdfBlob(immediateBlob);
+      objectUrl = URL.createObjectURL(immediateBlob);
       setPdfUrl(objectUrl);
       return () => URL.revokeObjectURL(objectUrl);
     }
@@ -6543,6 +6584,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
       })
       .then((blob) => {
         if (cancelled) return;
+        if (cacheKey) rememberClientPdfPreview(cacheKey, blob);
         objectUrl = URL.createObjectURL(blob);
         setPdfBlob(blob);
         setPdfUrl(objectUrl);
@@ -6552,7 +6594,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [order.id, previewPdfBlob]);
+  }, [order, order.id, previewPdfBlob]);
 
   useEffect(() => {
     if (useNativeWindowsViewer || !pdfBlob || !pagesRef.current) return;
@@ -11892,7 +11934,7 @@ function ApprovalFormEditor({
   }, [form.lines]);
   approvalDisplayRate = Number(form.exchangeRate) || 0;
   useEffect(() => {
-    if (!canEdit) return;
+    if (!canEdit || previewOnly) return;
     const setPresence = (active: boolean) => api(`/api/orders/${order.id}/approval-form/presence`, {
       method: "POST",
       body: JSON.stringify({ active }),
@@ -11903,7 +11945,7 @@ function ApprovalFormEditor({
       window.clearInterval(timer);
       void setPresence(false);
     };
-  }, [canEdit, order.id]);
+  }, [canEdit, order.id, previewOnly]);
   useEffect(() => {
     if (form.currency === "TRY") {
       setRatePublicationDate("");
@@ -12136,12 +12178,7 @@ function ApprovalFormEditor({
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
     if (!paperRef.current) throw new Error("A4 önizleme bulunamadı.");
     await document.fonts.ready;
-    const css = Array.from(document.styleSheets)
-      .flatMap((sheet) => {
-        try { return Array.from(sheet.cssRules, (rule) => rule.cssText); }
-        catch { return []; }
-      })
-      .join("\n");
+    const css = getDocumentPrintCss();
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${paperRef.current.outerHTML}</body></html>`;
     return api<{ path: string; filename: string; order: Order }>(
       `/api/orders/${order.id}/approval-form/archive`,
@@ -12361,12 +12398,7 @@ function ApprovalFormEditor({
     }
     if (!paperRef.current) return;
     await document.fonts.ready;
-    const css = Array.from(document.styleSheets)
-      .flatMap((sheet) => {
-        try { return Array.from(sheet.cssRules, (rule) => rule.cssText); }
-        catch { return []; }
-      })
-      .join("\n");
+    const css = getDocumentPrintCss();
     const frame = document.createElement("iframe");
     frame.style.position = "fixed";
     frame.style.width = "1px";
@@ -12388,6 +12420,15 @@ function ApprovalFormEditor({
   const openDirectPdf = async () => {
     setBusy(true);
     try {
+      const nextOrderSnapshot = { ...order, approvalForm: { ...form } };
+      const cacheKey = getOrderPdfCacheKey(nextOrderSnapshot);
+      const cached = cacheKey ? clientPdfPreviewCache.get(cacheKey) : undefined;
+      const filenameBase = (form.customerName || order.customerName).replace(/[\\/:*?"<>|]/g, "-").trim();
+      const previewTitle = isProforma ? exportDocumentTitle : labels.title;
+      if (cached) {
+        onPreviewPdf?.(cached, nextOrderSnapshot, `${filenameBase} - ${previewTitle}.pdf`);
+        return;
+      }
       const response = await fetch(`/api/orders/${order.id}/approval-form/pdf${isProforma ? `?documentType=${encodeURIComponent(form.documentType || "")}&expectedUpdatedAt=${encodeURIComponent(form.updatedAt || "")}` : ""}`, {
         credentials: "include",
       });
@@ -12396,9 +12437,8 @@ function ApprovalFormEditor({
         throw new Error(payload.error || "PDF açılamadı.");
       }
       const blob = await response.blob();
-      const filenameBase = (form.customerName || order.customerName).replace(/[\\/:*?"<>|]/g, "-").trim();
-      const previewTitle = isProforma ? exportDocumentTitle : labels.title;
-      onPreviewPdf?.(blob, { ...order, approvalForm: { ...form } }, `${filenameBase} - ${previewTitle}.pdf`);
+      if (cacheKey) rememberClientPdfPreview(cacheKey, blob);
+      onPreviewPdf?.(blob, nextOrderSnapshot, `${filenameBase} - ${previewTitle}.pdf`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "PDF oluşturulamadı.");
     } finally {
@@ -12410,15 +12450,18 @@ function ApprovalFormEditor({
     previewPdfStarted.current = true;
     void (async () => {
       try {
+        const nextOrderSnapshot = { ...order, approvalForm: { ...form } };
+        const orderCacheKey = getOrderPdfCacheKey(nextOrderSnapshot);
+        const filenameBase = (form.customerName || order.customerName).replace(/[\\/:*?"<>|]/g, "-").trim();
+        const previewTitle = isProforma ? exportDocumentTitle : labels.title;
+        if (orderCacheKey && clientPdfPreviewCache.has(orderCacheKey)) {
+          onPreviewPdf(clientPdfPreviewCache.get(orderCacheKey)!, nextOrderSnapshot, `${filenameBase} - ${previewTitle}.pdf`);
+          return;
+        }
         await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
         await document.fonts.ready;
         if (!paperRef.current) throw new Error("Belge önizlemesi oluşturulamadı.");
-        const css = Array.from(document.styleSheets)
-          .flatMap((sheet) => {
-            try { return Array.from(sheet.cssRules, (rule) => rule.cssText); }
-            catch { return []; }
-          })
-          .join("\n");
+        const css = getDocumentPrintCss();
         const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${paperRef.current.outerHTML}</body></html>`;
         const response = await fetch(previewEndpoint || `/api/orders/${order.id}/approval-form/preview-pdf`, {
           method: "POST",
@@ -12430,9 +12473,9 @@ function ApprovalFormEditor({
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.error || "PDF önizlemesi oluşturulamadı.");
         }
-        const filenameBase = (form.customerName || order.customerName).replace(/[\\/:*?"<>|]/g, "-").trim();
-        const previewTitle = isProforma ? exportDocumentTitle : labels.title;
-        onPreviewPdf(await response.blob(), { ...order, approvalForm: { ...form } }, `${filenameBase} - ${previewTitle}.pdf`);
+        const blob = await response.blob();
+        if (orderCacheKey) rememberClientPdfPreview(orderCacheKey, blob);
+        onPreviewPdf(blob, nextOrderSnapshot, `${filenameBase} - ${previewTitle}.pdf`);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "PDF önizlemesi oluşturulamadı.");
       }
