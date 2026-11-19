@@ -4,7 +4,7 @@ import { isTrailingDailyEntry, orderDailyDisplayEntries } from "../../shared/dai
 import NotificationTypes from "./NotificationTypes";
 import { isPunctuationOnly } from "./noteText";
 import NoteSummary from "./NoteSummary";
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import DisplayScaleControl from "./DisplayScaleControl";
 import {
@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  Copy,
   Columns2,
   CreditCard,
   ChevronDown,
@@ -45,6 +46,9 @@ import {
   WalletCards,
   X,
   FileText,
+  Eye,
+  History,
+  RefreshCw,
   ClipboardCheck,
   LayoutGrid,
   List,
@@ -93,6 +97,10 @@ import {
 type View = "daily" | "invoices" | "accounts" | "reports" | "cashboxes" | "categories" | "people" | "customers" | "settings" | "management";
 type EntryKind = "income" | "expense" | "transfer";
 type Currency = "TRY" | "AZN" | "USD";
+type DailyContextTarget =
+  | { type: "entry"; entry: Entry }
+  | { type: "account"; account: Account }
+  | { type: "workspace" };
 const STANDARD_BANKS = ["Kapital Bank", "ABB", "Unibank", "Leobank", "Rabitə Bank", "Ziraat Bank", "Azər Türk Bank", "M10"];
 type BankDirectory = Record<string, string>;
 const bankDirectoryKey = (name: string) => {
@@ -186,7 +194,8 @@ type CalculationRules = {
 };
 type CardLimitRuleKey = "opening" | "income" | "onlinePayment" | "sameBankTransfer" | "diffBankTransfer" | "cashOut";
 type CardLimitRules = Record<CardLimitRuleKey, boolean>;
-type CardBankLimitSettings = { rules: CardLimitRules; limits: Record<string, number> };
+type CardStatus = "" | "🚫" | "🔒" | "❓";
+type CardBankLimitSettings = { rules: CardLimitRules; limits: Record<string, number>; statuses: Record<string, CardStatus> };
 type CardLimitSettings = Record<string, CardBankLimitSettings>;
 
 type DailySnapshot = {
@@ -244,39 +253,98 @@ const DEFAULT_RULES: CalculationRules = {
 };
 
 const DEFAULT_CARD_LIMIT_RULES: CardLimitRules = {
-  opening: true,
-  income: true,
-  onlinePayment: true,
-  sameBankTransfer: true,
-  diffBankTransfer: true,
+  opening: false,
+  income: false,
+  onlinePayment: false,
+  sameBankTransfer: false,
+  diffBankTransfer: false,
   cashOut: false,
 };
+
+// Card limits are bank-specific.  For Kapital and ABB the monthly cap is the
+// remaining amount after the carried balance, outgoing interbank transfers and
+// cash withdrawals; incoming money is never part of that volume.
+const defaultCardLimitRulesForBank = (bank: string): CardLimitRules => {
+  const normalized = bank.trim().toLocaleLowerCase("az-AZ");
+  if (normalized === "kapital bank" || normalized === "abb") {
+    return {
+      ...DEFAULT_CARD_LIMIT_RULES,
+      opening: true,
+      diffBankTransfer: true,
+      cashOut: true,
+    };
+  }
+  return { ...DEFAULT_CARD_LIMIT_RULES };
+};
 const CARD_LIMIT_RULE_OPTIONS: readonly { key: CardLimitRuleKey; label: string; description: string }[] = [
-  { key: "opening", label: "Əvvəldən qalıq", description: "Ayın başlanğıcındakı kart qalığı" },
-  { key: "income", label: "Mədaxil", description: "Karta daxil olan vəsait" },
   { key: "onlinePayment", label: "Onlayn ödəniş", description: "Kartla edilən onlayn ödənişlər" },
   { key: "sameBankTransfer", label: "Eyni banka köçürmə", description: "Eyni bank daxilində çıxan köçürmə" },
   { key: "diffBankTransfer", label: "Fərqli banka köçürmə", description: "Başqa banka çıxan köçürmə" },
   { key: "cashOut", label: "Nağdlaşdırma", description: "Kartdan kassaya çıxarılan vəsait" },
+];
+const CARD_STATUS_OPTIONS: readonly { value: CardStatus; label: string }[] = [
+  { value: "", label: "Aktiv" },
+  { value: "🚫", label: "Passiv · ⛔" },
+  { value: "🔒", label: "Kilidli · 🔒" },
+  { value: "❓", label: "Qeyri-müəyyən · ❓" },
 ];
 
 const isCashLimitChannel = (name: string) =>
   /^(?:kassa|nağd)(?:$|[ .(·])|^n\./iu.test(name.trim());
 
 const normalizeCardLimitSettings = (saved?: CardLimitSettings | null, isSparexpert = false): CardLimitSettings => {
-  const reports = (isSparexpert ? SPAREXPERT_CARD_REPORT.filter((report) => !isCashLimitChannel(report.bank)) : IMPORTED_CARD_REPORT) as readonly {
+  const sourceReports = (isSparexpert ? SPAREXPERT_CARD_REPORT.filter((report) => !isCashLimitChannel(report.bank)) : IMPORTED_CARD_REPORT) as readonly {
     bank: string;
-    rows: readonly { person: string; monthlyLimit?: number }[];
+    rows: readonly { person: string; monthlyLimit?: number; status?: string }[];
   }[];
+  const reports = sourceReports.map((report) => ({
+    bank: report.bank,
+    rows: report.rows.map((row) => ({ ...row })),
+  }));
+
+  // Retain a card/person that was created after the original sheet import.
+  // Otherwise a browser refresh would silently remove its saved limit.
+  for (const [savedBank, bankSettings] of Object.entries(saved || {})) {
+    let report = reports.find((item) => normalizeBankKey(item.bank) === normalizeBankKey(savedBank));
+    if (!report) {
+      report = { bank: savedBank, rows: [] };
+      reports.push(report);
+    }
+    for (const person of new Set([...Object.keys(bankSettings?.limits || {}), ...Object.keys(bankSettings?.statuses || {})])) {
+      const canonical = canonicalPersonLabel(person);
+      if (!report.rows.some((row) => canonicalPersonLabel(row.person) === canonical)) {
+        report.rows.push({ person: canonical, monthlyLimit: 0, status: "" });
+      }
+    }
+  }
+
   return Object.fromEntries(reports.map((report) => {
     const existing = saved?.[report.bank];
+    const limits = { ...existing?.limits };
+    const statuses = { ...existing?.statuses };
+    for (const [person, limit] of Object.entries(existing?.limits || {})) {
+      const canonical = canonicalPersonLabel(person);
+      if (!(canonical in limits)) limits[canonical] = limit;
+    }
+    for (const [person, status] of Object.entries(existing?.statuses || {})) {
+      const canonical = canonicalPersonLabel(person);
+      if (!(canonical in statuses)) statuses[canonical] = status;
+    }
     return [report.bank, {
-      rules: { ...DEFAULT_CARD_LIMIT_RULES, ...(existing?.rules || {}) },
+      // A new bank starts from its actual bank rule.  Saved user choices still
+      // remain editable, but income must never be counted as a limit channel.
+      rules: { ...defaultCardLimitRulesForBank(report.bank), ...(existing?.rules || {}), income: false },
       limits: Object.fromEntries(report.rows.map((row) => [
         row.person,
-        Number.isFinite(Number(existing?.limits?.[row.person]))
-          ? Math.max(0, Number(existing?.limits?.[row.person]))
+        Number.isFinite(Number(limits[row.person]))
+          ? Math.max(0, Number(limits[row.person]))
           : Math.max(0, Number(row.monthlyLimit || 0)),
+      ])),
+      statuses: Object.fromEntries(report.rows.map((row) => [
+        row.person,
+        statuses[row.person] === "🚫" || statuses[row.person] === "🔒" || statuses[row.person] === "❓" || statuses[row.person] === ""
+          ? statuses[row.person]
+          : (row.status === "🚫" || row.status === "🔒" || row.status === "❓" ? row.status : ""),
       ])),
     }];
   }));
@@ -300,8 +368,11 @@ const loadRules = (): CalculationRules => {
 const isPlaceholderCard = (name: string) => /^(Kart\s+X\d+|K\.X\d+|T\d+)$/i.test(name.trim());
 const isAggregateAccount = (name: string) => name.trim().toLocaleLowerCase("az-AZ") === "ümumi";
 
+const canonicalPersonLabel = (raw: string) =>
+  raw.trim().replace(/^((?:K|N|BK|H)\.\s*)?hava\s*xan[ıi]m$/iu, (_, prefix = "") => `${prefix}Hava`);
+
 const normalizePersonName = (raw?: string) => {
-  const value = (raw ?? "").trim();
+  const value = canonicalPersonLabel(raw ?? "");
   if (!value) return "Eşqin";
   if (/^K\.X(\d+)$/i.test(value)) return value.replace(/^K\.X/i, "Kart X");
   if (/^K\./i.test(value)) return value.replace(/^K\.\s*/i, "").trim();
@@ -315,7 +386,7 @@ const normalizePersonName = (raw?: string) => {
 };
 
 const resolveEntryPerson = (entry: Pick<Entry, "responsible" | "accountId">, fallbackAccount?: Account) => {
-  if (fallbackAccount?.person) return fallbackAccount.person;
+  if (fallbackAccount?.person) return normalizePersonName(fallbackAccount.person);
   const raw = entry.responsible?.trim() || fallbackAccount?.name || "";
   return normalizePersonName(raw);
 };
@@ -628,6 +699,15 @@ function spareCardOpening(person: string, bank: string): number {
     : 0;
 }
 type CardActivity = ReturnType<typeof emptyCardActivity>;
+type CardReportRow = CardActivity & {
+  person: string;
+  opening: number;
+  balance: number;
+  status: string;
+  monthlyLimit: number;
+  limitRemaining: number;
+};
+type CardReportGroup = { bank: string; code: string; totalBalance: number; rows: CardReportRow[] };
 const spareBankKey = (bank?: string) => {
   const key = normalizeBankKey(bank);
   return key === "other" ? bank?.trim().toLocaleLowerCase("az-AZ") ?? "" : key;
@@ -815,6 +895,8 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
     return (!hasQaime && initial === "invoices") ? "daily" : initial;
   });
   const [remoteAccounts, setRemoteAccounts] = useState<Account[] | null>(null);
+  const [dailyContextMenu, setDailyContextMenu] = useState<{ target: DailyContextTarget; x: number; y: number } | null>(null);
+  const [accountContextEdit, setAccountContextEdit] = useState<Account | null>(null);
   const [switchingCompany, setSwitchingCompany] = useState(false);
 
   useEffect(() => {
@@ -978,7 +1060,13 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
     } catch {}
     return [];
   });
-  const [cardLimitSettings, setCardLimitSettings] = useState<CardLimitSettings | null>(null);
+  // Keep the cap and its bank-specific rules in the shared snapshot from the
+  // very first load.  Leaving this as null made the screen fall back to the
+  // imported monthly report after a refresh, so a saved limit could appear to
+  // change when navigating between months or devices.
+  const [cardLimitSettings, setCardLimitSettings] = useState<CardLimitSettings>(() =>
+    normalizeCardLimitSettings(null, isSparexpert)
+  );
   const effectiveCardLimitSettings = useMemo(
     () => normalizeCardLimitSettings(cardLimitSettings, isSparexpert),
     [cardLimitSettings, isSparexpert]
@@ -1178,14 +1266,25 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
   }, [view, selectedDate]);
 
   const normalizeDailySnapshot = (remote: DailySnapshot): DailySnapshot => {
-    const nextCardLimitSettings = remote.cardLimitSettings ? normalizeCardLimitSettings(remote.cardLimitSettings, isSparexpert) : null;
+    // Older snapshots do not have cardLimitSettings.  Materialize the defaults
+    // in that case so they are persisted on the next safe snapshot save rather
+    // than reconstructed from the imported report on every device.
+    const nextCardLimitSettings = normalizeCardLimitSettings(remote.cardLimitSettings, isSparexpert);
     return {
       version: 3,
       companyId: remote.companyId,
       companyName: remote.companyName,
-      ...(remote.accounts ? { accounts: remote.accounts } : {}),
-      state: migrateManualAccountIds(remote.state, isSparexpert),
-      peopleList: remote.peopleList || DEFAULT_PEOPLE,
+      ...(remote.accounts ? { accounts: remote.accounts.map((account) => ({
+        ...account,
+        name: canonicalPersonLabel(account.name),
+        ...(account.person ? { person: canonicalPersonLabel(account.person) } : {}),
+      })) } : {}),
+      state: migrateManualAccountIds({ ...remote.state, entries: remote.state.entries.map((entry) => ({
+        ...entry,
+        ...(entry.responsible ? { responsible: canonicalPersonLabel(entry.responsible) } : {}),
+        ...(entry.targetResponsible ? { targetResponsible: canonicalPersonLabel(entry.targetResponsible) } : {}),
+      })) }, isSparexpert),
+      peopleList: [...new Set((remote.peopleList || DEFAULT_PEOPLE).map(canonicalPersonLabel))],
       channelList: remote.channelList || DEFAULT_CHANNELS,
       categoryList: isSparexpert ? spareEntryCategories(remote.categoryList?.length ? remote.categoryList : SPAREXPERT_CATEGORIES) : remote.categoryList?.length ? remote.categoryList : DEFAULT_CATEGORIES,
       customerList: remote.customerList?.length ? remote.customerList : isSparexpert ? (spareRelease ? [] : SPAREXPERT_CUSTOMERS) : DEFAULT_CUSTOMERS,
@@ -1193,12 +1292,12 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
       customerDebts: remote.customerDebts || {},
       pastMonthUninvoiced: remote.pastMonthUninvoiced || {},
       invoices: remote.invoices || [],
-      ...(nextCardLimitSettings ? { cardLimitSettings: nextCardLimitSettings } : {}),
+      cardLimitSettings: nextCardLimitSettings,
     };
   };
 
   const setSnapshotValues = (next: DailySnapshot) => {
-    const nextCardLimitSettings = next.cardLimitSettings ? normalizeCardLimitSettings(next.cardLimitSettings, isSparexpert) : null;
+    const nextCardLimitSettings = normalizeCardLimitSettings(next.cardLimitSettings, isSparexpert);
     if (next.accounts) setRemoteAccounts(next.accounts);
     setState(next.state);
     setPeopleList(next.peopleList);
@@ -1655,7 +1754,10 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
       customerDebts,
       pastMonthUninvoiced,
       invoices,
-      ...(cardLimitSettings ? { cardLimitSettings } : {}),
+      // The monthly cap is configuration, not a calculated monthly value.
+      // Always keep it in the shared snapshot so every user/device sees the
+      // same cap; only limitRemaining changes with the selected month.
+      cardLimitSettings,
     };
     const snapshotFingerprint = JSON.stringify(snapshot);
     if (snapshotFingerprint === lastRemoteSnapshotFingerprintRef.current) {
@@ -2354,6 +2456,19 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
       }
       return [...cur, acc];
     });
+    if (!isSparexpert && acc.type === "card" && acc.channel?.trim()) {
+      const channel = acc.channel.trim();
+      const person = normalizePersonName(acc.person || acc.name);
+      setCardLimitSettings((current) => {
+        const normalized = normalizeCardLimitSettings(current, false);
+        const bank = Object.keys(normalized).find((name) => normalizeBankKey(name) === normalizeBankKey(channel)) || channel;
+        const existing = normalized[bank] || { rules: defaultCardLimitRulesForBank(bank), limits: {}, statuses: {} };
+        const limits = { ...existing.limits };
+        if (acc.archived) delete limits[person];
+        else if (!(person in limits)) limits[person] = 0;
+        return normalizeCardLimitSettings({ ...normalized, [bank]: { ...existing, limits } }, false);
+      });
+    }
   };
 
   const handleDeleteAccount = (accId: string) => {
@@ -2673,6 +2788,36 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
       expenseMethod: entry.expenseMethod || "online",
     });
     setEntryOpen(true);
+  };
+
+  const openDailyContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
+    const element = event.target as HTMLElement;
+    // Keep native copy/paste behaviour inside data-entry fields.
+    if (element.closest("input, textarea, select, [contenteditable='true']")) return;
+    const entryId = element.closest<HTMLElement>("[data-daily-entry-id]")?.dataset.dailyEntryId;
+    const accountId = element.closest<HTMLElement>("[data-daily-account-id]")?.dataset.dailyAccountId;
+    const accountName = element.closest<HTMLElement>("[data-daily-account-name]")?.dataset.dailyAccountName;
+    const entry = entryId ? state.entries.find((item) => item.id === entryId) : undefined;
+    const account = accountId
+      ? accountCatalog.find((item) => item.id === accountId)
+      : accountName
+        ? accountCatalog.find((item) => item.name === accountName || item.id === accountName)
+        : undefined;
+    // A context menu only belongs to an actual Daily record.  Empty spaces,
+    // summary tiles and bank headers keep the native browser right click.
+    if (!entry && !account) return;
+    event.preventDefault();
+    setDailyContextMenu({
+      target: entry ? { type: "entry", entry } : { type: "account", account: account! },
+      x: event.clientX,
+      y: event.clientY,
+    });
+  };
+
+  const editContextAccount = (account: Account) => {
+    setDailyContextMenu(null);
+    setAccountContextEdit(account);
+    setView("cashboxes");
   };
 
   const azartMobileNavigation = (session.companyId || session.company?.id || "azartmembran") === "azartmembran" && !isSparexpert;
@@ -3021,6 +3166,7 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
       <article
         key={name}
         className="recon-row clickable-recon-row"
+        data-daily-account-name={name}
         role="button"
         tabIndex={0}
         title={`${cleanName} hesabının günün dökümünü açmaq üçün klikləyin`}
@@ -3127,6 +3273,7 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
       <div
         key={name}
         className="sp-recon-card clickable-recon-row"
+        data-daily-account-name={name}
         role="button"
         tabIndex={0}
         title={`${cleanName} hesabının günün dökümünü açmaq üçün klikləyin`}
@@ -3254,7 +3401,7 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
   }, [visibleReconciliationRows, isSparexpert, accountCatalog]);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" onContextMenu={openDailyContextMenu}>
       <header className="topbar">
         <div className="topbar-brand">
           <AriXLogo className="arix-logo" />
@@ -3650,6 +3797,7 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
                     </div>}
                     <article
                     className={cx("operation-row", entry.kind, interactive && "editable", pendingChange && "change-pending")}
+                    data-daily-entry-id={entry.id}
                     role={interactive ? "button" : undefined}
                     tabIndex={interactive ? 0 : undefined}
                     title={pendingChange ? "Əməliyyat sorğusu təsdiq gözləyir" : interactive ? "Düzəliş üçün aç" : undefined}
@@ -3979,6 +4127,8 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
               setPeopleList={setPeopleList}
               channelList={channelList}
               setChannelList={setChannelList}
+              contextAccountEdit={accountContextEdit}
+              onContextAccountEditHandled={() => setAccountContextEdit(null)}
             />
           )}
           {view === "reports" && (!isSparexpert || !spareReportCards) && <ReportsView state={state} accounts={accountCatalog} parties={visibleDirectory} isSparexpert={isSparexpert} sharedMonth={spareMonth} />}
@@ -4000,6 +4150,8 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
               channelList={channelList}
               setChannelList={setChannelList}
               initialSubTab="management"
+              contextAccountEdit={accountContextEdit}
+              onContextAccountEditHandled={() => setAccountContextEdit(null)}
             />
           )}
           {view === "categories" && can("daily.directories.manage") && <DirectoryView items={categoryList} setItems={setCategoryList} onAdd={isSparexpert ? async (category, action, previous) => {
@@ -4147,6 +4299,18 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
         />
       )}
 
+      {dailyContextMenu && <DailyContextMenu
+        target={dailyContextMenu.target}
+        position={{ x: dailyContextMenu.x, y: dailyContextMenu.y }}
+        canEditEntry={can("daily.entries.edit") || can("daily.entries.delete")}
+        onClose={() => setDailyContextMenu(null)}
+        onEditEntry={(entry) => { setDailyContextMenu(null); openEntryForEdit(entry); }}
+        onOpenAccount={(account) => { setDailyContextMenu(null); setStatementAccountName(account.id || account.name); }}
+        onEditAccount={editContextAccount}
+        onCreateEntry={(kind) => { setDailyContextMenu(null); openEntry(kind); }}
+        onRefresh={() => window.location.reload()}
+      />}
+
       {showInAppNotifications && notificationToast && createPortal(
         <aside className={`desktop-notification-toast ${theme === "dark" ? "is-dark" : ""}`} aria-live="polite">
           <div
@@ -4188,6 +4352,90 @@ export default function DailyWorkspace({ session, onLogout }: { session: DailySe
         document.body,
       )}
     </div>
+  );
+}
+
+function DailyContextMenu({
+  target,
+  position,
+  canEditEntry,
+  onClose,
+  onEditEntry,
+  onOpenAccount,
+  onEditAccount,
+  onCreateEntry,
+  onRefresh,
+}: {
+  target: DailyContextTarget;
+  position: { x: number; y: number };
+  canEditEntry: boolean;
+  onClose: () => void;
+  onEditEntry: (entry: Entry) => void;
+  onOpenAccount: (account: Account) => void;
+  onEditAccount: (account: Account) => void;
+  onCreateEntry: (kind: EntryKind) => void;
+  onRefresh: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const closeOnOutside = (event: Event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) onClose();
+    };
+    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("pointerdown", closeOnOutside, true);
+    window.addEventListener("keydown", closeOnKey);
+    window.addEventListener("scroll", onClose, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutside, true);
+      window.removeEventListener("keydown", closeOnKey);
+      window.removeEventListener("scroll", onClose, true);
+    };
+  }, [onClose]);
+
+  const copyText = async () => {
+    const text = target.type === "entry"
+      ? `${target.entry.date} ${target.entry.time || ""} · ${target.entry.title || target.entry.kind} · ${Math.abs(target.entry.amount).toLocaleString("az-AZ")} ₼${target.entry.counterparty ? ` · ${target.entry.counterparty}` : ""}`
+      : target.type === "account"
+        ? `${getCleanAccountTitle(target.account)} · ${target.account.channel || "Kassa"}`
+        : "AriX Daily";
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(onClose, 450);
+    } catch { onClose(); }
+  };
+
+  const menuWidth = 272;
+  const left = Math.max(10, Math.min(position.x, window.innerWidth - menuWidth - 10));
+  const top = Math.max(10, Math.min(position.y, window.innerHeight - 320));
+  const entryTitle = target.type === "entry"
+    ? target.entry.counterparty?.trim() || target.entry.title || (target.entry.kind === "income" ? "Mədaxil" : target.entry.kind === "expense" ? "Məxaric" : "Köçürmə")
+    : target.type === "account" ? getCleanAccountTitle(target.account) : "AriX Daily";
+  const entryMeta = target.type === "entry"
+    ? `${target.entry.date} · ${formatMoney(target.entry.amount, "AZN")}`
+    : target.type === "account" ? `${target.account.channel || "Kassa"} · ${target.account.type === "card" ? "Kart" : target.account.type === "bank" ? "Bank" : "Kassa"}` : "Sürətli əməliyyatlar";
+
+  return createPortal(
+    <div className="daily-context-menu-backdrop" role="presentation" onContextMenu={(event) => { event.preventDefault(); onClose(); }}>
+      <div ref={menuRef} className="daily-context-menu" style={{ left, top }} role="menu" aria-label="Sürətli əməliyyat menyusu">
+        <header>
+          <span>{target.type === "entry" ? <FileText size={14} /> : target.type === "account" ? <WalletCards size={14} /> : <AriXLogo />}</span>
+          <div><b>{entryTitle}</b><small>{entryMeta}</small></div>
+        </header>
+        {target.type === "entry" && <>
+          {canEditEntry && <button type="button" onClick={() => onEditEntry(target.entry)}><Pencil size={16} /><span><b>Əməliyyatı düzəlt</b><small>Məbləğ, kateqoriya və qeydi aç</small></span></button>}
+          <button type="button" onClick={copyText}><Copy size={16} /><span><b>{copied ? "Kopyalandı" : "Məlumatı kopyala"}</b><small>Tarix, məbləğ və qarşı tərəf</small></span></button>
+        </>}
+        {target.type === "account" && <>
+          <button type="button" className="is-primary" onClick={() => onOpenAccount(target.account)}><Eye size={16} /><span><b>Hesab hərəkətlərini aç</b><small>Günün dökümü və qalıq</small></span></button>
+          <button type="button" onClick={() => onEditAccount(target.account)}><Pencil size={16} /><span><b>Hesabı düzəlt</b><small>Ad, bank, balans və aktivlik</small></span></button>
+          <button type="button" onClick={copyText}><Copy size={16} /><span><b>{copied ? "Kopyalandı" : "Hesabı kopyala"}</b><small>Hesab adı və kanalı</small></span></button>
+        </>}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -6068,6 +6316,7 @@ function getCleanAccountTitle(acc?: Account | Partial<Account>): string {
 function AccountEditModal({
   account,
   isNew,
+  initialType,
   peopleList,
   channelList,
   bankDirectory,
@@ -6076,13 +6325,14 @@ function AccountEditModal({
 }: {
   account?: Partial<Account>;
   isNew: boolean;
+  initialType?: "cash" | "bank" | "card";
   peopleList: string[];
   channelList: string[];
   bankDirectory?: { names: string[]; logos: BankDirectory };
   onSave: (acc: Account, newPerson?: string, newChannel?: string) => void;
   onClose: () => void;
 }) {
-  const [type, setType] = useState<"cash" | "bank" | "card">((account?.type === "cash" || account?.type === "card") ? account.type : "bank");
+  const [type, setType] = useState<"cash" | "bank" | "card">((account?.type === "cash" || account?.type === "card") ? account.type : (initialType || "bank"));
   const [person, setPerson] = useState<string>(account?.person || peopleList[0] || "Spare");
   const [isNewPerson, setIsNewPerson] = useState(false);
   const [newPersonName, setNewPersonName] = useState("");
@@ -6431,6 +6681,8 @@ function AccountsView({
   setChannelList,
   initialSubTab = "cards",
   isSparexpert = false,
+  contextAccountEdit,
+  onContextAccountEditHandled,
 }: {
   sharedMonth?: SharedReportMonth;
   isSparexpert?: boolean;
@@ -6449,18 +6701,64 @@ function AccountsView({
   channelList?: string[];
   setChannelList?: React.Dispatch<React.SetStateAction<string[]>>;
   initialSubTab?: "cards" | "movements" | "management";
+  contextAccountEdit?: Account | null;
+  onContextAccountEditHandled?: () => void;
 }) {
   const [subTab, setSubTab] = useState<"cards" | "movements" | "management">(initialSubTab);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | undefined>(undefined);
+  const [newAccountType, setNewAccountType] = useState<"bank" | "card">("bank");
   const [mgmtSection, setMgmtSection] = useState<"accounts" | "banks" | "people">("accounts");
   const [mgmtTypeFilter, setMgmtTypeFilter] = useState<"all" | "cash" | "bank" | "card">("all");
   const [mgmtSearchQuery, setMgmtSearchQuery] = useState("");
   const [newBankDraft, setNewBankDraft] = useState("");
   const [newPersonDraft, setNewPersonDraft] = useState("");
+  const [selectedPersonCardDetails, setSelectedPersonCardDetails] = useState<string | null>(null);
+  useEffect(() => {
+    if (!contextAccountEdit) return;
+    setSubTab("management");
+    setEditingAccount(contextAccountEdit);
+    setNewAccountType(contextAccountEdit.type === "card" ? "card" : "bank");
+    setAccountModalOpen(true);
+    onContextAccountEditHandled?.();
+  }, [contextAccountEdit, onContextAccountEditHandled]);
   const [selectedBank, setSelectedBank] = useState<string>("Kapital Bank");
   const baseCardReport = useMemo(() => {
-    if (!isSparexpert) return IMPORTED_CARD_REPORT;
+    if (!isSparexpert) {
+      const groups: CardReportGroup[] = IMPORTED_CARD_REPORT.map((group) => ({
+        ...group,
+        rows: group.rows.map((row) => ({ ...row })),
+      }));
+
+      // Azart's original report is imported from the sheet.  Cards added later
+      // must join that report without changing the imported historical rows.
+      for (const account of accounts) {
+        if (account.type !== "card" || account.archived || !account.channel?.trim()) continue;
+        const channel = account.channel.trim();
+        const person = normalizePersonName(account.person || account.name);
+        let group = groups.find((item) => normalizeBankKey(item.bank) === normalizeBankKey(channel));
+        if (!group) {
+          group = { bank: channel, code: channel, totalBalance: 0, rows: [] };
+          groups.push(group);
+        }
+        const row = group.rows.find((item) => normalizePersonName(item.person) === person);
+        if (row) {
+          row.opening += account.opening || 0;
+          row.balance += account.opening || 0;
+          continue;
+        }
+        group.rows.push({
+          person,
+          opening: account.opening || 0,
+          ...emptyCardActivity(),
+          balance: account.opening || 0,
+          status: "",
+          monthlyLimit: 0,
+          limitRemaining: 0,
+        });
+      }
+      return groups;
+    }
     const groups: { bank: string; code: string; totalBalance: number; rows: Array<(typeof SPAREXPERT_CARD_REPORT)[number]["rows"][number]> }[] = SPAREXPERT_CARD_REPORT.filter((report) => !isCashLimitChannel(report.bank)).map((group) => ({ ...group, rows: [...group.rows] }));
     const add = (bank: string, person: string) => {
       if (!bank || !person || isCashLimitChannel(bank) || /^(kart|biznes kart)$/i.test(bank)) return;
@@ -6571,6 +6869,7 @@ function AccountsView({
       const bankLimitSettings = cardLimitSettings[bankGroup.bank] || {
         rules: DEFAULT_CARD_LIMIT_RULES,
         limits: {},
+        statuses: {},
       };
       const rows = bankGroup.rows.map((baseRow) => {
         const personNorm = normalizePersonName(baseRow.person).toLocaleLowerCase("az-AZ");
@@ -6607,16 +6906,19 @@ function AccountsView({
         const balance = Math.round((opening + activityDelta(activity)) * 100) / 100;
         const monthlyLimit = Math.max(0, Number(bankLimitSettings.limits[baseRow.person] ?? baseRow.monthlyLimit ?? 0));
         const limitValues: Record<CardLimitRuleKey, number> = { opening, ...activity };
-        const cashOutCounts = !isSparexpert && bankDirectoryKey(bankGroup.bank) === "kapital";
-        const limitUsage = CARD_LIMIT_RULE_OPTIONS.reduce(
-          (sum, item) => sum + ((bankLimitSettings.rules[item.key] || (item.key === "cashOut" && cashOutCounts)) ? Math.abs(limitValues[item.key]) : 0),
-          0
-        );
+        // Each bank has its own volume rules.  Selected outgoing movement types
+        // count only when they are explicitly enabled for that bank.
+        const limitUsage = (bankLimitSettings.rules.opening ? Math.abs(limitValues.opening) : 0)
+          + CARD_LIMIT_RULE_OPTIONS.reduce(
+            (sum, item) => sum + (bankLimitSettings.rules[item.key] ? Math.abs(limitValues[item.key]) : 0),
+            0
+          );
         const limitRemaining = monthlyLimit > 0
           ? Math.round((monthlyLimit - limitUsage) * 100) / 100
           : 0;
         return {
           ...baseRow,
+          status: bankLimitSettings.statuses[baseRow.person] ?? baseRow.status ?? "",
           monthlyLimit,
           opening,
           ...activity,
@@ -6637,13 +6939,27 @@ function AccountsView({
     () => dynamicBankReports.reduce((sum, bank) => sum + bank.totalBalance, 0),
     [dynamicBankReports]
   );
+  const azartLimitDialogReports = useMemo(() => dynamicBankReports.map((bank) => ({
+    bank: bank.bank,
+    code: bank.code,
+    rows: bank.rows.map((row) => ({ person: row.person, status: row.status || "" })),
+  })), [dynamicBankReports]);
   const activeBankReport = useMemo(
     () => dynamicBankReports.find((item) => item.bank === selectedBank) ?? dynamicBankReports[0],
     [dynamicBankReports, selectedBank]
   );
+  const selectedPersonCards = useMemo(() => {
+    if (!selectedPersonCardDetails) return [];
+    const personKey = normalizePersonName(selectedPersonCardDetails).toLocaleLowerCase("az-AZ");
+    return dynamicBankReports.flatMap((bank) => bank.rows
+      .filter((row) => normalizePersonName(row.person).toLocaleLowerCase("az-AZ") === personKey)
+      .map((row) => ({ bank: bank.bank, row })));
+  }, [dynamicBankReports, selectedPersonCardDetails]);
   const selectedCardMovements = spareMonthlyCardMovements.get(spareBankKey(activeBankReport.bank)) ?? [];
   const filteredCardRows = useMemo(() => {
     const q = cardQuery.trim().toLocaleLowerCase("az-AZ");
+    // The source sheet keeps people in a meaningful order.  Keep that order
+    // inside each status group, but always surface usable (active) cards first.
     return activeBankReport.rows.filter((row) => {
       if (q && !row.person.toLocaleLowerCase("az-AZ").includes(q)) return false;
       if (showInactiveCards || q) return true;
@@ -6657,7 +6973,12 @@ function AccountsView({
         row.balance !== 0 ||
         row.limitRemaining !== 0
       );
-    });
+    }).map((row, index) => ({ row, index }))
+      .sort((a, b) => {
+        const activeFirst = (a.row.status ? 1 : 0) - (b.row.status ? 1 : 0);
+        return activeFirst || a.index - b.index;
+      })
+      .map(({ row }) => row);
   }, [activeBankReport, cardQuery, showInactiveCards]);
 
   const cardTotals = useMemo(
@@ -6737,6 +7058,7 @@ function AccountsView({
             className="primary-button"
             onClick={() => {
               setEditingAccount(undefined);
+              setNewAccountType("bank");
               setAccountModalOpen(true);
             }}
             style={{ gap: "6px" }}
@@ -6744,6 +7066,19 @@ function AccountsView({
             <Plus size={16} />
             <span>Yeni Hesab Əlavə Et</span>
           </button>
+          {!isSparexpert && <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setEditingAccount(undefined);
+              setNewAccountType("card");
+              setAccountModalOpen(true);
+            }}
+            style={{ gap: "6px" }}
+          >
+            <CreditCard size={16} />
+            <span>Yeni kart əlavə et</span>
+          </button>}
         </div>
       </section>
 
@@ -6886,7 +7221,7 @@ function AccountsView({
             </details>}
           </div>
         </section>
-      ) : (
+      ) : subTab === "movements" ? (
         <div className="accounts-layout">
           <section className="accounts-overview">
             {visibleAccounts.map((item) => {
@@ -6928,7 +7263,7 @@ function AccountsView({
             </div>
           </section>
         </div>
-      )}
+      ) : null}
       {subTab === "management" && (
         <section className="mgmt-hub-shell">
           <div className="mgmt-stats-grid">
@@ -7012,6 +7347,7 @@ function AccountsView({
               className="primary-button"
               onClick={() => {
                 setEditingAccount(undefined);
+                setNewAccountType("bank");
                 setAccountModalOpen(true);
               }}
               style={{ gap: "6px" }}
@@ -7086,7 +7422,7 @@ function AccountsView({
                       const currentBal = balanceAt(acc, todayKey);
                       const cleanTitle = getCleanAccountTitle(acc);
                       return (
-                        <tr key={acc.id}>
+                        <tr key={acc.id} data-daily-account-id={acc.id}>
                           <td style={{ color: "var(--arix-muted, #64748b)" }}>{idx + 1}</td>
                           <td>
                             <strong style={{ fontWeight: 700 }}>{cleanTitle}</strong>
@@ -7216,7 +7552,7 @@ function AccountsView({
                         <button
                           type="button"
                           className="mgmt-action-btn delete"
-                          onClick={() => {
+                          onClick={(event) => {
                             if (confirm(`"${ch}" kanalını siyahıdan silmək istəyirsiniz?`)) {
                               setChannelList((cur) => cur.filter((item) => item !== ch));
                             }
@@ -7265,22 +7601,43 @@ function AccountsView({
               <div className="mgmt-card-grid">
                 {peopleList.map((p) => {
                   const accCount = accounts.filter((a) => (a.person || "").toLowerCase() === p.toLowerCase()).length;
+                  // Imported card reports are historical card records, not
+                  // editable account objects.  Show them separately so a
+                  // person with seven November cards is never misleadingly
+                  // presented as having “0 accounts”.
+                  const reportCardCount = dynamicBankReports.reduce(
+                    (sum, bank) => sum + bank.rows.filter((row) => normalizePersonName(row.person).toLowerCase() === normalizePersonName(p).toLowerCase()).length,
+                    0,
+                  );
                   return (
-                    <div key={p} className="mgmt-channel-card">
+                    <div
+                      key={p}
+                      className={cx("mgmt-channel-card", reportCardCount > 0 && "mgmt-person-card")}
+                      role={reportCardCount > 0 ? "button" : undefined}
+                      tabIndex={reportCardCount > 0 ? 0 : undefined}
+                      onClick={() => { if (reportCardCount > 0) setSelectedPersonCardDetails(p); }}
+                      onKeyDown={(event) => {
+                        if (reportCardCount > 0 && (event.key === "Enter" || event.key === " ")) {
+                          event.preventDefault();
+                          setSelectedPersonCardDetails(p);
+                        }
+                      }}
+                    >
                       <div className="mgmt-channel-left">
                         <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#4f46e5", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 700 }}>
                           {p.charAt(0).toUpperCase()}
                         </div>
                         <div>
                           <div>{p}</div>
-                          <small>{accCount} hesab bağlıdır</small>
+                          <small>{reportCardCount > 0 ? `${reportCardCount} kart qeydi${accCount ? ` · ${accCount} idarə olunan hesab` : ""}` : accCount ? `${accCount} hesab bağlıdır` : "Hesab və kart qeydi yoxdur"}</small>
                         </div>
                       </div>
-                      {setPeopleList && (!isSparexpert || !accCount) && (
+                      {setPeopleList && (!isSparexpert || !(accCount || reportCardCount)) && (
                         <button
                           type="button"
                           className="mgmt-action-btn delete"
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.stopPropagation();
                             if (confirm(`"${p}" şəxsini siyahıdan silmək istəyirsiniz?`)) {
                               setPeopleList((cur) => cur.filter((item) => item !== p));
                             }
@@ -7303,6 +7660,7 @@ function AccountsView({
         <AccountEditModal
           account={editingAccount}
           isNew={!editingAccount}
+          initialType={newAccountType}
           peopleList={peopleList}
           channelList={channelList}
           bankDirectory={bankDirectory}
@@ -7313,19 +7671,47 @@ function AccountsView({
           onClose={() => setAccountModalOpen(false)}
         />
       )}
-      {limitSettingsOpen && <CardLimitSettingsDialog isSparexpert={isSparexpert} settings={cardLimitSettings} initialBank={selectedBank} onClose={() => setLimitSettingsOpen(false)} onSave={(next) => { onSaveCardLimitSettings(next); setLimitSettingsOpen(false); }} />}
+      {selectedPersonCardDetails && (
+        <div className="modal-backdrop person-card-detail-backdrop" role="presentation" onMouseDown={() => setSelectedPersonCardDetails(null)}>
+          <section className="modal person-card-detail-modal" role="dialog" aria-modal="true" aria-label={`${selectedPersonCardDetails} kart qeydləri`} onMouseDown={(event) => event.stopPropagation()}>
+            <header className="modal-heading">
+              <div>
+                <span>KART QEYDLƏRİ</span>
+                <h2>{selectedPersonCardDetails}</h2>
+                <p>{selectedPersonCards.length} bank üzrə kart statusu və noyabr hərəkət xülasəsi</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setSelectedPersonCardDetails(null)} aria-label="Bağla"><X size={19} /></button>
+            </header>
+            <div className="person-card-detail-list">
+              {selectedPersonCards.map(({ bank, row }) => {
+                const status = CARD_STATUS_OPTIONS.find((item) => item.value === row.status)?.label || "Aktiv";
+                return <button key={`${bank}:${row.person}`} type="button" className="person-card-detail-row" onClick={() => { setSelectedBank(bank); setSubTab("cards"); setSelectedPersonCardDetails(null); }}>
+                  <span className="person-card-bank"><BankLogo bank={bank} size={24} /><b>{bank}</b></span>
+                  <span className={cx("card-status-pill", !row.status && "active")}>{status}</span>
+                  <span><small>Cari balans</small><b>{formatMoney(row.balance, "AZN")}</b></span>
+                  <span><small>Limit qalığı</small><b className={cx(row.limitRemaining < 0 && "expense")}>{formatMoney(row.limitRemaining, "AZN")}</b></span>
+                  <ChevronRight size={17} />
+                </button>;
+              })}
+            </div>
+            <footer className="modal-actions"><small>Bir sətrə klikləyin: həmin bankın kart hesabatı açılacaq.</small><button type="button" className="secondary-button" onClick={() => setSelectedPersonCardDetails(null)}>Bağla</button></footer>
+          </section>
+        </div>
+      )}
+      {limitSettingsOpen && <CardLimitSettingsDialog isSparexpert={isSparexpert} reports={isSparexpert ? undefined : azartLimitDialogReports} settings={cardLimitSettings} initialBank={selectedBank} onClose={() => setLimitSettingsOpen(false)} onSave={(next) => { onSaveCardLimitSettings(next); setLimitSettingsOpen(false); }} />}
     </div>
   );
 }
 
-function CardLimitSettingsDialog({ settings, initialBank, onClose, onSave, isSparexpert = false }: {
+function CardLimitSettingsDialog({ settings, initialBank, onClose, onSave, isSparexpert = false, reports: providedReports }: {
   isSparexpert?: boolean;
+  reports?: readonly { bank: string; code: string; rows: readonly { person: string; status: string }[] }[];
   settings: CardLimitSettings;
   initialBank: string;
   onClose: () => void;
   onSave: (settings: CardLimitSettings) => void;
 }) {
-  const reports = (isSparexpert ? SPAREXPERT_CARD_REPORT.filter((report) => !isCashLimitChannel(report.bank)) : IMPORTED_CARD_REPORT) as readonly {
+  const reports = providedReports || (isSparexpert ? SPAREXPERT_CARD_REPORT.filter((report) => !isCashLimitChannel(report.bank)) : IMPORTED_CARD_REPORT) as readonly {
     bank: string;
     code: string;
     rows: readonly { person: string; status: string }[];
@@ -7334,7 +7720,7 @@ function CardLimitSettingsDialog({ settings, initialBank, onClose, onSave, isSpa
   const [draft, setDraft] = useState<CardLimitSettings>(() => normalizeCardLimitSettings(settings, isSparexpert));
   const [bulkLimit, setBulkLimit] = useState("");
   const report = reports.find((item) => item.bank === selectedBank) || reports[0];
-  const bankSettings = draft[selectedBank] || { rules: { ...DEFAULT_CARD_LIMIT_RULES }, limits: {} };
+  const bankSettings = draft[selectedBank] || { rules: { ...DEFAULT_CARD_LIMIT_RULES }, limits: {}, statuses: {} };
 
   const updateRule = (key: CardLimitRuleKey, checked: boolean) => {
     setDraft((current) => ({
@@ -7354,6 +7740,19 @@ function CardLimitSettingsDialog({ settings, initialBank, onClose, onSave, isSpa
         limits: {
           ...(current[selectedBank]?.limits || bankSettings.limits),
           [person]: Number.isFinite(parsed) ? Math.max(0, parsed) : 0,
+        },
+      },
+    }));
+  };
+  const updateStatus = (person: string, value: string) => {
+    const status: CardStatus = value === "🚫" || value === "🔒" || value === "❓" ? value : "";
+    setDraft((current) => ({
+      ...current,
+      [selectedBank]: {
+        ...(current[selectedBank] || bankSettings),
+        statuses: {
+          ...(current[selectedBank]?.statuses || bankSettings.statuses),
+          [person]: status,
         },
       },
     }));
@@ -7396,10 +7795,10 @@ function CardLimitSettingsDialog({ settings, initialBank, onClose, onSave, isSpa
       </div>
       <div className="card-limit-settings-body">
         <section className="card-limit-rules">
-          <div className="card-limit-section-heading"><div><h3>{selectedBank} qaydaları</h3><p>Seçilən sütunların işarəli məbləği aylıq limitdən çıxılır.</p></div></div>
+          <div className="card-limit-section-heading"><div><h3>{selectedBank} qaydaları</h3><p>Limit yalnız kartdan çıxan hərəkətlərlə hesablanır. Bu bankda limitə təsir edən çıxış növlərini ayrıca seçin.</p></div></div>
           <div className="card-limit-rule-list">
             {CARD_LIMIT_RULE_OPTIONS.map((item) => <label key={item.key}>
-              <input type="checkbox" checked={Boolean(bankSettings.rules[item.key]) || (!isSparexpert && item.key === "cashOut" && bankDirectoryKey(selectedBank) === "kapital")} disabled={!isSparexpert && item.key === "cashOut" && bankDirectoryKey(selectedBank) === "kapital"} onChange={(event) => updateRule(item.key, event.target.checked)} />
+              <input type="checkbox" checked={Boolean(bankSettings.rules[item.key])} onChange={(event) => updateRule(item.key, event.target.checked)} />
               <span><b>{item.label}</b><small>{item.description}</small></span>
             </label>)}
           </div>
@@ -7410,10 +7809,12 @@ function CardLimitSettingsDialog({ settings, initialBank, onClose, onSave, isSpa
             <div className="card-limit-bulk"><input inputMode="decimal" value={bulkLimit} onChange={(event) => setBulkLimit(event.target.value)} placeholder="Məs. 5000" /><button type="button" className="secondary-button" onClick={applyBulkLimit}>Hamısına tətbiq et</button></div>
           </div>
           <div className="card-limit-person-list">
-            <div className="card-limit-person-head"><span>Şəxs</span><span>Status</span><span>Aylıq limit</span></div>
+            <div className="card-limit-person-head"><span>Şəxs</span><span>Kart statusu</span><span>Aylıq limit</span></div>
             {report?.rows.map((row) => <label key={row.person}>
               <b>{row.person}</b>
-              <small>{row.status || "Aktiv"}</small>
+              <select value={bankSettings.statuses[row.person] ?? row.status ?? ""} onChange={(event) => updateStatus(row.person, event.target.value)} aria-label={`${row.person} kart statusu`}>
+                {CARD_STATUS_OPTIONS.map((option) => <option key={option.value || "active"} value={option.value}>{option.label}</option>)}
+              </select>
               <span><input inputMode="decimal" value={bankSettings.limits[row.person] || ""} onChange={(event) => updateLimit(row.person, event.target.value)} placeholder="0" /><i>₼</i></span>
             </label>)}
           </div>

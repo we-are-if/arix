@@ -24,22 +24,59 @@ export function AriXLiveMascot({
 }: AriXLiveMascotProps) {
   const [state, setState] = useState<MascotState>("idle");
   const [isOpen, setIsOpen] = useState(false);
+  const assistantHistoryEntryRef = useRef(false);
+  const assistantClosedByBackRef = useRef(false);
   const [questionText, setQuestionText] = useState("");
   const [answerText, setAnswerText] = useState<string | null>(null);
   const [bubbleMessage, setBubbleMessage] = useState<string>("Selam! Ben AriX, her şeye hâkimim 👋");
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(() => {
+    try {
+      return Boolean(JSON.parse(localStorage.getItem("arix_mascot_pos_v1") || "null")?.tucked);
+    } catch {
+      return false;
+    }
+  });
 
   // Dragging support
   const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
     try {
       const saved = localStorage.getItem("arix_mascot_pos_v1");
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const stored = JSON.parse(saved);
+      const x = Number(stored?.x);
+      const y = Number(stored?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return {
+        x: stored?.tucked ? (x < window.innerWidth / 2 ? 0 : window.innerWidth - 36) : Math.max(10, Math.min(window.innerWidth - 130, x)),
+        y: Math.max(10, Math.min(window.innerHeight - 150, y)),
+      };
     } catch {
       return null;
     }
   });
 
   const dragRef = useRef<{ startX: number; startY: number; posX: number; posY: number; moved: boolean } | null>(null);
+
+  // The PWA Back action should dismiss the assistant, not leave the app.
+  useEffect(() => {
+    const closeFromBack = () => {
+      if (!isOpen) return;
+      assistantClosedByBackRef.current = true;
+      assistantHistoryEntryRef.current = false;
+      setIsOpen(false);
+    };
+    window.addEventListener("popstate", closeFromBack);
+    if (isOpen && !assistantHistoryEntryRef.current) {
+      window.history.pushState({ ...(window.history.state || {}), arixOverlay: "assistant" }, "");
+      assistantHistoryEntryRef.current = true;
+    }
+    if (!isOpen && assistantHistoryEntryRef.current) {
+      assistantHistoryEntryRef.current = false;
+      if (!assistantClosedByBackRef.current) window.history.back();
+      assistantClosedByBackRef.current = false;
+    }
+    return () => window.removeEventListener("popstate", closeFromBack);
+  }, [isOpen]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     // Only drag on mascot itself, not inner controls
@@ -64,6 +101,7 @@ export function AriXLiveMascot({
     const dy = e.clientY - dragRef.current.startY;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
       dragRef.current.moved = true;
+      if (isMinimized) setIsMinimized(false);
       const nextX = Math.max(10, Math.min(window.innerWidth - 130, dragRef.current.posX + dx));
       const nextY = Math.max(10, Math.min(window.innerHeight - 150, dragRef.current.posY + dy));
       setPosition({ x: nextX, y: nextY });
@@ -74,9 +112,32 @@ export function AriXLiveMascot({
     if (!dragRef.current) return;
     if (dragRef.current.moved && position) {
       try {
-        localStorage.setItem("arix_mascot_pos_v1", JSON.stringify(position));
+        const mobile = window.innerWidth <= 600;
+        const tuckLeft = position.x <= 28;
+        const tuckRight = position.x >= window.innerWidth - 154;
+        if (mobile && (tuckLeft || tuckRight)) {
+          // Hide the assistant beyond the edge, like a picture-in-picture window.
+          const tucked = { x: tuckLeft ? 0 : window.innerWidth - 36, y: position.y };
+          setPosition(tucked);
+          setIsMinimized(true);
+          localStorage.setItem("arix_mascot_pos_v1", JSON.stringify({ ...tucked, tucked: true }));
+        } else {
+          setIsMinimized(false);
+          localStorage.setItem("arix_mascot_pos_v1", JSON.stringify({ ...position, tucked: false }));
+        }
       } catch {}
     } else if (!dragRef.current.moved) {
+      if (isMinimized) {
+        setIsMinimized(false);
+        if (position) {
+          const restored = { ...position, x: position.x < window.innerWidth / 2 ? 10 : window.innerWidth - 130 };
+          setPosition(restored);
+          try { localStorage.setItem("arix_mascot_pos_v1", JSON.stringify({ ...restored, tucked: false })); } catch {}
+        }
+        setIsOpen(true);
+        dragRef.current = null;
+        return;
+      }
       // Toggle interaction dialog
       setIsOpen((prev) => !prev);
     }
@@ -293,7 +354,7 @@ export function AriXLiveMascot({
 
   return (
     <aside
-      className={`arix-live-mascot-container state-${state} ${isOpen ? "is-open" : ""}`}
+      className={`arix-live-mascot-container state-${state} ${isOpen ? "is-open" : ""} ${isMinimized ? "is-tucked" : ""} ${isMinimized && (position?.x ?? 0) < window.innerWidth / 2 ? "is-tucked-left" : "is-tucked-right"}`}
       style={
         position
           ? {
@@ -311,7 +372,7 @@ export function AriXLiveMascot({
       aria-label="AriX Akıllı Saha ve Operasyon Asistanı"
     >
       {/* 1. Speech / Interaction Dialog Card */}
-      {isOpen && (
+      {isOpen && !isMinimized && (
         <div
           className="arix-mascot-dialog-card"
           onPointerDown={(e) => e.stopPropagation()}
@@ -421,7 +482,7 @@ export function AriXLiveMascot({
       )}
 
       {/* 2. Floating Thought / Context Tip Bubble (When closed) */}
-      {!isOpen && (
+      {!isOpen && !isMinimized && (
         <div className="arix-mascot-floating-bubble">
           <span>{bubbleMessage}</span>
           <div className="bubble-tail" />
@@ -429,7 +490,9 @@ export function AriXLiveMascot({
       )}
 
       {/* 3. Fully-Rigged Animated Mascot with Real Reference Logos */}
-      <div className="arix-mascot-rig-wrap">
+      {isMinimized ? (
+        <span className="arix-mascot-edge-tab" aria-hidden="true">✦</span>
+      ) : <div className="arix-mascot-rig-wrap">
         <svg viewBox="0 0 200 220" className="arix-mascot-svg" width="98" height="108">
           <defs>
             <radialGradient id="liveHelmetGrad" cx="35%" cy="30%" r="70%">
@@ -569,7 +632,7 @@ export function AriXLiveMascot({
             )}
           </g>
         </svg>
-      </div>
+      </div>}
     </aside>
   );
 }

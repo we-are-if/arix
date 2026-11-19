@@ -37,24 +37,28 @@ try {
   $files = $candidates | Where-Object {
     $path = $_.Replace("\", "/")
     $path -and
+      (Test-Path -LiteralPath $_ -PathType Leaf) -and
       $path -notmatch "(^|/)node_modules/" -and
       $path -notmatch "(^|/)dist/" -and
       $path -notmatch "(^|/)dist-[^/]+/" -and
       $path -notmatch "^\.git/" -and
       $path -notmatch "^\.arix-backups/" -and
       $path -notmatch "^\.arix-restores/" -and
+      $path -notmatch "^\.tmp" -and
       $path -notmatch "^tmp/" -and
       $path -notmatch "^output/" -and
       $path -notmatch "(^|/)\.env($|\.)" -and
       $path -notmatch "-dist\.tgz$" -and
       $path -notmatch "\.(zip|7z|tar|tgz|gz)$" -and
+      $path -notmatch "^outlook-transfer/" -and
       $path -notmatch "^server/data/(backups|order-uploads|stock-imports)/"
   } | Sort-Object -Unique
 
   if (-not $files -or $files.Count -eq 0) { throw "Arsivlenecek kaynak dosyasi bulunamadi." }
 
   $fileList = Join-Path $checkpointPath "source-files.txt"
-  Set-Content -LiteralPath $fileList -Value $files -Encoding utf8
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($fileList, ($files -join "`n"), $utf8NoBom)
   $archive = Join-Path $checkpointPath "source.tar.gz"
   & tar -czf $archive -T $fileList
   if ($LASTEXITCODE -ne 0) { throw "Kaynak arsivi olusturulamadi." }

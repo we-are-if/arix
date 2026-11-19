@@ -858,12 +858,12 @@ function LoginScreen({
 
   return (
     <div className={cx("flex min-h-screen items-center justify-center px-4 py-8", isDark ? "surface-page-dark text-slate-100" : "surface-page text-slate-900")}>
-      <div className="w-full max-w-md">
-        <div className="mb-6 flex justify-end gap-2">
+      <div className="w-full max-w-[430px]">
+        <div className="fixed right-5 top-5 z-10 flex justify-end gap-2">
           <select
             value={language}
             onChange={(event) => setLanguage(event.target.value as typeof language)}
-            className={cx("h-10 rounded-xl border px-3 text-sm outline-none", control)}
+            className={cx("h-11 rounded-lg border px-3 text-sm outline-none", control)}
             aria-label={t("language.select")}
           >
             {languageOptions.map((item) => <option key={item.id} value={item.id}>{item.short} · {item.label}</option>)}
@@ -871,22 +871,23 @@ function LoginScreen({
           <button
             type="button"
             onClick={onThemeToggle}
-            className={cx("h-10 rounded-xl border px-4 text-sm", control)}
+            className={cx("h-11 rounded-lg border px-4 text-sm", control)}
           >
             {isDark ? "Dark" : "Light"}
           </button>
         </div>
 
-        <div className={cx("overflow-hidden rounded-[28px] border p-6 shadow-2xl", panel)}>
-          <div className="mb-7 text-center">
-            <div className="mx-auto mb-4 flex h-28 w-28 items-center justify-center rounded-[28px]">
-              <AriXLogo className="glass-logo h-24 w-24" />
-            </div>
-            <div className="text-3xl font-semibold tracking-tight">AriX Panel</div>
-            <div className={cx("mt-2 text-sm", subtle)}>{t("login.employee")}</div>
+        <div className={cx("daily-login-card overflow-hidden rounded-lg border p-[30px] shadow-[0_18px_50px_rgba(20,38,75,.09)] max-[520px]:px-5 max-[520px]:py-6", panel)}>
+          <div className="mb-8 flex items-center gap-3 text-left">
+            <AriXLogo className="glass-logo h-[42px] w-[42px]" />
+            <div><div className="text-xl font-bold tracking-normal">AriX Panel</div><div className={cx("mt-0.5 text-[13px]", subtle)}>İdarəetmə sistemi</div></div>
+          </div>
+          <div className="mb-6 flex items-start gap-3 text-left">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="mt-0.5 h-[22px] w-[22px] shrink-0 text-blue-600"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <div><h1 className="m-0 text-[22px] font-bold tracking-normal">Hesabınıza daxil olun</h1><p className={cx("mt-1.5 text-sm leading-6", subtle)}>Şirkət məlumatları yalnız icazəli istifadəçilər üçün açıqdır.</p></div>
           </div>
           <GoogleSignIn isDark={isDark} demoEmail={selected.email} onAuthenticated={onLogin} />
-          <div className={cx("mt-4 text-center text-xs", subtle)}>{t("login.googleNotice")}</div>
+          <div className={cx("mt-5 text-center text-xs", subtle)}>{t("login.googleNotice")}</div>
         </div>
       </div>
 

@@ -654,6 +654,26 @@ function SettingsView({ border, card, subtle, input }: { border: string; card: s
     }
   };
 
+  const saveNegativeStockPolicy = async (allowNegativeStock: boolean) => {
+    const nextSettings = { ...settings, allowNegativeStock };
+    setSettings(nextSettings);
+    setSaving(true);
+    try {
+      const payload = await requestJson<{ data: CompanySettings }>("/api/company-settings", {
+        method: "PATCH",
+        body: JSON.stringify({ allowNegativeStock }),
+      });
+      setSettings(mergeCompanySettings(payload.data));
+      window.dispatchEvent(new CustomEvent("arix:company-settings-updated", { detail: payload.data }));
+      showToast(allowNegativeStock ? "Eksi stokla işlem açıldı." : "Eksi stokla işlem kapatıldı.", { tone: "success", title: "Stok politikası" });
+    } catch (error) {
+      setSettings(settings);
+      showToast(error instanceof Error ? error.message : "Stok politikası kaydedilemedi.", { tone: "error", title: "Stok politikası" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveExchangeSettings = async (exchangeSettings = settings.exchangeSettings) => {
     const nextSettings = { ...settings, exchangeSettings };
     setSettings(nextSettings);
@@ -1027,6 +1047,22 @@ function SettingsView({ border, card, subtle, input }: { border: string; card: s
             );
           })}
         </div>
+        <section className={cx("mt-4 flex flex-col gap-3 rounded-2xl border bg-white/55 p-4 sm:flex-row sm:items-center sm:justify-between", border)}>
+          <div>
+            <div className="text-sm font-semibold">Eksi stokla satışa / borç verişe izin ver</div>
+            <p className={cx("mt-1 text-sm", subtle)}>Stok girişleri tamamlanana kadar satış ve borç verişte miktarın sıfırın altına inmesine izin verir.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={settings.allowNegativeStock}
+            disabled={saving}
+            onClick={() => void saveNegativeStockPolicy(!settings.allowNegativeStock)}
+            className={cx("inline-flex h-10 shrink-0 items-center rounded-xl px-4 text-sm font-semibold transition", settings.allowNegativeStock ? "bg-amber-500 text-white" : cx(border, "bg-white/60 dark:bg-white/5"))}
+          >
+            {settings.allowNegativeStock ? "Açık" : "Kapalı"}
+          </button>
+        </section>
       </div>
       <button type="button" className="surface-primary mt-6 h-11 rounded-xl px-6 text-sm font-semibold">Saxlamaq</button>
     </div>

@@ -12,7 +12,7 @@ function round(value, digits = 6) {
 }
 
 function effectiveAt(document) {
-  return String(document.documentDate ?? document.createdAt ?? new Date(0).toISOString());
+  return String(document.stockDeliveredAt ?? document.documentDate ?? document.createdAt ?? new Date(0).toISOString());
 }
 
 function eventTimestamp(document) {
@@ -619,6 +619,7 @@ export function rebuildLotAccounting(db, options = {}) {
   }
 
   for (const { document } of documents) {
+    if (document.type === "sale" && document.deferStockUntilDelivery === true) continue;
     if (document.type === "purchase") {
       addPurchaseLots(document, purchaseLots, depotLots, rollIndex);
       continue;

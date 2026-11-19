@@ -145,3 +145,38 @@ test("official order catalog contains the supplied 108 products", () => {
     id: 82, name: "Soft Touch Bej", code: "ERSA 528", sku: "ERSA 528", unit: "mt", type: "product", active: true,
   });
 });
+
+test("attached -1 notes do not turn into a generic numeric product-code match", () => {
+  const catalog = [
+    {id:1,name:'Soft Touch Açık Vizon',code:'ERSA 522'},
+    {id:2,name:'Folyolu Satin Açık Gri',code:'ERSA 012'},
+    {id:3,name:'Soft Touch Açık Yeşil',code:'ERSA 520'},
+    {id:4,name:'Beyaz Oksit',code:'ERSA 306'},
+    {id:5,name:'Unrelated White',code:'ERSA 010-1'},
+  ];
+  const result=parseOrderText('1 rulo soft açık vizon-1\n1 rulo fs açık gri-1\n15 mt soft açık yeşil-1\n15,5 mt beyaz oksit',catalog);
+  assert.deepEqual(result.map(x=>x.productId),[1,2,3,4]);
+  assert.deepEqual(result.map(x=>x.lineNote),['-1','-1','-1','']);
+  assert.deepEqual(result.map(x=>x.quantity),[null,null,15,15.5]);
+  assert.deepEqual(result.map(x=>x.orderedRollCount),[1,1,0,0]);
+  const noted=parseOrderText('2 mt soft açık vizon new\n2 mt soft açık vizon yeni',catalog);
+  assert.ok(noted.every(x=>x.productId===1 && x.lineNote==='Yeni'));
+});
+
+test("explicit variant wins when both candidates reach the maximum score",()=>{
+ const catalog=[{id:1,name:'Soft Touch Açık Yeşil',code:'ERSA 522'},{id:2,name:'SOFT TOUCH AÇIK YEŞİL',code:'ERSA 522-1'}];
+ const r=matchOrderLine('15 mt soft açık yeşil-1',catalog);
+ assert.equal(r.productId,2);assert.equal(r.quantity,15);assert.equal(r.needsReview,false);
+});
+
+test("detects external custom-unit products such as tutkal and silikon", () => {
+  const [silikon, tutkal] = parseOrderText("2 rulo silikon\n6 kova kontak tutkalı", products);
+  assert.equal(silikon.manual, true);
+  assert.equal(silikon.unit, "ROLL");
+  assert.equal(silikon.quantity, 2);
+  assert.equal(silikon.needsReview, false);
+  assert.equal(tutkal.manual, true);
+  assert.equal(tutkal.unit, "BUCKET");
+  assert.equal(tutkal.quantity, 6);
+  assert.equal(tutkal.needsReview, false);
+});

@@ -145,6 +145,8 @@ type ApiDocument = {
   type?: string;
   saleMode?: string;
   exportMode?: boolean;
+  deferStockUntilDelivery?: boolean;
+  stockDeliveredAt?: string;
   status?: string;
   posted?: boolean;
   documentDate?: string;
@@ -1428,6 +1430,9 @@ const dateParts = (dateValue?: string) => {
 };
 
 const documentTitle = (document: ApiDocument, id: number) => {
+  if (document.type === "sale" && document.deferStockUntilDelivery) {
+    return `Teslimat bekleyen satış #${id}`;
+  }
   if (document.type === "sale" && (document.saleMode === "export" || document.exportMode)) {
     return `İxracat sənədi #${id}`;
   }

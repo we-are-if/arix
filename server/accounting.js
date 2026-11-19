@@ -196,7 +196,7 @@ function postingLines(db, document) {
     if (withholding) push(cfg.withholdingReceivable, withholding, 0, "Alıcı tərəfindən tutulacaq KDV");
     push(document.saleMode === "export" || document.exportMode ? cfg.exportSales : cfg.domesticSales, 0, net, "Satış gəliri");
     if (tax) push(cfg.outputVat, 0, tax, "Hesablanan KDV");
-    const cost = documentCost(db, document);
+    const cost = document.deferStockUntilDelivery === true ? 0 : documentCost(db, document);
     if (cost) { push(cfg.cogs, cost, 0, "Satılan malın mayası"); push(cfg.inventory, 0, cost, "Stok çıxışı"); }
   } else if (document.type === "purchase") {
     push(cfg.inventory, net, 0, "Mal alışı");

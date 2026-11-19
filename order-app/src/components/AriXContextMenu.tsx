@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, Copy, Check, X, Package, FileText } from "lucide-react";
+import { MessageSquare, Copy, Check, Package, FileText, Eye, Pencil, Play, Truck, History, Trash2, ClipboardList } from "lucide-react";
 
 export type ContextMenuTarget =
   | {
@@ -36,6 +36,8 @@ export interface AriXContextMenuProps {
   position: { x: number; y: number } | null;
   onClose: () => void;
   onShareInChat: (target: ContextMenuTarget) => void;
+  onOrderAction?: (target: Extract<ContextMenuTarget, { type: "order" }>, action: "open" | "edit" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete") => void;
+  permissions?: { edit?: boolean; prepare?: boolean; deliver?: boolean; documents?: boolean; defer?: boolean; delete?: boolean; audit?: boolean };
   onCopySuccess?: (msg: string) => void;
 }
 
@@ -44,6 +46,8 @@ export function AriXContextMenu({
   position,
   onClose,
   onShareInChat,
+  onOrderAction,
+  permissions = {},
   onCopySuccess,
 }: AriXContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -79,7 +83,7 @@ export function AriXContextMenu({
 
   // Calculate safe clamping so menu never overflows screen bounds
   const menuWidth = 250;
-  const menuHeight = 220;
+  const menuHeight = target.type === "order" ? 520 : 220;
   const padding = 12;
 
   let left = position.x;
@@ -131,6 +135,15 @@ export function AriXContextMenu({
     }
   };
 
+  const runOrderAction = (action: "open" | "edit" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete") => {
+    if (target.type !== "order") return;
+    onOrderAction?.(target, action);
+    onClose();
+  };
+
+  const orderStatus = target.type === "order" ? target.order.status || "new" : "";
+  const orderStatusLabel: Record<string, string> = { new: "Yeni", preparing: "Hazırlanıyor", ready: "Hazır", delivered: "Teslim edildi", fulfilled: "Tamamlandı", cancelled: "İptal edildi" };
+
   return createPortal(
     <div className="arix-context-menu-backdrop" onClick={onClose}>
       <div
@@ -180,6 +193,18 @@ export function AriXContextMenu({
 
         {/* Action Items */}
         <div className="arix-cm-items">
+          {target.type === "order" && <>
+            <div className="arix-cm-status"><span className={`arix-cm-status-dot ${orderStatus}`} /><b>{orderStatusLabel[orderStatus] || "Sipariş"}</b>{target.order.itemsCount != null && <small>{target.order.itemsCount} ürün</small>}</div>
+            <button type="button" className="arix-cm-action primary" onClick={() => runOrderAction("open")}><span className="arix-cm-action-icon open"><Eye size={16} /></span><div className="arix-cm-action-label"><b>Siparişi aç</b><small>Tüm detayları ve akışı görüntüle</small></div></button>
+            {permissions.edit && ["new", "preparing", "ready"].includes(orderStatus) && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("edit")}><span className="arix-cm-action-icon"><Pencil size={16} /></span><div className="arix-cm-action-label"><b>Siparişi düzenle</b><small>Müşteri, ürün ve notları değiştir</small></div></button>}
+            {permissions.prepare && orderStatus === "new" && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("prepare")}><span className="arix-cm-action-icon prepare"><Play size={16} /></span><div className="arix-cm-action-label"><b>Hazırlamaya başla</b><small>Siparişi hazırlama panosuna al</small></div></button>}
+            {permissions.prepare && orderStatus === "preparing" && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("prepare")}><span className="arix-cm-action-icon prepare"><Play size={16} /></span><div className="arix-cm-action-label"><b>Hazırlamaya devam et</b><small>Hazırlanan metre ve ruloları aç</small></div></button>}
+            {permissions.deliver && ["ready", "delivered"].includes(orderStatus) && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("delivery")}><span className="arix-cm-action-icon delivery"><Truck size={16} /></span><div className="arix-cm-action-label"><b>{orderStatus === "ready" ? "Teslimatı yönet" : "Teslim bilgilerini aç"}</b><small>İrsaliye, teslim notu ve kanıtlar</small></div></button>}
+            {permissions.documents && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("documents")}><span className="arix-cm-action-icon documents"><ClipboardList size={16} /></span><div className="arix-cm-action-label"><b>Sipariş formu ve belgeler</b><small>Form, PDF ve irsaliye işlemleri</small></div></button>}
+            {permissions.defer && ["new", "preparing", "ready"].includes(orderStatus) && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("defer")}><span className="arix-cm-action-icon delivery"><Truck size={16} /></span><div className="arix-cm-action-label"><b>Teslimatı ertele</b><small>Teslimat bekleyenlere aktar</small></div></button>}
+            {(permissions.audit || permissions.edit) && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("history")}><span className="arix-cm-action-icon"><History size={16} /></span><div className="arix-cm-action-label"><b>İşlem geçmişi</b><small>Kim, ne zaman, ne yaptı</small></div></button>}
+            <div className="arix-cm-divider" />
+          </>}
           <button
             type="button"
             className="arix-cm-action primary"
@@ -210,6 +235,8 @@ export function AriXContextMenu({
               <small>{target.type === "product" ? "Kod, ad ve miktar panoya" : "Sipariş no ve müşteri"}</small>
             </div>
           </button>
+
+          {target.type === "order" && permissions.delete && <button type="button" className="arix-cm-action danger" onClick={() => runOrderAction("delete")}><span className="arix-cm-action-icon"><Trash2 size={16} /></span><div className="arix-cm-action-label"><b>Siparişi sil</b><small>Silme nedeni sorulur; kayıt geri alınabilir</small></div></button>}
         </div>
       </div>
     </div>,

@@ -164,7 +164,7 @@ export default function GoogleSignIn({ isDark, demoEmail, onAuthenticated }: { i
           text: "continue_with",
           shape: "rectangular",
           logo_alignment: "left",
-          width: Math.min(360, buttonRef.current.clientWidth || 360),
+          width: Math.min(360, Math.max(240, window.innerWidth - 74)),
           locale: language === "az" ? "az" : language,
         });
       })

@@ -1,3 +1,5 @@
+const APP_SHELL_VERSION = "2026-11-16-approval-counter-v3";
+
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 

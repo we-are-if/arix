@@ -1,3 +1,4 @@
+import { createTcmbRateService } from "./tcmbRateService.js";
 import {touchTyping,getTyping} from "./chatTyping.js";
 import {chatProfile,saveChatProfile,changeChatMessage,chatPreference,chatDetails,updateChatGroup} from "./chatExperience.js";
 import { openChatStream, notifyChatStreams } from "./chatRealtime.js";
@@ -21,6 +22,7 @@ import { createMutationScheduler } from "./mutationScheduler.js";
 import { createDailyImages } from "./dailyImages.js";
 import { removeSourcePreviews } from "./dailyPreviewRetention.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import dns from "node:dns";
 import { createServer } from "node:http";
 import { access, mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
@@ -120,6 +122,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const FULL_ROLL_LENGTHS = new Set([100, 120, 130]);
 const CUT_ALLOWANCE_REQUIRED_BELOW_METERS = 70;
+const CATALOG_PRODUCT_UNITS = new Set(["MT", "M", "RULO", "ROLL", "PCS", "KG", "LT", "ML", "GR", "BOX", "BUCKET", "M2", "SET", "BUNDLE", "BAG", "CRATE", "PALLET"]);
+
+function normalizeCatalogProductUnit(value) {
+  const requested = String(value ?? "mt").trim();
+  const upper = requested.toLocaleUpperCase("tr");
+  if (["MT", "M"].includes(upper)) return "mt";
+  if (["RULO", "ROLL"].includes(upper)) return "rulo";
+  return CATALOG_PRODUCT_UNITS.has(upper) ? upper : "PCS";
+}
 
 function isFullRollQuantity(value) {
   const quantity = Number(value);
@@ -288,6 +299,31 @@ const DAILY_COMPANY_JOIN_CODE = String(process.env.ARIX_DAILY_COMPANY_JOIN_CODE 
 const AUTH_REQUIRED = process.env.ARIX_AUTH_REQUIRED === "1" || Boolean(GOOGLE_CLIENT_ID);
 const VAPID_PUBLIC_KEY = String(process.env.ARIX_VAPID_PUBLIC_KEY ?? "").trim();
 const VAPID_PRIVATE_KEY = String(process.env.ARIX_VAPID_PRIVATE_KEY ?? "").trim();
+const VISION_OCR_API_KEY = String(process.env.ARIX_VISION_OCR_API_KEY ?? "").trim();
+const VISION_OCR_MONTHLY_LIMIT = Math.max(1, Math.min(1000, Math.trunc(Number(process.env.ARIX_VISION_OCR_MONTHLY_LIMIT ?? 1000) || 1000)));
+// Order documents are never blocked by this allowance. Once the monthly free
+// pool is exhausted, each newly created document remains available and is
+// simply added to the usage total.
+const ORDER_DOCUMENT_CREDITS = Object.freeze({ freePerMonth: 200, unitPriceTry: 5 });
+
+function orderDocumentCreditMonth(now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit" }).format(now);
+}
+
+function orderDocumentCreditCompanyKey(db) {
+  // Kontör kullanıcıya değil şirkete aittir. Oturumdaki companyId bazı
+  // hesaplarda farklı olduğu için aynı şirketin kullanımını 0 gösteriyordu.
+  const raw = String(db?.companySettings?.profile?.organizationName || "arix-order").trim();
+  return raw.toLocaleLowerCase("tr").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "arix-order";
+}
+
+function orderDocumentCreditMeterKey(db, user, month = orderDocumentCreditMonth()) {
+  return `order-document-credits:${orderDocumentCreditCompanyKey(db, user)}:${month}`;
+}
+// The Vision key is intentionally restricted to the server's public IPv4 address.
+// Prefer IPv4 for outbound DNS so Node's fetch cannot silently bypass that restriction
+// by choosing Hetzner's IPv6 address.
+dns.setDefaultResultOrder("ipv4first");
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) webPush.setVapidDetails("mailto:info@arix.az", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 const SESSION_COOKIE = "arix_session";
 const DAILY_SESSION_COOKIE = "arix_daily_session";
@@ -549,6 +585,7 @@ const defaultPrintSettings = {
 const defaultCompanySettings = {
   stockMode: "simple",
   allowNegativeStock: false,
+  negativeStockPolicyInitialized: true,
   reserveBeforeBondedExit: true,
   rollTracking: false,
   profile: {
@@ -732,6 +769,13 @@ function normalizeDb(db) {
       ...(db.companySettings?.profile ?? {}),
     },
   };
+  // Existing installations were created before this policy was exposed in
+  // settings.  Keep stock migration uninterrupted for that one-time upgrade;
+  // from then on the user-controlled allowNegativeStock value is preserved.
+  if (db.companySettings.negativeStockPolicyInitialized !== true) {
+    db.companySettings.allowNegativeStock = true;
+    db.companySettings.negativeStockPolicyInitialized = true;
+  }
   if (db.companySettings.printSettings.companyName === "AriX") {
     db.companySettings.printSettings.companyName = defaultPrintSettings.companyName;
   }
@@ -758,6 +802,7 @@ function normalizeDb(db) {
   db.orderTrash = Array.isArray(db.orderTrash) ? db.orderTrash : [];
   db.orderStockMovements = Array.isArray(db.orderStockMovements) ? db.orderStockMovements : [];
   db.orderApprovalPrints = Array.isArray(db.orderApprovalPrints) ? db.orderApprovalPrints : [];
+  db.orderOffers = Array.isArray(db.orderOffers) ? db.orderOffers : [];
   db.pushSubscriptions = Array.isArray(db.pushSubscriptions) ? db.pushSubscriptions : [];
   for (const customer of db.orderCustomers) {
     customer.salesRepresentative = normalizeSalesRepresentativeName(customer.salesRepresentative);
@@ -3439,7 +3484,7 @@ async function handleDailyAuth(req, res, parts) {
     matchedUser.lastLoginAt = new Date().toISOString();
     const session = createDailySession(req, matchedDb, matchedUser, body.remember === true, matchedCompanyId);
     await matchedStore.write(normalizeDailyDb(matchedDb));
-    setDailySessionCookie(req, res, session.token, session.remember ? Math.floor(session.ttl / 1000) : null);
+    setDailySessionCookie(req, res, session.token, Math.floor(session.ttl / 1000));
     const availableCompanies = await getAvailableCompaniesForUser(matchedUser.email);
     const comp = DAILY_COMPANIES[matchedCompanyId];
     return send(res, 200, {
@@ -3583,7 +3628,7 @@ async function handleDailyAuth(req, res, parts) {
     matchedUser.lastLoginAt = new Date().toISOString();
     const session = createDailySession(req, matchedDb, matchedUser, body.remember === true, matchedCompanyId);
     await matchedStore.write(normalizeDailyDb(matchedDb));
-    setDailySessionCookie(req, res, session.token, session.remember ? Math.floor(session.ttl / 1000) : null);
+    setDailySessionCookie(req, res, session.token, Math.floor(session.ttl / 1000));
     const availableCompanies = await getAvailableCompaniesForUser(matchedUser.email);
     const comp = DAILY_COMPANIES[matchedCompanyId];
     return send(res, 200, {
@@ -3644,7 +3689,7 @@ async function handleAuth(req, res, parts) {
     user.lastLoginAt = new Date().toISOString();
     const session = createSession(req, db, user, body.remember === true);
     await writeDb(db);
-    setSessionCookie(req, res, session.token, session.remember ? Math.floor(session.ttl / 1000) : null);
+    setSessionCookie(req, res, session.token, Math.floor(session.ttl / 1000));
     return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
   }
 
@@ -3763,7 +3808,7 @@ async function handleAuth(req, res, parts) {
     user.lastLoginAt = new Date().toISOString();
     const session = createSession(req, db, user, body.remember === true);
     await writeDb(db);
-    setSessionCookie(req, res, session.token, session.remember ? Math.floor(session.ttl / 1000) : null);
+    setSessionCookie(req, res, session.token, Math.floor(session.ttl / 1000));
     return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
   }
 
@@ -3777,7 +3822,7 @@ async function handleAuth(req, res, parts) {
     user.lastLoginAt = new Date().toISOString();
     const session = createSession(req, db, user, body.remember === true);
     await writeDb(db);
-    setSessionCookie(req, res, session.token, session.remember ? Math.floor(session.ttl / 1000) : null);
+    setSessionCookie(req, res, session.token, Math.floor(session.ttl / 1000));
     return send(res, 200, { data: publicAuthUser(user), expiresAt: session.expiresAt.toISOString() });
   }
 
@@ -4539,6 +4584,57 @@ function deferredReleaseForOrder(db, order) {
   return null;
 }
 
+function refreshLoanDocumentBalances(db, counterparty, productIds = null) {
+  const allowedProducts = productIds ? new Set([...productIds].map(Number)) : null;
+  for (const document of db.stockDocuments || []) {
+    if (document.type !== "loan_purchase" || normalizeSalesRepresentativeName(document.counterparty || "") !== normalizeSalesRepresentativeName(counterparty || "")) continue;
+    for (const line of document.lines || []) {
+      if (allowedProducts && !allowedProducts.has(Number(line.productId))) continue;
+      const related = (db.stockTransactions || []).filter((entry) => entry.type === "loan_purchase" && entry.documentNumber === document.documentNumber && Number(entry.productId) === Number(line.productId));
+      line.loanOutstanding = Number(related.reduce((sum, entry) => sum + (Number(entry.loanOutstanding) || 0), 0).toFixed(3));
+      line.loanOutstandingRollCount = related.reduce((sum, entry) => sum + Math.max(0, Number(entry.loanOutstandingRollCount) || 0), 0);
+    }
+  }
+}
+
+// A loan return only changes the creditor balance once it is actually
+// delivered. If that delivered return is later deleted, put both the stock and
+// the exact original loan allocations back. This makes the flow reversible,
+// just like a cancelled delivery-waiting release.
+function reverseDeliveredLoanReturn(db, order, actor, at = new Date().toISOString()) {
+  if (!order?.isLoanReturn || order.loanReturnReversedAt || !order.deliveredAt) return false;
+  let changed = false;
+  const touchedProducts = new Set();
+  db.orderStockMovements ??= [];
+  for (const item of order.items || []) {
+    const movement = db.orderStockMovements.find((entry) => String(entry.id) === String(item.stockMovementId || ""));
+    if (!movement || movement.reversedAt) continue;
+    const product = db.orderCatalog.find((entry) => Number(entry.id) === Number(item.productId));
+    if (product) {
+      product.physicalQuantity = Number(((Number(product.physicalQuantity) || 0) + (Number(movement.stockQuantity) || 0)).toFixed(3));
+      product.rollCount = Math.max(0, (Number(product.rollCount) || 0) + Math.max(0, Number(movement.rollCount) || 0));
+      product.stockUpdatedAt = at;
+      product.stockUpdatedBy = actor;
+    }
+    for (const allocation of item.loanReturnAllocations || []) {
+      const transaction = (db.stockTransactions || []).find((entry) => String(entry.id) === String(allocation.stockTransactionId) && entry.type === "loan_purchase");
+      if (!transaction) continue;
+      transaction.loanOutstanding = Number(((Number(transaction.loanOutstanding) || 0) + Math.max(0, Number(allocation.quantity) || 0)).toFixed(3));
+      transaction.loanOutstandingRollCount = Math.max(0, (Number(transaction.loanOutstandingRollCount) || 0) + Math.max(0, Number(allocation.rollCount) || 0));
+    }
+    movement.reversedAt = at;
+    movement.reversedBy = actor;
+    touchedProducts.add(Number(item.productId));
+    changed = true;
+  }
+  if (changed) {
+    refreshLoanDocumentBalances(db, order.customerName, touchedProducts);
+    order.loanReturnReversedAt = at;
+    order.loanReturnReversedBy = actor;
+  }
+  return changed;
+}
+
 function cancelDeferredRelease(db, order, actor, reason, at = new Date().toISOString()) {
   const linked = deferredReleaseForOrder(db, order);
   if (!linked || linked.release.deliveredAt || linked.release.cancelledAt) return false;
@@ -4700,31 +4796,8 @@ function completeDeferredDeliveryRelease(db, order, actor, at) {
   }
 }
 
-async function latestTcmbRate(currency, beforeDate) {
-  if (currency === "TRY") return { currency, rate: 1, date: beforeDate };
-  const cursor = new Date(`${beforeDate}T12:00:00Z`);
-  cursor.setUTCDate(cursor.getUTCDate() - 1);
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const year = cursor.getUTCFullYear();
-    const month = String(cursor.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(cursor.getUTCDate()).padStart(2, "0");
-    const source = `https://www.tcmb.gov.tr/kurlar/${year}${month}/${day}${month}${year}.xml`;
-    try {
-      const response = await fetch(source, { headers: { accept: "application/xml" }, signal: AbortSignal.timeout(5000) });
-      if (response.ok) {
-        const xml = await response.text();
-        const block = xml.match(new RegExp(`<Currency[^>]+CurrencyCode=["']${currency}["'][\\s\\S]*?<\\/Currency>`));
-        const selling = block?.[0].match(/<BanknoteSelling>([^<]+)<\/BanknoteSelling>/)?.[1];
-        const rate = Number(selling);
-        if (Number.isFinite(rate) && rate > 0) return { currency, rate, date: `${year}-${month}-${day}`, source: "TCMB Efektif Satış" };
-      }
-    } catch {
-      // Holidays and temporary TCMB failures fall through to the previous publication day.
-    }
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
-  }
-  throw new Error("TCMB-də son yayımlanan məzənnə tapılmadı.");
-}
+const orderTcmbRates = createTcmbRateService({ cacheFile: join(DATA_DIR, "tcmb-order-rates.json") });
+const latestTcmbRate = (currency, beforeDate) => orderTcmbRates.get(currency, beforeDate);
 
 const CHAT_MEDIA_DIRS = { "/api/orders/chat/files/": "chat-files", "/api/orders/chat/images/": "chat-images", "/api/orders/chat/audio/": "chat-audio" };
 
@@ -4749,6 +4822,63 @@ async function handleOrderBoard(req, res, url, parts) {
   const canPrepare = workflowRole === "owner" || workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare");
   const canDeliver = workflowRole === "owner" || hasPermission(req.authUser, "orders.deliver");
   const canDeliverWithoutProof = workflowRole === "owner" || hasPermission(req.authUser, "orders.deliver_without_proof");
+
+  if (req.method === "POST" && parts[1] === "ocr") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.create")) return send(res, 403, { error: "Sipariş görselini okumak için izniniz yok." });
+    if (!VISION_OCR_API_KEY) return send(res, 503, { error: "Gelişmiş resim okuma henüz yapılandırılmadı." });
+    const body = await parseBody(req, 10_000_000);
+    const dataUrl = String(body?.imageData || "").trim();
+    const image = dataUrl.match(/^data:image\/(?:png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=]+)$/i);
+    if (!image) return send(res, 400, { error: "JPG, PNG, WEBP veya GIF resim seçin." });
+    const bytes = Buffer.from(image[1], "base64");
+    if (!bytes.length || bytes.length > 7_000_000) return send(res, 413, { error: "Resim en fazla 7 MB olabilir." });
+    const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit" }).format(new Date());
+    const meter = stateStore.reserveMeteredUse(`vision-ocr:${month}`, VISION_OCR_MONTHLY_LIMIT);
+    if (!meter.allowed) return send(res, 429, { error: `Bu ayki resim okuma limiti (${meter.limit}) doldu. Yeni ayda yeniden açılacak.`, usage: meter });
+    try {
+      const visionResponse = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(VISION_OCR_API_KEY)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requests: [{ image: { content: image[1] }, features: [{ type: "DOCUMENT_TEXT_DETECTION" }], imageContext: { languageHints: ["tr", "az", "en"] } }] }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      const result = await visionResponse.json().catch(() => ({}));
+      if (!visionResponse.ok || result?.responses?.[0]?.error) {
+        throw new Error(String(result?.error?.message || result?.responses?.[0]?.error?.message || "Google Vision resmi okuyamadı."));
+      }
+      const text = String(result?.responses?.[0]?.fullTextAnnotation?.text || result?.responses?.[0]?.textAnnotations?.[0]?.description || "").replace(/\r/g, "").trim();
+      if (!text) throw new Error("Resimde okunabilir sipariş metni bulunamadı.");
+      return send(res, 200, { data: { text, usage: meter } });
+    } catch (error) {
+      // Keep the reservation even if Google returns an error or times out: a
+      // request may already have reached the billed service. This makes the
+      // in-app cap a real upper bound rather than an estimate.
+      const message = error?.name === "TimeoutError" ? "Resim okuma zaman aşımına uğradı. Tekrar deneyin." : (error instanceof Error ? error.message : "Resim okunamadı.");
+      return send(res, 502, { error: message });
+    }
+  }
+
+  if (req.method === "GET" && parts[1] === "credit-usage") {
+    if (workflowRole !== "owner" && !canViewOrderForms(req.authUser)) {
+      return send(res, 403, { error: "Kontör kullanımını görmək üçün icazəniz yoxdur." });
+    }
+    const month = orderDocumentCreditMonth();
+    const used = stateStore.meteredUseCount(orderDocumentCreditMeterKey(db, req.authUser, month));
+    const freeUsed = Math.min(used, ORDER_DOCUMENT_CREDITS.freePerMonth);
+    const billable = Math.max(0, used - ORDER_DOCUMENT_CREDITS.freePerMonth);
+    return send(res, 200, {
+      data: {
+        month,
+        used,
+        freeLimit: ORDER_DOCUMENT_CREDITS.freePerMonth,
+        freeUsed,
+        billable,
+        unitPriceTry: ORDER_DOCUMENT_CREDITS.unitPriceTry,
+        amountTry: billable * ORDER_DOCUMENT_CREDITS.unitPriceTry,
+        continuesAfterLimit: true,
+      },
+    });
+  }
 
   if (parts[1] === "chat") {
     const sub = parts[2];
@@ -5632,6 +5762,16 @@ async function handleOrderBoard(req, res, url, parts) {
     return send(res, 200, { data: (db.stockImportHistory ?? []).slice(0, 20) });
   }
 
+  if (req.method === "GET" && parts[1] === "sales-representatives") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "counterparties.view") && !hasPermission(req.authUser, "counterparties.manage")) return send(res, 403, { error: "Satış temsilcisi listesini görme yetkiniz yok." });
+    const representatives = (db.authUsers || [])
+      .filter((user) => user.companyId === req.authUser?.companyId && user.active !== false)
+      .map((user) => ({ id: String(user.id), name: String(user.name || "").trim(), active: user.active !== false }))
+      .filter((user) => user.name)
+      .sort((left, right) => left.name.localeCompare(right.name, "tr"));
+    return send(res, 200, { data: representatives });
+  }
+
   if (req.method === "POST" && parts[1] === "catalog") {
     const body = await parseBody(req);
     const mayCreateFromOrder = body.fromOrderMatch === true && hasPermission(req.authUser, "orders.create");
@@ -5646,12 +5786,22 @@ async function handleOrderBoard(req, res, url, parts) {
     );
     if (duplicateCode) return send(res, 409, { error: `Bu məhsul kodu artıq istifadə olunur: ${code}` });
     const existingProduct = requestedId ? db.orderCatalog.find((item) => Number(item.id) === requestedId) : null;
+    const unit = normalizeCatalogProductUnit(body.unit ?? existingProduct?.unit ?? "mt");
+    const packageUnit = body.packageUnit === undefined
+      ? String(existingProduct?.packageUnit ?? "").trim()
+      : (String(body.packageUnit ?? "").trim() ? normalizeCatalogProductUnit(body.packageUnit) : "");
+    const packageQuantity = body.packageQuantity === undefined
+      ? Number(existingProduct?.packageQuantity ?? 0) || 0
+      : Math.max(0, Number(body.packageQuantity) || 0);
     const product = {
+      ...(existingProduct ?? {}),
       id: requestedId || (db.orderCatalog.length ? Math.max(...db.orderCatalog.map((p) => Number(p.id) || 0)) + 1 : 1),
       name,
-      code: code || `ERSA-${String(Date.now()).slice(-4)}`,
-      sku: code || `ERSA-${String(Date.now()).slice(-4)}`,
-      unit: String(body.unit ?? "mt").trim() || "mt",
+      code: code || existingProduct?.code || `ERSA-${String(Date.now()).slice(-4)}`,
+      sku: code || existingProduct?.sku || `ERSA-${String(Date.now()).slice(-4)}`,
+      unit,
+      packageUnit,
+      packageQuantity,
       type: "product",
       active: body.active !== false,
       physicalQuantity: Math.max(0, Number(body.physicalQuantity ?? existingProduct?.physicalQuantity) || 0),
@@ -5667,6 +5817,15 @@ async function handleOrderBoard(req, res, url, parts) {
   if (req.method === "DELETE" && parts[1] === "catalog" && parts[2]) {
     if (workflowRole !== "owner" && !hasPermission(req.authUser, "products.manage")) return send(res, 403, { error: "Məhsul kataloqunu dəyişmək icazəniz yoxdur." });
     const targetId = Number(parts[2]);
+    const product = db.orderCatalog.find((item) => Number(item.id) === targetId);
+    if (!product) return notFound(res);
+    const isUsed = [
+      ...(db.orderBoard || []).flatMap((order) => order.items || []),
+      ...(db.stockTransactions || []),
+      ...(db.stockDocuments || []).flatMap((document) => document.lines || []),
+      ...(db.orderOffers || []).flatMap((offer) => offer.items || []),
+    ].some((item) => Number(item.productId) === targetId);
+    if (isUsed) return send(res, 409, { error: "Bu ürün sipariş, stok evrakı veya teklif içinde kullanılmış. Geçmiş kayıtları korumak için silinemez." });
     db.orderCatalog = db.orderCatalog.filter((p) => p.id !== targetId);
     await writeDb(db);
     return send(res, 200, { ok: true });
@@ -5790,6 +5949,14 @@ async function handleOrderBoard(req, res, url, parts) {
     const customer = db.orderCustomers.find((item) => String(item.id) === String(parts[2]));
     if (!customer) return notFound(res);
     const body = await parseBody(req);
+    if (Object.hasOwn(body, "name")) {
+      const name = String(body.name ?? "").trim();
+      if (!name) return send(res, 400, { error: "Müşteri adı zorunludur." });
+      const duplicate = db.orderCustomers.find((item) => String(item.id) !== String(customer.id)
+        && String(item.name ?? "").trim().toLocaleLowerCase("tr") === name.toLocaleLowerCase("tr"));
+      if (duplicate) return send(res, 409, { error: "Bu isimde başka bir müşteri zaten var." });
+      customer.name = name;
+    }
     if (body.prices && typeof body.prices === "object") {
       customer.prices = Object.fromEntries(
         Object.entries(body.prices)
@@ -5810,6 +5977,9 @@ async function handleOrderBoard(req, res, url, parts) {
       customer.prices = customer.priceLists.DEPO;
     }
     if (Object.hasOwn(body, "contact")) customer.contact = String(body.contact ?? "").trim();
+    if (Object.hasOwn(body, "phone")) customer.phone = String(body.phone ?? "").trim();
+    if (Object.hasOwn(body, "email")) customer.email = String(body.email ?? "").trim();
+    if (Object.hasOwn(body, "note")) customer.note = String(body.note ?? "").trim().slice(0, 2000);
     if (Object.hasOwn(body, "salesRepresentative")) customer.salesRepresentative = normalizeSalesRepresentativeName(body.salesRepresentative);
     if (Object.hasOwn(body, "salesRepresentativeUserId")) customer.salesRepresentativeUserId = String(body.salesRepresentativeUserId ?? "").trim();
     if (Object.hasOwn(body, "country")) {
@@ -5840,6 +6010,119 @@ async function handleOrderBoard(req, res, url, parts) {
 
   if (req.method === "GET" && parts[1] === "aliases") {
     return send(res, 200, { data: db.orderAliases });
+  }
+
+  // Offers are deliberately separate from orderBoard: no stock reservation,
+  // no sales or preparation flow exists until the user converts one.
+  if (parts[1] === "offers") {
+    if (workflowRole !== "owner" && !canViewOrderForms(req.authUser)) return send(res, 403, { error: "Teklifleri görmek için izin gerekli." });
+    const offerId = String(parts[2] || "");
+    const canViewAll = workflowRole === "owner" || hasPermission(req.authUser, "order_forms.view_all");
+    const actorId = String(req.authUser?.id || "");
+    const maySee = (offer) => canViewAll || String(offer.createdByUserId || "") === actorId;
+    if (req.method === "GET" && !offerId) return send(res, 200, { data: db.orderOffers.filter(maySee).sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt))) });
+    if (req.method === "POST" && !offerId) {
+      if (!canSell) return send(res, 403, { error: "Teklif oluşturma izniniz yok." });
+      const body = await parseBody(req);
+      const customerName = String(body.customerName || "").trim().slice(0, 200);
+      const rows = Array.isArray(body.items) ? body.items : [];
+      if (!customerName) return send(res, 400, { error: "Müşteri adı zorunludur." });
+      if (!rows.length) return send(res, 400, { error: "En az bir ürün ekleyin." });
+      const items = rows.map((row) => {
+        const product = db.orderCatalog.find((item) => Number(item.id) === Number(row.productId));
+        if (!product) throw new Error("Teklifteki ürün katalogda bulunamadı.");
+        return { productId: Number(product.id), productCode: product.code || product.sku || "", productName: product.name, quantity: Math.max(0, Number(row.quantity) || 0), rollCount: Math.max(0, Math.trunc(Number(row.rollCount) || 0)), unitPrice: Math.max(0, Number(row.unitPrice) || 0), vatRate: Math.max(0, Number(row.vatRate) || 0), discountRate: Math.max(0, Number(row.discountRate) || 0) };
+      });
+      if (items.some((item) => !(item.quantity > 0 || item.rollCount > 0))) return send(res, 400, { error: "Her teklif ürünü için miktar girin." });
+      const now = new Date().toISOString();
+      const offer = { id: randomUUID(), number: `TKL-${new Date().toISOString().slice(2, 10).replaceAll("-", "")}-${String(db.orderOffers.length + 1).padStart(3, "0")}`, customerName, note: String(body.note || "").trim().slice(0, 2000), validUntil: String(body.validUntil || "").slice(0, 10), currency: ["TRY", "USD", "EUR"].includes(String(body.currency)) ? String(body.currency) : "TRY", documentType: body.documentType === "export" ? "export" : "domestic", overallDiscountRate: Math.min(100, Math.max(0, Number(body.overallDiscountRate) || 0)), items, status: "draft", createdAt: now, updatedAt: now, createdBy: req.authUser?.name || "Kullanıcı", createdByUserId: req.authUser?.id || null, history: [{ status: "draft", at: now, by: req.authUser?.name || "Kullanıcı" }] };
+      db.orderOffers.unshift(offer); await writeDb(db); return send(res, 201, { data: offer });
+    }
+    const offer = db.orderOffers.find((item) => String(item.id) === offerId && maySee(item));
+    if (!offer) return notFound(res);
+    if (req.method === "POST" && ["send", "approve", "reject", "revise"].includes(String(parts[3] || ""))) {
+      if (!canSell) return send(res, 403, { error: "Teklif işlemi için izin gerekli." });
+      if (offer.convertedOrderId) return send(res, 409, { error: "Siparişe aktarılmış teklif üzerinde işlem yapılamaz." });
+      const action = String(parts[3]);
+      const body = await parseBody(req);
+      const now = new Date().toISOString();
+      const actor = req.authUser?.name || "Kullanıcı";
+      offer.history = Array.isArray(offer.history) ? offer.history : [];
+      if (action === "revise") {
+        const revision = Math.max(1, ...db.orderOffers.filter((item) => String(item.revisionOf || "") === String(offer.revisionOf || offer.id)).map((item) => Number(item.revision) || 1)) + 1;
+        const copy = { ...structuredClone(offer), id: randomUUID(), number: `${offer.number.replace(/-R\\d+$/i, "")}-R${revision}`, status: "draft", revisionOf: offer.revisionOf || offer.id, revision, revisedFromId: offer.id, convertedOrderId: undefined, convertedOrderNumber: undefined, convertedAt: undefined, sentAt: undefined, sentBy: undefined, approvedAt: undefined, approvedBy: undefined, rejectedAt: undefined, rejectedBy: undefined, rejectionReason: undefined, createdAt: now, updatedAt: now, createdBy: actor, createdByUserId: req.authUser?.id || null, history: [{ status: "draft", at: now, by: actor, note: `Revizyon kaynağı: ${offer.number}` }] };
+        db.orderOffers.unshift(copy); await writeDb(db); return send(res, 201, { data: copy });
+      }
+      if (action === "send") { offer.status = "sent"; offer.sentAt = now; offer.sentBy = actor; }
+      if (action === "approve") { offer.status = "approved"; offer.approvedAt = now; offer.approvedBy = actor; }
+      if (action === "reject") { offer.status = "rejected"; offer.rejectedAt = now; offer.rejectedBy = actor; offer.rejectionReason = String(body.reason || "Sebep belirtilmedi.").trim().slice(0, 500); }
+      offer.updatedAt = now; offer.history.push({ status: offer.status, at: now, by: actor, note: offer.rejectionReason || "" });
+      await writeDb(db); return send(res, 200, { data: offer });
+    }
+    if (req.method === "POST" && parts[3] === "convert") {
+      if (!canSell) return send(res, 403, { error: "Teklifi siparişe aktarma izniniz yok." });
+      if (offer.convertedOrderId) return send(res, 409, { error: "Bu teklif daha önce siparişe aktarıldı." });
+      if (!["sent", "approved"].includes(String(offer.status))) return send(res, 409, { error: "Teklif önce müşteriye gönderilmelidir." });
+      const now = new Date().toISOString(); const businessDate = activeOrderDayKey(db);
+      if (offer.status === "sent") {
+        offer.status = "approved";
+        offer.approvedAt = now;
+        offer.approvedBy = req.authUser?.name || "Satışçı";
+        offer.history = Array.isArray(offer.history) ? offer.history : [];
+        offer.history.push({ status: "approved", at: now, by: offer.approvedBy, note: "Müşteri onayıyla siparişe aktarıldı" });
+      }
+      const items = offer.items.map((item) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantity: item.quantity, orderedRollCount: item.rollCount, unit: "mt", confidence: 1, needsReview: false, alternatives: [], ...normalizeOrderCutAllowance({ quantity: item.quantity, cutAllowanceApplied: false, cutPieceCount: 0, cutAllowancePerPiece: 0 }), preparedQuantity: null, quoteUnitPrice: item.unitPrice, quoteVatRate: item.vatRate, quoteDiscountRate: item.discountRate }));
+      const orderNumber = nextOrderNumber(db, businessDate);
+      const customer = db.orderCustomers.find((item) => String(item.name || "").trim().toLocaleLowerCase("tr") === offer.customerName.trim().toLocaleLowerCase("tr"));
+      const isExport = offer.documentType === "export";
+      const approvalForm = { number: isExport ? exportApprovalDocumentNumber("proforma", orderNumber) : documentNumberFromSource("SOF", orderNumber), documentType: isExport ? "proforma" : "domestic", proformaNumber: isExport ? exportApprovalDocumentNumber("proforma", orderNumber) : undefined, date: now.slice(0, 10), revisionDate: now.slice(0, 16), salesRepresentative: normalizeSalesRepresentativeName(customer?.salesRepresentative || req.authUser?.name || ""), salesRepresentativeUserId: String(customer?.salesRepresentativeUserId || req.authUser?.id || ""), currency: offer.currency, exchangeRate: 1, priceSource: "DEPO", vatIncluded: false, lines: offer.items.map((item) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantity: Number(item.quantity) || 0, rollCount: Number(item.rollCount) || 0, unitPrice: Number(item.unitPrice) || 0, discountRate: Number(item.discountRate) || 0, vatRate: isExport ? 0 : Number(item.vatRate) || 0, hsCode: "392043100000" })), overallDiscountRate: Math.min(100, Math.max(0, Number(offer.overallDiscountRate) || 0)), extraCharge: 0, extraChargeLabel: "Nakliye / ek ücret", paymentTerms: "", deliveryTerms: "", note: offer.note || "", status: "draft", submittedForApproval: false, customerName: offer.customerName, customerContact: customer?.contact || "", customerAddress: customer?.addressLine1 || customer?.address || "", customerPhone: customer?.phone || "", customerEmail: customer?.email || "", preparedAt: now, preparedBy: req.authUser?.name || "Satışçı", preparedByUserId: req.authUser?.id || null, updatedAt: now, updatedBy: req.authUser?.name || "Satışçı" };
+      const offerFormVersion = { ...structuredClone(approvalForm), number: offer.number, proformaNumber: isExport ? offer.number : undefined, date: String(offer.createdAt || now).slice(0, 10), revisionDate: String(offer.updatedAt || now).slice(0, 16), status: "approved", submittedForApproval: false, approvedAt: offer.approvedAt || now, approvedBy: offer.approvedBy || req.authUser?.name || "Satışçı", updatedAt: offer.updatedAt || now, updatedBy: offer.approvedBy || req.authUser?.name || "Satışçı" };
+      approvalForm.revisions = [{ id: randomUUID(), documentType: approvalForm.documentType, status: "approved", createdAt: offerFormVersion.updatedAt, createdBy: offerFormVersion.updatedBy, reason: `Teklif formu · ${offer.number} siparişe aktarıldı`, form: offerFormVersion }];
+      const order = { id: randomUUID(), number: orderNumber, customerName: offer.customerName, note: offer.note || `Tekliften aktarıldı: ${offer.number}`, originalText: `Tekliften aktarıldı: ${offer.number}`, businessDate, status: "new", isTest: false, isLoanReturn: false, isExport, quoteId: offer.id, quoteNumber: offer.number, quoteOverallDiscountRate: Math.min(100, Math.max(0, Number(offer.overallDiscountRate) || 0)), items, originalItems: structuredClone(items), approvalForm, createdBy: req.authUser?.name || "Satışçı", createdByUserId: req.authUser?.id || null, createdAt: now, updatedAt: now, history: [{ status: "new", at: now, by: req.authUser?.name || "Satışçı" }], audit: [{ id: randomUUID(), action: "createdFromOffer", newValue: offer.number, by: req.authUser?.name || "Satışçı", userId: req.authUser?.id, at: now }] };
+      db.orderBoard.push(order); offer.status = "converted"; offer.convertedOrderId = order.id; offer.convertedOrderNumber = order.number; offer.convertedAt = now; offer.updatedAt = now; await writeDb(db); return send(res, 201, { data: orderWithPresence(order, req.authUser) });
+    }
+    if (req.method === "POST" && parts[3] === "preview-pdf") {
+      const body = await parseBody(req, 8_000_000);
+      const html = String(body.html || "");
+      if (!html || html.length > 7_500_000) return send(res, 400, { error: "Teklif formu önizleme içeriği geçersiz." });
+      try {
+        const pdf = await renderOrderApprovalPdf(html);
+        res.writeHead(200, { "content-type": "application/pdf", "content-length": pdf.length, "cache-control": "no-store" });
+        return res.end(pdf);
+      } catch (error) {
+        return send(res, error.statusCode || 503, { error: `Teklif formu PDF oluşturulamadı: ${error.message}` });
+      }
+    }
+    if (req.method === "PATCH") {
+      if (!canSell) return send(res, 403, { error: "Teklif düzenleme izniniz yok." });
+      if (offer.convertedOrderId) return send(res, 409, { error: "Siparişe aktarılmış teklif düzenlenemez." });
+      const body = await parseBody(req);
+      if (body.status === "sent" || body.status === "rejected" || body.status === "draft") offer.status = body.status;
+      if (Object.prototype.hasOwnProperty.call(body, "customerName")) offer.customerName = String(body.customerName || "").trim().slice(0, 200);
+      if (Object.prototype.hasOwnProperty.call(body, "note")) offer.note = String(body.note || "").trim().slice(0, 2000);
+      if (Object.prototype.hasOwnProperty.call(body, "validUntil")) offer.validUntil = String(body.validUntil || "").slice(0, 10);
+      if (["TRY", "USD", "EUR"].includes(String(body.currency))) offer.currency = String(body.currency);
+      if (Object.prototype.hasOwnProperty.call(body, "documentType")) offer.documentType = body.documentType === "export" ? "export" : "domestic";
+      if (Object.prototype.hasOwnProperty.call(body, "overallDiscountRate")) offer.overallDiscountRate = Math.min(100, Math.max(0, Number(body.overallDiscountRate) || 0));
+      if (Array.isArray(body.items)) {
+        const items = body.items.map((row) => {
+          const product = db.orderCatalog.find((item) => Number(item.id) === Number(row.productId));
+          if (!product) throw new Error("Teklifteki ürün katalogda bulunamadı.");
+          return { productId: Number(product.id), productCode: product.code || product.sku || "", productName: product.name, quantity: Math.max(0, Number(row.quantity) || 0), rollCount: Math.max(0, Math.trunc(Number(row.rollCount) || 0)), unitPrice: Math.max(0, Number(row.unitPrice) || 0), vatRate: Math.max(0, Number(row.vatRate) || 0), discountRate: Math.max(0, Number(row.discountRate) || 0) };
+        });
+        if (!items.length || items.some((item) => !(item.quantity > 0 || item.rollCount > 0))) return send(res, 400, { error: "Her teklif ürünü için miktar girin." });
+        offer.items = items;
+      }
+      if (!offer.customerName) return send(res, 400, { error: "Müşteri adı zorunludur." });
+      offer.updatedAt = new Date().toISOString(); await writeDb(db); return send(res, 200, { data: offer });
+    }
+    if (req.method === "DELETE") {
+      if (!canSell) return send(res, 403, { error: "Teklif silme izniniz yok." });
+      if (offer.convertedOrderId) return send(res, 409, { error: "Siparişe aktarılmış teklif silinemez." });
+      db.orderOffers = db.orderOffers.filter((item) => String(item.id) !== String(offer.id));
+      await writeDb(db); return send(res, 200, { ok: true });
+    }
+    return notFound(res);
   }
 
   if (req.method === "GET" && parts[1] === "approval-forms") {
@@ -6000,6 +6283,95 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!waiting) return notFound(res);
     if (!maySeeWaiting(waiting)) return send(res, 403, { error: "Bu teslimat kaydını görme yetkiniz yok." });
 
+    if (req.method === "DELETE" && !parts[3]) {
+      const hasHistory = (waiting.releases || []).some((release) => !release.cancelledAt);
+      if (hasHistory) return send(res, 409, { error: "Aktife gönderilmiş veya teslim edilmiş partisi olan kayıt silinemez. Önce ilgili partiyi iptal edin." });
+      db.deliveryWaiting = (db.deliveryWaiting || []).filter((record) => String(record.id) !== waitingId);
+      await writeDb(db);
+      return send(res, 200, { data: { id: waitingId, deleted: true } });
+    }
+
+    if (req.method === "PUT" && parts[3] === "documents") {
+      const body = await parseBody(req);
+      const groupId = String(body.groupId || "invoice");
+      const groupExists = (waiting.items || []).some((item) => String(item.sourceGroupId || "invoice") === groupId);
+      if (!groupExists) return send(res, 400, { error: "Belge durumu için geçerli fatura grubu bulunamadı." });
+      const policy = String(body.policy || "per_release");
+      waiting.externalDocuments ??= {};
+      if (policy === "per_release") {
+        delete waiting.externalDocuments[groupId];
+        if (!Object.keys(waiting.externalDocuments).length) delete waiting.externalDocuments;
+      } else {
+        const sourceLabel = String(body.sourceLabel || (waiting.items || []).find((item) => String(item.sourceGroupId || "invoice") === groupId)?.sourceGroupLabel || waiting.number).trim();
+        waiting.externalDocuments[groupId] = {
+          sourceLabel,
+          hasApprovalForm: body.hasApprovalForm === true,
+          hasDespatch: body.hasDespatch === true,
+          approvalFormNumber: String(body.approvalFormNumber || "").trim().slice(0, 120),
+          despatchNumber: String(body.despatchNumber || "").trim().slice(0, 120),
+          markedAt: new Date().toISOString(),
+          markedBy: req.authUser?.name || "Kullanıcı",
+          markedByUserId: req.authUser?.id || null,
+        };
+      }
+      waiting.updatedAt = new Date().toISOString();
+      waiting.updatedBy = req.authUser?.name || "Kullanıcı";
+      await writeDb(db);
+      return send(res, 200, { data: deliveryWaitingSummary(waiting) });
+    }
+
+    if (req.method === "POST" && parts[3] === "documents" && parts[4] === "create-form") {
+      const body = await parseBody(req);
+      const groupId = String(body.groupId || "invoice");
+      const groupItems = (waiting.items || []).filter((item) => String(item.sourceGroupId || "invoice") === groupId);
+      if (!groupItems.length) return send(res, 400, { error: "Sipariş formu için fatura grubu bulunamadı." });
+      const existing = (waiting.sourceOrderIds || []).map((sourceId) => db.orderBoard.find((order) => String(order.id) === String(sourceId))).find((order) => order && order.documentOnly === true && String(order.documentOnlyGroupId || "") === groupId);
+      if (existing) return send(res, 200, { data: { waiting: deliveryWaitingSummary(waiting), order: orderWithPresence(existing, req.authUser) } });
+      const now = new Date().toISOString();
+      const actor = req.authUser?.name || "Kullanıcı";
+      const order = {
+        id: randomUUID(), number: nextOrderNumber(db, activeOrderDayKey(db)), customerName: waiting.customerName,
+        note: String(waiting.note || "").trim(), originalText: "Teslimat bekleyen toplam sipariş formu",
+        businessDate: activeOrderDayKey(db), status: "ready", documentOnly: true, documentOnlyGroupId: groupId,
+        isDeferredDelivery: true, deliveryWaitingSourceId: waiting.id, deliveryWaitingNumber: waiting.number,
+        items: groupItems.map((item) => ({ ...structuredClone(item), quantity: Math.max(0, numberValue(item.quantity)), orderedRollCount: Math.max(0, Math.trunc(numberValue(item.orderedRollCount))), preparedQuantity: Math.max(0, numberValue(item.quantity)), preparedRollCount: Math.max(0, Math.trunc(numberValue(item.orderedRollCount)))})),
+        originalItems: structuredClone(groupItems), createdBy: actor, createdByUserId: req.authUser?.id || null, createdAt: now, updatedAt: now,
+        history: [{ status: "ready", at: now, by: actor, reason: "Teslimat bekleyen toplam formu için oluşturuldu." }], audit: [{ id: randomUUID(), action: "deliveryWaitingTotalFormCreated", newValue: waiting.number, by: actor, userId: req.authUser?.id, at: now }],
+      };
+      db.orderBoard.push(order);
+      waiting.sourceOrderIds = [...new Set([...(waiting.sourceOrderIds || []), order.id])];
+      waiting.sourceOrderNumbers = [...new Set([...(waiting.sourceOrderNumbers || []), order.number])];
+      waiting.updatedAt = now; waiting.updatedBy = actor;
+      await writeDb(db);
+      return send(res, 201, { data: { waiting: deliveryWaitingSummary(waiting), order: orderWithPresence(order, req.authUser) } });
+    }
+
+    if (req.method === "POST" && parts[3] === "documents" && parts[4] === "create-form") {
+      const body = await parseBody(req);
+      const groupId = String(body.groupId || "invoice");
+      const groupItems = (waiting.items || []).filter((item) => String(item.sourceGroupId || "invoice") === groupId);
+      if (!groupItems.length) return send(res, 400, { error: "Sipariş formu için fatura grubu bulunamadı." });
+      const existing = (waiting.sourceOrderIds || []).map((sourceId) => db.orderBoard.find((order) => String(order.id) === String(sourceId))).find((order) => order && order.documentOnly === true && String(order.documentOnlyGroupId || "") === groupId);
+      if (existing) return send(res, 200, { data: { waiting: deliveryWaitingSummary(waiting), order: orderWithPresence(existing, req.authUser) } });
+      const now = new Date().toISOString();
+      const actor = req.authUser?.name || "Kullanıcı";
+      const order = {
+        id: randomUUID(), number: nextOrderNumber(db, activeOrderDayKey(db)), customerName: waiting.customerName,
+        note: String(waiting.note || "").trim(), originalText: "Teslimat bekleyen toplam sipariş formu",
+        businessDate: activeOrderDayKey(db), status: "ready", documentOnly: true, documentOnlyGroupId: groupId,
+        isDeferredDelivery: true, deliveryWaitingSourceId: waiting.id, deliveryWaitingNumber: waiting.number,
+        items: groupItems.map((item) => ({ ...structuredClone(item), quantity: Math.max(0, numberValue(item.quantity)), orderedRollCount: Math.max(0, Math.trunc(numberValue(item.orderedRollCount))), preparedQuantity: Math.max(0, numberValue(item.quantity)), preparedRollCount: Math.max(0, Math.trunc(numberValue(item.orderedRollCount)))})),
+        originalItems: structuredClone(groupItems), createdBy: actor, createdByUserId: req.authUser?.id || null, createdAt: now, updatedAt: now,
+        history: [{ status: "ready", at: now, by: actor, reason: "Teslimat bekleyen toplam formu için oluşturuldu." }], audit: [{ id: randomUUID(), action: "deliveryWaitingTotalFormCreated", newValue: waiting.number, by: actor, userId: req.authUser?.id, at: now }],
+      };
+      db.orderBoard.push(order);
+      waiting.sourceOrderIds = [...new Set([...(waiting.sourceOrderIds || []), order.id])];
+      waiting.sourceOrderNumbers = [...new Set([...(waiting.sourceOrderNumbers || []), order.number])];
+      waiting.updatedAt = now; waiting.updatedBy = actor;
+      await writeDb(db);
+      return send(res, 201, { data: { waiting: deliveryWaitingSummary(waiting), order: orderWithPresence(order, req.authUser) } });
+    }
+
     if (req.method === "POST" && parts[3] === "release") {
       const body = await parseBody(req);
       const summary = deliveryWaitingSummary(waiting);
@@ -6032,12 +6404,61 @@ async function handleOrderBoard(req, res, url, parts) {
       const actor = req.authUser?.name || "Satış";
       const releaseId = randomUUID();
       const businessDate = activeOrderDayKey(db);
+      const selectedSourceGroupId = String(summary.items.find((item) => String(item.id) === String(selectedItems[0]?.waitingItemId))?.sourceGroupId || "invoice");
+      const externalDocument = waiting.externalDocuments?.[selectedSourceGroupId] || null;
       const firstOrderId = (waiting.releases || []).find((release) => release.orderId)?.orderId;
+      const sourceOrders = (waiting.sourceOrderIds || [])
+        .map((sourceOrderId) => db.orderBoard.find((sourceOrder) => String(sourceOrder.id) === String(sourceOrderId)))
+        .filter(Boolean);
+      const sourceWithApprovalForm = sourceOrders.find((sourceOrder) => sourceOrder.approvalForm);
+      const sourceWithDespatch = sourceOrders.find((sourceOrder) => sourceOrder.despatchReady === true);
       const order = {
         id: randomUUID(), number: nextOrderNumber(db, businessDate), customerName: waiting.customerName,
         note: String(body.note || waiting.note || "").trim(), originalText: "Teslimat bekleyen satıştan aktarıldı",
-        businessDate, status: "new", isTest: false, isLoanReturn: false,
+        businessDate, status: "new", isTest: waiting.isTest === true, isLoanReturn: waiting.isLoanReturn === true,
         isDeferredDelivery: true, deliveryWaitingSourceId: waiting.id, deliveryWaitingNumber: waiting.number, deliveryReleaseId: releaseId,
+        ...(sourceWithApprovalForm ? {
+          inheritedApprovalForm: {
+            orderId: sourceWithApprovalForm.id,
+            orderNumber: sourceWithApprovalForm.number,
+            formNumber: sourceWithApprovalForm.approvalForm?.number || sourceWithApprovalForm.number,
+          },
+        } : {}),
+        ...(sourceWithDespatch ? {
+          inheritedDespatch: {
+            orderId: sourceWithDespatch.id,
+            orderNumber: sourceWithDespatch.number,
+            number: sourceWithDespatch.despatchNumber || "",
+            withoutDespatch: sourceWithDespatch.withoutDespatch === true,
+          },
+          despatchReady: true,
+          despatchNumber: sourceWithDespatch.despatchNumber || "",
+          withoutDespatch: sourceWithDespatch.withoutDespatch === true,
+          despatchReadyAt: sourceWithDespatch.despatchReadyAt || now,
+          despatchReadyBy: sourceWithDespatch.despatchReadyBy || actor,
+          despatchScope: "full",
+        } : {}),
+        ...(!sourceWithApprovalForm && externalDocument?.hasApprovalForm ? {
+          inheritedApprovalForm: {
+            orderId: "external",
+            orderNumber: externalDocument.sourceLabel || selectedSourceGroupId,
+            formNumber: externalDocument.approvalFormNumber || "Harici mevcut sipariş formu",
+          },
+        } : {}),
+        ...(!sourceWithDespatch && externalDocument?.hasDespatch ? {
+          inheritedDespatch: {
+            orderId: "external",
+            orderNumber: externalDocument.sourceLabel || selectedSourceGroupId,
+            number: externalDocument.despatchNumber || "Harici mevcut irsaliye",
+            withoutDespatch: externalDocument.withoutDespatch === true,
+          },
+          despatchReady: true,
+          despatchNumber: externalDocument.despatchNumber || "",
+          withoutDespatch: externalDocument.withoutDespatch === true,
+          despatchReadyAt: externalDocument.markedAt || now,
+          despatchReadyBy: externalDocument.markedBy || actor,
+          despatchScope: "full",
+        } : {}),
         ...(firstOrderId ? { parentOrderId: firstOrderId, parentOrderNumber: (waiting.releases || []).find((release) => release.orderId === firstOrderId)?.orderNumber } : {}),
         items: structuredClone(selectedItems),
         originalItems: (waiting.items || []).map((item) => ({ ...item, preparedQuantity: null, preparedRollCount: null })),
@@ -6064,6 +6485,9 @@ async function handleOrderBoard(req, res, url, parts) {
     const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
     const data = db.orderBoard
       .filter((order) => !order.archivedAt)
+      // Form-only source orders are internal document records. They must never
+      // appear as a real ready delivery on the board.
+      .filter((order) => order.documentOnly !== true)
       .filter((order) => !status || order.status === status)
       .filter((order) => !order.isTest || workflowRole === "owner" || (
         String(order.createdByUserId || "") === actorId ||
@@ -6128,13 +6552,50 @@ async function handleOrderBoard(req, res, url, parts) {
     return send(res, 201, { data: duplicate ? latest : entry });
   }
 
+  if (req.method === "POST" && parts[1] === "stock-documents" && parts[2] && parts[3] === "receive-back") {
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.create") && !hasPermission(req.authUser, "stock.loan_purchase")) return send(res, 403, { error: "Borç ürünü geri alma yetkiniz yok." });
+    const document = (db.stockDocuments || []).find((item) => String(item.id) === String(parts[2]) && item.type === "loan_lend");
+    if (!document) return send(res, 404, { error: "Açık borç verme kaydı bulunamadı." });
+    const body = await parseBody(req);
+    const requested = new Map((Array.isArray(body.lines) ? body.lines : []).map((line) => [Number(line.productId), line]));
+    const now = new Date().toISOString();
+    db.stockTransactions ??= [];
+    for (const line of document.lines || []) {
+      const remainingQuantity = Math.max(0, Number(line.loanOutstanding ?? 0));
+      const remainingRolls = Math.max(0, Number(line.loanOutstandingRollCount ?? 0));
+      const input = requested.get(Number(line.productId)) || {};
+      const quantity = Math.min(remainingQuantity, Math.max(0, Number(input.quantity ?? remainingQuantity) || 0));
+      const rollCount = Math.min(remainingRolls, Math.max(0, Math.trunc(Number(input.rollCount ?? remainingRolls) || 0)));
+      if (!(quantity > 0 || rollCount > 0)) continue;
+      const product = db.orderCatalog.find((item) => Number(item.id) === Number(line.productId));
+      if (!product) continue;
+      const beforeQuantity = Number(product.physicalQuantity || 0);
+      const beforeRollCount = Number(product.rollCount || 0);
+      product.physicalQuantity = beforeQuantity + quantity;
+      product.rollCount = beforeRollCount + rollCount;
+      product.stockUpdatedAt = now;
+      product.stockUpdatedBy = req.authUser?.name ?? "Kullanıcı";
+      line.loanOutstanding = Number((remainingQuantity - quantity).toFixed(3));
+      line.loanOutstandingRollCount = Math.max(0, remainingRolls - rollCount);
+      db.stockTransactions.unshift({ id: randomUUID(), documentNumber: `${document.documentNumber}-IADE`, type: "loan_lend_return", productId: product.id, productCode: product.code || product.sku || "", productName: product.name, quantity, rollCount, signedQuantity: quantity, signedRollCount: rollCount, beforeQuantity, afterQuantity: product.physicalQuantity, beforeRollCount, afterRollCount: product.rollCount, counterparty: document.counterparty || "", note: String(body.note || "Borç verilen ürün geri alındı").trim().slice(0, 500), createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "" });
+    }
+    document.returnedAt = now;
+    document.returnedBy = req.authUser?.name ?? "Kullanıcı";
+    await writeDb(db);
+    return send(res, 200, { data: document });
+  }
+
   if (req.method === "POST" && parts[1] === "stock-documents") {
     const body = await parseBody(req, 8_000_000);
     const type = String(body.type || "");
-    const permissionByType = { adjustment: "stock.adjust", writeoff: "stock.writeoff", transfer: "stock.transfer", purchase: "stock.purchase", loan_purchase: "stock.loan_purchase" };
+    const permissionByType = { adjustment: "stock.adjust", writeoff: "stock.writeoff", transfer: "stock.transfer", purchase: "stock.purchase", loan_purchase: "stock.loan_purchase", loan_lend: "stock.loan_purchase" };
     const requiredPermission = permissionByType[type];
     if (!requiredPermission) return send(res, 400, { error: "Geçersiz stok evrakı türü." });
-    if (workflowRole !== "owner" && !hasPermission(req.authUser, requiredPermission)) return send(res, 403, { error: "Bu stok evrakını oluşturma yetkiniz yok." });
+    // Borrowed-product intake is started from the order screen.  Sales users
+    // who may create orders can record that intake, while every other stock
+    // document still requires its dedicated stock permission.
+    const mayCreateLoanFromOrder = ["loan_purchase", "loan_lend"].includes(type) && hasPermission(req.authUser, "orders.create");
+    if (workflowRole !== "owner" && !hasPermission(req.authUser, requiredPermission) && !mayCreateLoanFromOrder) return send(res, 403, { error: "Bu stok evrakını oluşturma yetkiniz yok." });
     const lines = Array.isArray(body.lines) ? body.lines : [];
     if (!lines.length) return send(res, 400, { error: "Stok evrakına en az bir ürün ekleyin." });
     if (!String(body.note || "").trim()) return send(res, 400, { error: "Evrak açıklaması zorunludur." });
@@ -6146,10 +6607,15 @@ async function handleOrderBoard(req, res, url, parts) {
       const quantity = Math.abs(Number(input.quantity || 0));
       const rollCount = Math.abs(Math.trunc(Number(input.rollCount || 0)));
       if (type !== "transfer" && !(quantity > 0 || rollCount > 0)) return send(res, 400, { error: `${product.name} için metre veya rulo girin.` });
-      const direction = type === "writeoff" ? -1 : type === "transfer" ? 0 : 1;
+      const direction = (type === "writeoff" || type === "loan_lend") ? -1 : type === "transfer" ? 0 : 1;
       const beforeQuantity = Number(product.physicalQuantity || 0);
       const beforeRollCount = Number(product.rollCount || 0);
-      if (beforeQuantity + direction * quantity < 0 || beforeRollCount + direction * rollCount < 0) return send(res, 400, { error: `${product.name} işlemi stoğu sıfırın altına düşürüyor.` });
+      // During the initial stock migration, sales and loaned-out stock may
+      // legitimately go below the recorded physical balance.  The company
+      // setting keeps this a deliberate, reversible policy rather than a
+      // hard-coded bypass.
+      const blocksNegativeStock = db.companySettings?.allowNegativeStock !== true;
+      if (blocksNegativeStock && (beforeQuantity + direction * quantity < 0 || beforeRollCount + direction * rollCount < 0)) return send(res, 400, { error: `${product.name} işlemi stoğu sıfırın altına düşürüyor.` });
       normalizedLines.push({ product, quantity, rollCount, direction, beforeQuantity, beforeRollCount });
     }
     const now = new Date().toISOString();
@@ -6172,8 +6638,9 @@ async function handleOrderBoard(req, res, url, parts) {
       product.rollCount = beforeRollCount + direction * rollCount;
       product.stockUpdatedAt = now;
       product.stockUpdatedBy = req.authUser?.name ?? "Kullanıcı";
-      const line = { productId: product.id, productCode: product.code || product.sku || "", productName: product.name, quantity, rollCount, signedQuantity: direction * quantity, beforeQuantity, afterQuantity: product.physicalQuantity, beforeRollCount, afterRollCount: product.rollCount, ...(type === "loan_purchase" ? { loanOutstanding: quantity, loanOutstandingRollCount: rollCount } : {}) };
-      db.stockTransactions.unshift({ id: randomUUID(), documentNumber, type, ...line, fromLocation: String(body.fromLocation || "").trim(), toLocation: String(body.toLocation || "").trim(), counterparty: String(body.counterparty || "").trim(), note: String(body.note || "").trim(), loanOutstanding: type === "loan_purchase" ? quantity : 0, loanOutstandingRollCount: type === "loan_purchase" ? rollCount : 0, attachments, createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "" });
+      const isLoan = type === "loan_purchase" || type === "loan_lend";
+      const line = { productId: product.id, productCode: product.code || product.sku || "", productName: product.name, quantity, rollCount, signedQuantity: direction * quantity, beforeQuantity, afterQuantity: product.physicalQuantity, beforeRollCount, afterRollCount: product.rollCount, ...(isLoan ? { loanOutstanding: quantity, loanOutstandingRollCount: rollCount } : {}) };
+      db.stockTransactions.unshift({ id: randomUUID(), documentNumber, type, ...line, fromLocation: String(body.fromLocation || "").trim(), toLocation: String(body.toLocation || "").trim(), counterparty: String(body.counterparty || "").trim(), note: String(body.note || "").trim(), loanOutstanding: isLoan ? quantity : 0, loanOutstandingRollCount: isLoan ? rollCount : 0, attachments, createdAt: now, createdBy: req.authUser?.name ?? "Kullanıcı", createdByUserId: req.authUser?.id || "" });
       return line;
     });
     db.stockDocuments ??= [];
@@ -6201,9 +6668,47 @@ async function handleOrderBoard(req, res, url, parts) {
     const changeReason = String(body.reason || "").trim().slice(0, 300);
     const isTest = body.isTest === true;
     const isLoanReturn = body.isLoanReturn === true;
+    const deferDelivery = body.deferDelivery === true;
     const customer = findOrderCustomerByName(db.orderCustomers, customerName);
     const isExport = body.isExport === true || customer?.customerType === "foreign";
     const businessDate = activeOrderDayKey(db);
+    if (deferDelivery) {
+      const waitingId = randomUUID();
+      const waitingNumber = `TB-${String(Date.now()).slice(-7)}`;
+      const sourceGroupId = `draft:${waitingId}`;
+      const itemsForWaiting = items.map((item, index) => ({
+        id: randomUUID(),
+        productId: item.productId ?? null,
+        productCode: item.productCode || "",
+        productName: item.productName || "Ürün",
+        quantity: Math.max(0, numberValue(item.quantity)),
+        orderedRollCount: Math.max(0, Math.trunc(numberValue(item.orderedRollCount))),
+        lineIndex: index,
+        sourceGroupId,
+        sourceGroupLabel: `Yeni sipariş · ${customerName}`,
+        sourceGroupRange: businessDate,
+      }));
+      const waiting = {
+        id: waitingId,
+        number: waitingNumber,
+        sourceType: "order_draft",
+        customerName,
+        note: String(body.note ?? "").trim(),
+        originalText: String(body.text ?? "").trim(),
+        isTest,
+        isLoanReturn,
+        items: itemsForWaiting,
+        releases: [],
+        createdAt: now,
+        createdBy: req.authUser?.name ?? "Satışçı",
+        createdByUserId: req.authUser?.id ?? null,
+        updatedAt: now,
+      };
+      db.deliveryWaiting ??= [];
+      db.deliveryWaiting.unshift(waiting);
+      await writeDb(db);
+      return send(res, 201, { data: { deferred: true, waiting: deliveryWaitingSummary(waiting) } });
+    }
     const order = {
       id: randomUUID(),
       number: nextOrderNumber(db, businessDate),
@@ -6214,6 +6719,7 @@ async function handleOrderBoard(req, res, url, parts) {
       status: "new",
       isTest,
       isLoanReturn,
+      loanSourceDocumentId: isLoanReturn ? String(body.loanSourceDocumentId || "").trim() : "",
       isExport,
       items: items.map((item) => ({ ...item, ...normalizeOrderCutAllowance({ ...item, cutAllowanceApplied: false, cutPieceCount: 0, cutAllowancePerPiece: 0 }), preparedQuantity: null })),
       originalItems: items.map((item) => ({ ...item, ...normalizeOrderCutAllowance({ ...item, cutAllowanceApplied: false, cutPieceCount: 0, cutAllowancePerPiece: 0 }), preparedQuantity: null })),
@@ -6360,7 +6866,7 @@ async function handleOrderBoard(req, res, url, parts) {
   if (req.method === "GET" && id && parts[2] === "defer-delivery-options") {
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
-    if (order.status !== "ready") return send(res, 409, { error: "Yalnız hazır siparişler sonraki teslimata alınabilir." });
+    if (!["new", "preparing", "ready"].includes(order.status)) return send(res, 409, { error: "Yalnız teslim edilmemiş aktif siparişler sonraki teslimata alınabilir." });
     const customerKey = normalizeSalesRepresentativeName(order.customerName || "");
     const orderProductIds = new Set((order.items || []).map((item) => Number(item.productId)).filter(Boolean));
     const orderProductCodes = new Set((order.items || []).map((item) => String(item.productCode || "").trim().toLocaleLowerCase("tr")).filter(Boolean));
@@ -6441,7 +6947,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
     const isCreator = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
     if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.edit") && !isCreator) return send(res, 403, { error: "Bu siparişin teslimatını erteleme yetkiniz yok." });
-    if (order.status !== "ready") return send(res, 409, { error: "Yalnız hazır siparişler sonraki teslimata alınabilir." });
+    if (!["new", "preparing", "ready"].includes(order.status)) return send(res, 409, { error: "Yalnız teslim edilmemiş aktif siparişler sonraki teslimata alınabilir." });
     if ((db.orderStockMovements || []).some((movement) => String(movement.orderId) === String(order.id))) return send(res, 409, { error: "Stok hareketi oluşmuş sipariş sonraki teslimata alınamaz." });
     const body = await parseBody(req);
     const selectionId = String(body.documentId || "");
@@ -6478,14 +6984,16 @@ async function handleOrderBoard(req, res, url, parts) {
         productId: item.productId ?? null,
         productCode: item.productCode || "",
         productName: item.productName || "Ürün",
-        quantity: Math.max(0, numberValue(item.preparedQuantity ?? item.quantity)),
-        orderedRollCount: Math.max(0, Math.trunc(numberValue(item.preparedRollCount ?? item.orderedRollCount))),
+        // A new order has not been prepared yet. The deferred balance must
+        // therefore always retain the ordered amount, not an empty prepared amount.
+        quantity: Math.max(0, numberValue(item.quantity)),
+        orderedRollCount: Math.max(0, Math.trunc(numberValue(item.orderedRollCount))),
         lineIndex: index,
         sourceGroupId,
         sourceGroupLabel,
         sourceGroupRange: String(order.readyAt || order.updatedAt || order.createdAt || "").slice(0, 10),
       })).filter((item) => item.quantity > 0 || item.orderedRollCount > 0);
-      if (!items.length) return send(res, 409, { error: "Teslimat bakiyesine aktarılacak hazırlanmış ürün bulunamadı." });
+      if (!items.length) return send(res, 409, { error: "Teslimat bakiyesine aktarılacak sipariş ürünü bulunamadı." });
       waiting = {
         id: randomUUID(),
         number: `TB-${String(Date.now()).slice(-7)}`,
@@ -6509,6 +7017,22 @@ async function handleOrderBoard(req, res, url, parts) {
     const selectedWaitingItems = createFromOrder ? waitingSummaryItems : waitingSummaryItems.filter((item) => String(item.sourceGroupId || "invoice") === waitingGroupId);
     if (waitingId && !(order.items || []).some((orderItem) => selectedWaitingItems.some((item) => Number(item.productId) === Number(orderItem.productId) || (item.productCode && String(item.productCode).toLocaleLowerCase("tr") === String(orderItem.productCode || "").toLocaleLowerCase("tr"))))) {
       return send(res, 409, { error: "Hazır siparişteki ürünler seçilen fatura grubuyla eşleşmiyor." });
+    }
+    const documentPolicy = String(body.documentPolicy || "per_release");
+    if (documentPolicy === "existing_external") {
+      const sourceGroupId = String(selectedWaitingItems[0]?.sourceGroupId || (createFromOrder ? `order:${order.id}` : "invoice"));
+      const sourceLabel = String(selectedWaitingItems[0]?.sourceGroupLabel || (document?.documentNumber || document?.invoiceNumber || document?.number || order.number));
+      waiting.externalDocuments ??= {};
+      waiting.externalDocuments[sourceGroupId] = {
+        sourceLabel,
+        hasApprovalForm: body.externalApprovalFormPresent !== false,
+        hasDespatch: body.externalDespatchPresent === true,
+        approvalFormNumber: String(body.externalApprovalFormNumber || "").trim(),
+        despatchNumber: String(body.externalDespatchNumber || "").trim(),
+        markedAt: now,
+        markedBy: actor,
+        markedByUserId: req.authUser?.id || null,
+      };
     }
     waiting.sourceOrderIds = [...new Set([...(waiting.sourceOrderIds || []), order.id])];
     waiting.sourceOrderNumbers = [...new Set([...(waiting.sourceOrderNumbers || []), order.number])];
@@ -6763,6 +7287,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!order) return notFound(res);
     if (order.mergedIntoOrderId || order.mergeUndoneAt) return send(res, 409, { error: "Bu form birleştirme geçmişine aittir. Güncel siparişten yeni form oluşturun." });
     if (order.isLoanReturn) return send(res, 409, { error: "Borç iadesi için sipariş onay formu oluşturulmaz." });
+    if (order.inheritedApprovalForm) return send(res, 409, { error: `${order.inheritedApprovalForm.orderNumber} siparişinin toplam formu (${order.inheritedApprovalForm.formNumber}) bu teslimat için kullanılıyor; tekrar form oluşturulmaz.` });
     const body = await parseBody(req);
     let documentType = ["proforma", "commercial_invoice", "packing_list"].includes(String(body.documentType)) ? String(body.documentType) : "domestic";
     if (order.isExport && documentType === "domestic") documentType = "proforma";
@@ -6835,7 +7360,7 @@ async function handleOrderBoard(req, res, url, parts) {
         ? rawInnerUnit
         : (innerQuantity > 0 ? (unit === "BOX" ? "PCS" : (unit === "BUCKET" ? "KG" : undefined)) : undefined);
       const priceBasis = innerQuantity > 0 && (line.priceBasis === "CONTENT" || line.priceBasis === "PCS") ? "CONTENT" : (innerQuantity > 0 ? "PACKAGE" : undefined);
-      return { ...(isCustomOrderSource ? { sourceItemRef: { index: sourceIndexes[index], code: source.productCode || "", name: source.productName || "" } } : {}), productId: (!source || isCustomOrderSource) ? null : (source.productId ?? null), productCode: String(isCustomOrderSource ? (line.productCode || "") : source ? (source.productCode || line.productCode || "") : (line.productCode || "")).trim().slice(0, 80), productName: String(isCustomOrderSource ? (line.productName || "") : source ? (source.productName || line.productName || "") : (line.productName || "")).trim().slice(0, 240), quantity: !source ? Number(line.quantity) : (Number(source.preparedQuantity ?? source.quantity ?? (isCustomOrderSource ? line.quantity : 0)) || 0), rollCount: Math.max(0, Math.trunc(Number(line.rollCount) || 0)) > 0 ? Math.max(0, Math.trunc(Number(line.rollCount) || 0)) : ((!source || isCustomOrderSource) ? (unit === "ROLL" ? (Number(source?.preparedQuantity ?? source?.quantity ?? line.quantity) || 0) : 0) : (Number(source.preparedRollCount) > 0 ? Number(source.preparedRollCount) : (Number(source.orderedRollCount) || 0))), width: Number(line.width || 1.42), unitPrice: Number(line.unitPrice), discountRate: Number(line.discountRate), vatRate: isExportDocument ? 0 : Number(line.vatRate), unit, unitsPerBox: unit === "BOX" && innerQuantity > 0 ? innerQuantity : undefined, innerQuantity: innerQuantity > 0 ? innerQuantity : undefined, innerUnit, priceBasis, manual, packageCount: Math.max(0, Math.trunc(Number(line.packageCount) || 0)), netWeight: Math.max(0, Number(line.netWeight) || 0), grossWeight: Math.max(0, Number(line.grossWeight) || 0), hsCode: String(line.hsCode || "").trim().slice(0, 40), countryOfOrigin: String(line.countryOfOrigin || body.countryOfOrigin || "").trim().slice(0, 160) };
+      return { ...(isCustomOrderSource ? { sourceItemRef: { index: sourceIndexes[index], code: source.productCode || "", name: source.productName || "" } } : {}), productId: (!source || isCustomOrderSource) ? null : (source.productId ?? null), productCode: String(isCustomOrderSource ? (line.productCode || "") : source ? (source.productCode || line.productCode || "") : (line.productCode || "")).trim().slice(0, 80), productName: String(isCustomOrderSource ? (line.productName || "") : source ? (source.productName || line.productName || "") : (line.productName || "")).trim().slice(0, 240), quantity: !source ? Number(line.quantity) : (Number(source.preparedQuantity ?? source.quantity ?? (isCustomOrderSource ? line.quantity : 0)) || 0), rollCount: Math.max(0, Math.trunc(Number(line.rollCount) || 0)) > 0 ? Math.max(0, Math.trunc(Number(line.rollCount) || 0)) : ((!source || isCustomOrderSource) ? (unit === "ROLL" ? (Number(source?.preparedQuantity ?? source?.quantity ?? line.quantity) || 0) : 0) : (Number(source.preparedRollCount) > 0 ? Number(source.preparedRollCount) : (Number(source.orderedRollCount) || 0))), width: Number(line.width || 1.42), unitPrice: Number(line.unitPrice), discountRate: Number(line.discountRate), vatRate: isExportDocument ? 0 : Number(line.vatRate), unit, unitsPerBox: unit === "BOX" && innerQuantity > 0 ? innerQuantity : undefined, innerQuantity: innerQuantity > 0 ? innerQuantity : undefined, innerUnit, priceBasis, manual, packageCount: Math.max(0, Math.trunc(Number(line.packageCount) || 0)), netWeight: Math.max(0, Number(line.netWeight) || 0), grossWeight: Math.max(0, Number(line.grossWeight) || 0), hsCode: String(line.hsCode || ((!isCustomOrderSource && source) ? "392043100000" : "")).trim().slice(0, 40), countryOfOrigin: String(line.countryOfOrigin || body.countryOfOrigin || "").trim().slice(0, 160) };
     });
     const requestedCurrency = ["TRY", "USD", "EUR"].includes(String(body.currency)) ? String(body.currency) : "USD";
     const exchangeRate = isExportDocument ? 1 : Number(body.exchangeRate);
@@ -6852,7 +7377,7 @@ async function handleOrderBoard(req, res, url, parts) {
       ? exportApprovalDocumentNumber(documentType, order.number)
       : String(body.number || documentNumberFromSource("SOF", order.number)).trim().slice(0, 60);
     const isSubmittedForApproval = body.submitForApproval === true;
-    const nextForm = { number: nextDocumentNumber, documentType, proformaNumber: String(body.proformaNumber || documentNumberFromSource("PRF", order.number)).trim().slice(0, 60), invoiceNumber: String(body.invoiceNumber || "").trim().slice(0, 80), date: String(preservedFormDate).slice(0, 10), revisionDate: String(body.revisionDate || body.date || now.slice(0, 16)).slice(0, 16), salesRepresentative: normalizeSalesRepresentativeName(body.salesRepresentative).slice(0, 160), salesRepresentativeUserId: String(body.salesRepresentativeUserId || "").trim().slice(0, 160), currency, exchangeRate, priceSource, priceFactor, vatIncluded: body.vatIncluded === true, lines: normalizedLines, overallDiscountRate, extraCharge, extraChargeLabel: String(body.extraChargeLabel || "Əlavə xərc").trim().slice(0, 100), paymentTerms: String(body.paymentTerms || "").trim().slice(0, 1000), deliveryTerms: String(body.deliveryTerms || "").trim().slice(0, 1000), note: String(body.note || "").trim().slice(0, 2000), customerName: String(body.customerName || order.customerName).trim().slice(0, 200), customerContact: String(body.customerContact || "").trim().slice(0, 160), customerAddress: String(body.customerAddress || "").trim().slice(0, 500), customerPhone: String(body.customerPhone || "").trim().slice(0, 80), customerEmail: String(body.customerEmail || "").trim().slice(0, 200), customerTaxOffice: String(body.customerTaxOffice || "").trim().slice(0, 120), customerTaxNumber: String(body.customerTaxNumber || "").trim().slice(0, 40), packageType: String(body.packageType || "").trim().slice(0, 160), productDescription: String(body.productDescription || "").trim().slice(0, 300), incoterm: String(body.incoterm || "").trim().slice(0, 200), shipmentPort: String(body.shipmentPort || "").trim().slice(0, 160), destination: String(body.destination || "").trim().slice(0, 300), countryOfOrigin: String(body.countryOfOrigin || "").trim().slice(0, 160), bankName: String(body.bankName || "").trim().slice(0, 200), swiftCode: String(body.swiftCode || "").trim().slice(0, 40), iban: String(body.iban || "").trim().slice(0, 80), buyerOrderNumber: String(body.buyerOrderNumber || "").trim().slice(0, 100), transportMode: String(body.transportMode || "ROAD").trim().slice(0, 40), vehicleContainerNumber: String(body.vehicleContainerNumber || "").trim().slice(0, 100), transportDocumentNumber: String(body.transportDocumentNumber || "").trim().slice(0, 100), loadingPlace: String(body.loadingPlace || "Istanbul / Türkiye").trim().slice(0, 160), marksAndNumbers: String(body.marksAndNumbers || "").trim().slice(0, 500), freightAmount: Math.max(0, Number(body.freightAmount) || 0), insuranceAmount: Math.max(0, Number(body.insuranceAmount) || 0), exporterDeclaration: String(body.exporterDeclaration || "").trim().slice(0, 1000), preparedAt: previousForm?.preparedAt || previousForm?.updatedAt || now, preparedBy: previousForm?.preparedBy || previousForm?.updatedBy || actor, preparedByUserId: previousForm ? previousForm.preparedByUserId : actorId, status: body.status === "approved" ? "approved" : "draft", submittedForApproval: isSubmittedForApproval ? true : (body.status === "approved" ? false : (body.submitForApproval === false ? false : Boolean(previousForm?.submittedForApproval))), submittedAt: isSubmittedForApproval ? now : previousForm?.submittedAt, submittedBy: isSubmittedForApproval ? actor : previousForm?.submittedBy, ...(body.status === "approved" ? { approvedAt: now, approvedBy: actor } : {}), updatedAt: now, updatedBy: actor, ...(previousArchive ? { archive: previousArchive } : {}) };
+    const nextForm = { exchangeRateDate: documentType === "domestic" && /^\d{4}-\d{2}-\d{2}$/.test(String(body.exchangeRateDate || "")) ? body.exchangeRateDate : undefined, number: nextDocumentNumber, documentType, proformaNumber: String(body.proformaNumber || documentNumberFromSource("PRF", order.number)).trim().slice(0, 60), invoiceNumber: String(body.invoiceNumber || "").trim().slice(0, 80), date: String(preservedFormDate).slice(0, 10), revisionDate: String(body.revisionDate || body.date || now.slice(0, 16)).slice(0, 16), salesRepresentative: normalizeSalesRepresentativeName(body.salesRepresentative).slice(0, 160), salesRepresentativeUserId: String(body.salesRepresentativeUserId || "").trim().slice(0, 160), currency, exchangeRate, priceSource, priceFactor, vatIncluded: body.vatIncluded === true, lines: normalizedLines, overallDiscountRate, extraCharge, extraChargeLabel: String(body.extraChargeLabel || "Əlavə xərc").trim().slice(0, 100), paymentTerms: String(body.paymentTerms || "").trim().slice(0, 1000), deliveryTerms: String(body.deliveryTerms || "").trim().slice(0, 1000), note: String(body.note || "").trim().slice(0, 2000), customerName: String(body.customerName || order.customerName).trim().slice(0, 200), customerContact: String(body.customerContact || "").trim().slice(0, 160), customerAddress: String(body.customerAddress || "").trim().slice(0, 500), customerPhone: String(body.customerPhone || "").trim().slice(0, 80), customerEmail: String(body.customerEmail || "").trim().slice(0, 200), customerTaxOffice: String(body.customerTaxOffice || "").trim().slice(0, 120), customerTaxNumber: String(body.customerTaxNumber || "").trim().slice(0, 40), packageType: String(body.packageType || "").trim().slice(0, 160), productDescription: String(body.productDescription || "").trim().slice(0, 300), incoterm: String(body.incoterm || "").trim().slice(0, 200), shipmentPort: String(body.shipmentPort || "").trim().slice(0, 160), destination: String(body.destination || "").trim().slice(0, 300), countryOfOrigin: String(body.countryOfOrigin || "").trim().slice(0, 160), bankName: String(body.bankName || "").trim().slice(0, 200), swiftCode: String(body.swiftCode || "").trim().slice(0, 40), iban: String(body.iban || "").trim().slice(0, 80), buyerOrderNumber: String(body.buyerOrderNumber || "").trim().slice(0, 100), transportMode: String(body.transportMode || "ROAD").trim().slice(0, 40), vehicleContainerNumber: String(body.vehicleContainerNumber || "").trim().slice(0, 100), transportDocumentNumber: String(body.transportDocumentNumber || "").trim().slice(0, 100), loadingPlace: String(body.loadingPlace || "Istanbul / Türkiye").trim().slice(0, 160), marksAndNumbers: String(body.marksAndNumbers || "").trim().slice(0, 500), freightAmount: Math.max(0, Number(body.freightAmount) || 0), insuranceAmount: Math.max(0, Number(body.insuranceAmount) || 0), exporterDeclaration: String(body.exporterDeclaration || "").trim().slice(0, 1000), preparedAt: previousForm?.preparedAt || previousForm?.updatedAt || now, preparedBy: previousForm?.preparedBy || previousForm?.updatedBy || actor, preparedByUserId: previousForm ? previousForm.preparedByUserId : actorId, status: body.status === "approved" ? "approved" : "draft", submittedForApproval: isSubmittedForApproval ? true : (body.status === "approved" ? false : (body.submitForApproval === false ? false : Boolean(previousForm?.submittedForApproval))), submittedAt: isSubmittedForApproval ? now : previousForm?.submittedAt, submittedBy: isSubmittedForApproval ? actor : previousForm?.submittedBy, ...(body.status === "approved" ? { approvedAt: now, approvedBy: actor } : {}), updatedAt: now, updatedBy: actor, ...(previousArchive ? { archive: previousArchive } : {}) };
     delete nextForm.priceFactor;
     if (["commercial_invoice", "packing_list"].includes(documentType)) {
       nextForm.shipmentDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.shipmentDate || "")) ? String(body.shipmentDate) : nextForm.date;
@@ -6922,6 +7447,27 @@ async function handleOrderBoard(req, res, url, parts) {
       }
       nextForm.allowSeventeenRollPallet = allowSeventeenRollPallet;
       nextForm.palletDetails = palletDetails;
+    }
+    // A credit is used only for the first persisted version of a document
+    // type. Rejections, edits, re-submissions, previews, PDFs and printing
+    // all operate on that same document and never consume another credit.
+    // Test orders intentionally remain outside of commercial usage.
+    if (!previousForm && !order.isTest) {
+      const creditMonth = orderDocumentCreditMonth();
+      const creditMeterKey = orderDocumentCreditMeterKey(db, req.authUser, creditMonth);
+      const creditReservation = stateStore.reserveMeteredOnce(
+        creditMeterKey,
+        `${orderDocumentCreditCompanyKey(db, req.authUser)}:${order.id}:${documentType}`,
+      );
+      const billable = Math.max(0, creditReservation.count - ORDER_DOCUMENT_CREDITS.freePerMonth);
+      nextForm.creditCharge = {
+        month: creditMonth,
+        index: creditReservation.count,
+        free: creditReservation.count <= ORDER_DOCUMENT_CREDITS.freePerMonth,
+        unitPriceTry: creditReservation.count > ORDER_DOCUMENT_CREDITS.freePerMonth ? ORDER_DOCUMENT_CREDITS.unitPriceTry : 0,
+        amountTry: billable > 0 ? ORDER_DOCUMENT_CREDITS.unitPriceTry : 0,
+        countedAt: now,
+      };
     }
     if (previousForm?.documentType !== documentType) delete nextForm.archive;
     const approvalContent = (form) => {
@@ -7269,7 +7815,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!canDeliver) return send(res, 403, { error: "Təhvil şəkli yükləmək üçün icazəniz yoxdur." });
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
-    if (order.status !== "ready") return send(res, 409, { error: "Təhvil şəkli yalnız hazır sifarişə yüklənə bilər." });
+    if (!["ready", "delivered"].includes(order.status)) return send(res, 409, { error: "Təhvil şəkli yalnız hazır və ya təhvil verilmiş sifarişə yüklənə bilər." });
     const body = await parseBody(req, 1_500_000);
     const match = String(body.data || "").match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
     if (!match) return send(res, 400, { error: "Təhvil şəkli düzgün deyil." });
@@ -7279,6 +7825,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const storageName = `${order.id}-delivery-${randomUUID()}.${extension}`;
     await mkdir(ORDER_UPLOAD_DIR, { recursive: true });
     await writeFile(join(ORDER_UPLOAD_DIR, storageName), file);
+    const replacingExisting = Boolean(order.deliveryPhotoStorageName || order.deliveryPhoto);
     if (order.deliveryPhotoStorageName) await unlink(join(ORDER_UPLOAD_DIR, order.deliveryPhotoStorageName)).catch(() => {});
     const now = new Date().toISOString();
     order.deliveryPhoto = `/api/orders/delivery-photos/${order.id}`;
@@ -7288,7 +7835,7 @@ async function handleOrderBoard(req, res, url, parts) {
     order.deliveryPhotoUploadedBy = req.authUser?.name ?? "Əməkdaş";
     order.updatedAt = now;
     order.audit ??= [];
-    order.audit.push({ id: randomUUID(), action: "deliveryPhotoUploaded", by: order.deliveryPhotoUploadedBy, userId: req.authUser?.id, at: now });
+    order.audit.push({ id: randomUUID(), action: replacingExisting ? "deliveryPhotoReplaced" : "deliveryPhotoUploaded", by: order.deliveryPhotoUploadedBy, userId: req.authUser?.id, at: now });
     await writeDb(db);
     return send(res, 201, { data: orderWithPresence(order, req.authUser) });
   }
@@ -7298,6 +7845,9 @@ async function handleOrderBoard(req, res, url, parts) {
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
     if (!order.deliveryPhoto) return notFound(res);
+    const body = await parseBody(req);
+    const reason = String(body.reason || "").trim().slice(0, 300);
+    if (!reason) return send(res, 400, { error: "Teslim fotoğrafını silme nedeni zorunludur." });
     if (order.deliveryPhotoStorageName) await unlink(join(ORDER_UPLOAD_DIR, order.deliveryPhotoStorageName)).catch(() => {});
     const now = new Date().toISOString();
     delete order.deliveryPhoto;
@@ -7307,7 +7857,7 @@ async function handleOrderBoard(req, res, url, parts) {
     delete order.deliveryPhotoUploadedBy;
     order.updatedAt = now;
     order.audit ??= [];
-    order.audit.push({ id: randomUUID(), action: "deliveryPhotoDeleted", by: req.authUser?.name ?? "Teslim eden", userId: req.authUser?.id, at: now });
+    order.audit.push({ id: randomUUID(), action: "deliveryPhotoDeleted", oldValue: reason, by: req.authUser?.name ?? "Teslim eden", userId: req.authUser?.id, at: now });
     await writeDb(db);
     return send(res, 200, { data: orderWithPresence(order, req.authUser) });
   }
@@ -7320,11 +7870,14 @@ async function handleOrderBoard(req, res, url, parts) {
     if (!attachment) return notFound(res);
     const mayDelete = workflowRole === "owner" || hasPermission(req.authUser, "documents.delete") || (attachment.kind === "deliveryProof" && canDeliver);
     if (!mayDelete) return send(res, 403, { error: "Bu dosyayı silme yetkiniz yok." });
+    const body = await parseBody(req);
+    const reason = String(body.reason || "").trim().slice(0, 300);
+    if (attachment.kind === "deliveryProof" && !reason) return send(res, 400, { error: "Teslim kanıtını silme nedeni zorunludur." });
     const now = new Date().toISOString();
     attachment.deletedAt = now;
     attachment.deletedBy = req.authUser?.name ?? "Sahib";
     order.audit ??= [];
-    order.audit.push({ id: randomUUID(), action: "attachmentDeleted", oldValue: `${attachment.kind}: ${attachment.name}`, by: attachment.deletedBy, userId: req.authUser?.id, at: now });
+    order.audit.push({ id: randomUUID(), action: "attachmentDeleted", oldValue: `${attachment.kind}: ${attachment.name}${reason ? ` · ${reason}` : ""}`, by: attachment.deletedBy, userId: req.authUser?.id, at: now });
     order.updatedAt = now;
     await writeDb(db);
     return send(res, 200, { data: orderWithPresence(order, req.authUser) });
@@ -7803,6 +8356,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (workflowRole !== "owner" && !hasPermission(req.authUser, "orders.despatch")) return send(res, 403, { error: "İrsaliye məlumatını təsdiqləmək icazəniz yoxdur." });
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
+    if (order.inheritedDespatch) return send(res, 409, { error: `${order.inheritedDespatch.orderNumber} siparişinin irsaliyesi bu teslimat için kullanılıyor; tekrar irsaliye oluşturulmaz.` });
     if (order.status !== "ready") return send(res, 409, { error: "İrsaliye yalnız hazır sifariş partiyası üçün təsdiqlənə bilər." });
     const body = await parseBody(req);
     const ready = body.ready === true;
@@ -7970,7 +8524,16 @@ async function handleOrderBoard(req, res, url, parts) {
         if (!canDeliverWithoutProof && !deliveryNote) return send(res, 400, { error: "Təhvil qeydi məcburidir." });
         const hasDeliveryProof = Boolean(order.deliveryPhoto || (order.attachments || []).some((attachment) => attachment.kind === "deliveryProof" && !attachment.deletedAt));
         if (!canDeliverWithoutProof && !hasDeliveryProof) return send(res, 400, { error: "Təhvil faylı məcburidir." });
-        order.deliveredAt = now;
+        const requestedDeliveryDate = String(body.deliveryDate || "").trim();
+        const activeBusinessDate = activeOrderDayKey(db);
+        if (requestedDeliveryDate) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDeliveryDate)) return send(res, 400, { error: "Teslim tarihi geçersiz." });
+          if (!(String(order.businessDate || "") < activeBusinessDate)) return send(res, 409, { error: "Eski tarih yalnız önceki günden devreden hazır sipariş için seçilebilir." });
+          if (requestedDeliveryDate < String(order.businessDate) || requestedDeliveryDate > activeBusinessDate) return send(res, 400, { error: "Teslim tarihi sipariş günü ile açık iş günü arasında olmalıdır." });
+        }
+        order.deliveryDate = requestedDeliveryDate || activeBusinessDate;
+        order.deliveredAt = requestedDeliveryDate ? new Date(`${requestedDeliveryDate}T12:00:00.000Z`).toISOString() : now;
+        order.deliveryRecordedAt = now;
         order.deliveredBy = actor;
         order.deliveryNote = deliveryNote;
         db.orderStockMovements ??= [];
@@ -7995,6 +8558,7 @@ async function handleOrderBoard(req, res, url, parts) {
           Object.assign(item, allowance);
           let loanReturnedQuantity = 0;
           let loanReturnedRollCount = 0;
+          const loanReturnAllocations = [];
           if (order.isLoanReturn) {
             let remaining = allowance.stockConsumptionQuantity;
             let remainingRolls = Math.max(0, Number(item.preparedRollCount) || 0);
@@ -8005,21 +8569,26 @@ async function handleOrderBoard(req, res, url, parts) {
                 && (Number(entry.loanOutstanding) > 0 || Number(entry.loanOutstandingRollCount) > 0))
               .sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")));
             for (const transaction of loanTransactions) {
+              const allocation = { stockTransactionId: transaction.id, quantity: 0, rollCount: 0 };
               if (remaining > 0.000001) {
                 const applied = Math.min(remaining, Number(transaction.loanOutstanding) || 0);
                 transaction.loanOutstanding = Number(((Number(transaction.loanOutstanding) || 0) - applied).toFixed(3));
                 remaining = Number((remaining - applied).toFixed(3));
                 loanReturnedQuantity += applied;
+                allocation.quantity += applied;
               }
               if (remainingRolls > 0) {
                 const appliedRolls = Math.min(remainingRolls, Math.max(0, Number(transaction.loanOutstandingRollCount) || 0));
                 transaction.loanOutstandingRollCount = Math.max(0, (Number(transaction.loanOutstandingRollCount) || 0) - appliedRolls);
                 remainingRolls -= appliedRolls;
                 loanReturnedRollCount += appliedRolls;
+                allocation.rollCount += appliedRolls;
               }
+              if (allocation.quantity > 0 || allocation.rollCount > 0) loanReturnAllocations.push(allocation);
             }
             item.loanReturnedQuantity = Number(loanReturnedQuantity.toFixed(3));
             item.loanReturnedRollCount = loanReturnedRollCount;
+            item.loanReturnAllocations = loanReturnAllocations;
             item.loanReturnUnmatchedQuantity = Number(Math.max(0, remaining).toFixed(3));
             item.loanReturnUnmatchedRollCount = Math.max(0, remainingRolls);
             for (const document of db.stockDocuments || []) {
@@ -8051,6 +8620,7 @@ async function handleOrderBoard(req, res, url, parts) {
         order.cancelledAt = now;
         order.cancelledBy = actor;
         order.cancellationReason = cancellationReason;
+        reverseDeliveredLoanReturn(db, order, actor, now);
         cancelDeferredRelease(db, order, actor, cancellationReason, now);
         await notifyUsers(db, order, orderActivityRecipients(db, order), "order_cancelled", "Sipariş iptal edildi", `${actor} tarafından iptal edildi · ${order.number} · Sebep: ${cancellationReason}`, req.authUser);
       }
@@ -8139,6 +8709,7 @@ async function handleOrderBoard(req, res, url, parts) {
     order.deletionReason = deletionReason;
     order.audit ??= [];
     order.audit.push({ id: randomUUID(), action: "deleted", reason: deletionReason, by: order.deletedBy, userId: req.authUser?.id, at: order.deletedAt });
+    reverseDeliveredLoanReturn(db, order, order.deletedBy, order.deletedAt);
     cancelDeferredRelease(db, order, order.deletedBy, deletionReason, order.deletedAt);
     db.orderTrash.push(order);
     if (!order.isTest) await notifyUsers(db, order, orderActivityRecipients(db, order), "order_deleted", "Sipariş silindi", `${order.deletedBy} tarafından silindi · ${order.number} · ${order.customerName} · Sebep: ${deletionReason}`, req.authUser);
@@ -11069,16 +11640,17 @@ async function handleApiRequest(req, res) {
         else if (resource === "customers") required = ["counterparties.view", "counterparties.manage"];
         else if (resource === "aliases") required = ["company.view", "company.manage"];
         else if (resource === "approval-forms") required = ["order_forms.view", "order_forms.edit", "order_forms.approve", "order_forms.reject_approved", "order_forms.delete_revision", "order_forms.export_manage"];
+        else if (resource === "credit-usage") required = ["order_forms.view", "order_forms.edit", "order_forms.approve", "order_forms.reject_approved", "order_forms.delete_revision", "order_forms.export_manage"];
         else if (action === "approval-form") required = ["order_forms.view", "order_forms.edit", "order_forms.approve", "order_forms.reject_approved", "order_forms.delete_revision", "order_forms.export_manage"];
         else if (resource === "day") required = ["orders.days.view", "orders.days.manage"];
         else if (resource === "trash") required = ["orders.view", "trash.manage"];
         else if (resource === "stock-movements") required = ["products.view", "orders.audit.view"];
-        else if (resource === "stock-documents") required = ["products.view", "products.manage"];
+        else if (resource === "stock-documents") required = ["products.view", "products.manage", "orders.create"];
         else if (resource === "attachments") required = ["documents.view", "orders.deliver"];
         else if (resource === "exchange-rate") required = ["orders.create", "order_forms.edit"];
       } else if (resource === "notification-control") required = ["employees.manage"];
       else if (resource === "notifications") required = ["orders.view"];
-      else if (resource === "stock-documents") required = ["stock.adjust", "stock.writeoff", "stock.transfer", "stock.purchase", "stock.loan_purchase"];
+      else if (resource === "stock-documents") required = ["stock.adjust", "stock.writeoff", "stock.transfer", "stock.purchase", "stock.loan_purchase", "orders.create"];
       else if (resource === "catalog" && parts[4] === "stock-transaction") required = ["stock.adjust", "stock.writeoff", "stock.transfer", "stock.purchase", "stock.loan_purchase"];
       else if (resource === "catalog") required = ["products.manage"];
       else if (resource === "customers") required = ["counterparties.manage"];
@@ -11126,7 +11698,7 @@ async function handleApiRequest(req, res) {
       const handle = () => handleOrderBoard(req, res, url, parts.slice(1));
       // Matching only reads the catalog. Keeping it in the mutation queue makes
       // order entry wait behind slow PDF/archive operations.
-      const isReadOnlyOrderRequest = req.method === "GET" || (req.method === "POST" && parts[2] === "match");
+      const isReadOnlyOrderRequest = req.method === "GET" || (req.method === "POST" && ["match", "ocr"].includes(parts[2]));
       return isReadOnlyOrderRequest ? await handle() : await queueOrderMutation(handle);
     }
     if (parts[1] === "employees") return await handleEmployees(req, res, parts.slice(1));

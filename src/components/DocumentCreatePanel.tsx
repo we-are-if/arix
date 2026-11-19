@@ -220,6 +220,8 @@ export type ApiDocumentDraft = {
   rollMeasurements?: SaleRollMeasurement[];
   saleMode?: SaleMode;
   exportMode?: boolean;
+  deferStockUntilDelivery?: boolean;
+  stockDeliveredAt?: string;
 };
 
 type ApiDocument = ApiDocumentDraft;
@@ -1101,6 +1103,9 @@ export default function DocumentCreatePanel({
   const [saleMode, setSaleMode] = useState<SaleMode>(() =>
     editingDocument?.saleMode === "export" || editingDocument?.exportMode ? "export" : "regular"
   );
+  const [deferStockUntilDelivery, setDeferStockUntilDelivery] = useState(
+    () => editingDocument?.deferStockUntilDelivery === true,
+  );
   const [pendingSaleMode, setPendingSaleMode] = useState<SaleMode | null>(null);
   const [closeWarningOpen, setCloseWarningOpen] = useState(false);
   const [documentStatus, setDocumentStatus] = useState<DocumentWorkflowStatus>(() => workflowStatusFromDocument(editingDocument));
@@ -1181,7 +1186,7 @@ export default function DocumentCreatePanel({
   const activeStores = useMemo(() => availableStores.filter((store) => store.status === "active"), [availableStores]);
   const selectedDocumentStore = availableStores.find((store) => store.name === documentAccount);
   const usesMovementSelection = kind === "movement" || isExportSale;
-  const usesAutomaticSaleRollSelection = kind === "sale" && saleMode === "regular" && companySettings.stockMode === "bondedRolls";
+  const usesAutomaticSaleRollSelection = kind === "sale" && saleMode === "regular" && !deferStockUntilDelivery && companySettings.stockMode === "bondedRolls";
   const trackedSaleProducts = useMemo(() => selectedProducts.filter((product) => product.type !== "service"), [selectedProducts]);
   const requiresAutomaticSaleRollSelection = usesAutomaticSaleRollSelection && trackedSaleProducts.length > 0;
   const stockSelectionFromAccount = isExportSale ? documentAccount : movementFromAccount;
@@ -1298,6 +1303,7 @@ export default function DocumentCreatePanel({
   const confirmSaleModeChange = () => {
     if (!pendingSaleMode) return;
     setSaleMode(pendingSaleMode);
+    if (pendingSaleMode === "export") setDeferStockUntilDelivery(false);
     setMovementSuggestions([]);
     setSelectedMovementSuggestion(null);
     setPendingSaleMode(null);
@@ -2227,6 +2233,7 @@ export default function DocumentCreatePanel({
         comment: isMoney ? moneyComment : undefined,
         saleMode: kind === "sale" ? saleMode : undefined,
         exportMode: isExportSale || undefined,
+        deferStockUntilDelivery: kind === "sale" && saleMode === "regular" ? deferStockUntilDelivery : undefined,
         invoiceDetails: usesDocumentTax ? invoiceDetails : undefined,
         documentLink: isMoney && costLinkEnabled ? {
           enabled: true,
@@ -2596,6 +2603,30 @@ export default function DocumentCreatePanel({
 
                 {activeTab === "products" ? (
                   <>
+                    {kind === "sale" && saleMode === "regular" && (!isEditing || editingDocument?.deferStockUntilDelivery) && (
+                      <label className={cx(
+                        "mb-4 flex cursor-pointer items-start gap-3 rounded-xl border p-3",
+                        deferStockUntilDelivery
+                          ? isDark ? "border-amber-400/40 bg-amber-400/10" : "border-amber-300 bg-amber-50"
+                          : border,
+                      )}>
+                        <input
+                          type="checkbox"
+                          checked={deferStockUntilDelivery}
+                          disabled={Boolean(editingDocument?.deferStockUntilDelivery)}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            if (!checked && editingDocument?.deferStockUntilDelivery && !window.confirm("Teslimatı şimdi tamamlamak stoktan düşüm yapacaktır. Devam edilsin mi?")) return;
+                            setDeferStockUntilDelivery(checked);
+                          }}
+                          className="mt-1 h-4 w-4 accent-amber-600"
+                        />
+                        <span className="grid gap-1">
+                          <b className="text-sm">Teslimat daha sonra</b>
+                          <small className={cx("text-xs leading-5", muted)}>Satış ve müşteri borcu şimdi oluşur; ürünler gönderilene kadar stoktan düşmez. Gönderilecek ürünleri AriX Order içindeki Teslimat Bekleyenler ekranından aktife alın.</small>
+                        </span>
+                      </label>
+                    )}
                     {kind === "sale" && saleMode === "regular" && (
                       <form
                         onSubmit={(event) => { event.preventDefault(); scanProduct(); }}

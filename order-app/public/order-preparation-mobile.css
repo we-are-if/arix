@@ -1,0 +1,60 @@
+/* Mobile preparation: keep controls together and actions inside the scroll flow. */
+@media screen and (max-width: 700px) {
+  .order-detail-modal .modal-body { min-width: 0; overflow-x: hidden; }
+  .order-detail-modal .prep-row { padding: 14px 12px; gap: 12px; }
+  .order-detail-modal .prepared-quantity-fields {
+    width: 100%; min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+  .order-detail-modal .prepared-quantity-fields .actual {
+    width: 100%; min-width: 0; margin: 0;
+  }
+  .order-detail-modal .prepared-quantity-fields .actual > small {
+    min-height: 28px; display: flex; align-items: end; line-height: 1.3;
+  }
+  .order-detail-modal .prepared-quantity-fields input:not([type="checkbox"]),
+  .order-detail-modal .prepared-quantity-fields select {
+    width: 100%; min-width: 0; height: 46px; min-height: 46px;
+    box-sizing: border-box; font-size: 16px;
+  }
+  .order-detail-modal .prep-cut-allowance {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px; padding: 10px; margin-top: 4px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--soft); width: 100%; box-sizing: border-box;
+  }
+  .order-detail-modal .prep-cut-allowance > label:first-child {
+    grid-column: 1 / -1; display: flex; flex-direction: row;
+    align-items: center; justify-content: flex-start; gap: 8px;
+    margin: 0; min-height: 36px; width: 100%; text-align: left;
+  }
+  .order-detail-modal .prep-cut-allowance > label:first-child input[type="checkbox"] {
+    width: 20px; height: 20px; min-width: 20px; min-height: 20px;
+    padding: 0; margin: 0; flex: 0 0 20px;
+  }
+  .order-detail-modal .prep-cut-allowance > label:first-child svg {
+    width: 18px; height: 18px; flex: 0 0 18px;
+  }
+  .order-detail-modal .prep-cut-allowance > label:first-child > span {
+    position: static; margin: 0; font-size: 13px; line-height: 1.3;
+  }
+  .order-detail-modal .prep-cut-allowance > strong {
+    grid-column: 1 / -1; min-width: 0; text-align: left;
+    font-size: 12px; padding: 6px 0 0; border-top: 1px solid var(--line);
+  }
+  .order-detail-modal .prepared-quantity-fields > button { grid-column: 1 / -1; min-height: 44px !important; }
+  .order-detail-modal .modal-actions {
+    position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px; width: auto; margin: 16px 0 0;
+    padding: 12px 0 calc(16px + env(safe-area-inset-bottom)); box-shadow: none;
+  }
+  .order-detail-modal .modal-actions > button,
+  .order-detail-modal .modal-actions > a {
+    min-width: 0; width: 100%; min-height: 44px; height: auto;
+    margin: 0; padding: 10px 8px; box-sizing: border-box;
+    white-space: normal; overflow-wrap: anywhere; font-size: 13px; line-height: 1.3;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .order-detail-modal .modal-actions > .primary { grid-column: 1 / -1; }
+  .theme-dark .order-detail-modal .prep-cut-allowance { background: #182235; border-color: #334155; }
+}

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle,
   AlertTriangle,
@@ -269,6 +270,7 @@ export default function InvoiceAttachmentView({
   const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
   const [restartSourceId, setRestartSourceId] = useState<string | null>(null);
   const [pdfViewerInvoice, setPdfViewerInvoice] = useState<InvoiceRecord | null>(null);
+  const [invoiceContextMenu, setInvoiceContextMenu] = useState<{ invoice: InvoiceRecord; x: number; y: number } | null>(null);
 
   // Editor form state
   const [invoiceNo, setInvoiceNo] = useState("32609");
@@ -294,6 +296,22 @@ export default function InvoiceAttachmentView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pdfPaperRef = useRef<HTMLElement | null>(null);
   const editorPaperRef = useRef<HTMLElement | null>(null);
+  const invoiceContextMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!invoiceContextMenu) return;
+    const close = (event: Event) => {
+      if (!invoiceContextMenuRef.current?.contains(event.target as Node)) setInvoiceContextMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setInvoiceContextMenu(null); };
+    window.addEventListener("pointerdown", close, true);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("scroll", () => setInvoiceContextMenu(null), { capture: true, once: true });
+    return () => {
+      window.removeEventListener("pointerdown", close, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [invoiceContextMenu]);
 
   // Preload OCR worker on component mount for ultra-fast OCR responses
   useEffect(() => {
@@ -698,6 +716,20 @@ export default function InvoiceAttachmentView({
     onDeleteInvoicePermanently(inv.id);
     setPdfViewerInvoice(null);
     closeEditor();
+  };
+
+  const openInvoiceContextMenu = (event: MouseEvent<HTMLElement>, invoice: InvoiceRecord) => {
+    // A qaimə row owns its own context menu; it must never fall through to
+    // the generic Daily canvas menu.
+    event.preventDefault();
+    event.stopPropagation();
+    setInvoiceContextMenu({ invoice, x: event.clientX, y: event.clientY });
+  };
+
+  const copyInvoiceDetails = async (invoice: InvoiceRecord) => {
+    const text = `${displayInvoiceNumber(invoice)} · ${invoice.customer} · ${invoice.date} · ${formatMoney(Number(invoice.salesAmount || 0), "AZN")}`;
+    try { await navigator.clipboard.writeText(text); } catch { /* Clipboard permission is optional. */ }
+    setInvoiceContextMenu(null);
   };
 
   const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
@@ -1247,7 +1279,7 @@ export default function InvoiceAttachmentView({
                         ? "rejected"
                         : "pending";
                   return (
-                    <article key={inv.id} className="approval-form-row">
+                    <article key={inv.id} className="approval-form-row" onContextMenu={(event) => openInvoiceContextMenu(event, inv)}>
                       <span className="approval-form-show-control">
                         <button
                           type="button"
@@ -2042,6 +2074,30 @@ export default function InvoiceAttachmentView({
           </main>
         </div>
       )}
+
+      {invoiceContextMenu && createPortal((() => {
+        const inv = invoiceContextMenu.invoice;
+        const left = Math.max(10, Math.min(invoiceContextMenu.x, window.innerWidth - 282));
+        const top = Math.max(10, Math.min(invoiceContextMenu.y, window.innerHeight - 420));
+        const closeAnd = (action: () => void) => () => { setInvoiceContextMenu(null); action(); };
+        return (
+          <div className="daily-context-menu-backdrop invoice-context-menu-backdrop" role="presentation" onContextMenu={(event) => { event.preventDefault(); setInvoiceContextMenu(null); }}>
+            <div ref={invoiceContextMenuRef} className="daily-context-menu invoice-context-menu" style={{ left, top }} role="menu" aria-label="Qaimə menyusu">
+              <header>
+                <span><FileText size={14} /></span>
+                <div><b>{displayInvoiceNumber(inv)}</b><small>{inv.customer || "Müştəri qeyd edilməyib"} · {inv.status === "active" ? "Təsdiqlənib" : inv.status === "cancelled" ? "Ləğv edilib" : "Təsdiq gözləyir"}</small></div>
+              </header>
+              <button type="button" className="is-primary" onClick={closeAnd(() => setPdfViewerInvoice(inv))}><Eye size={16} /><span><b>Qaiməni göstər</b><small>PDF görünüşü, çap və paylaşım</small></span></button>
+              {canManageInvoice && inv.status !== "cancelled" && <button type="button" onClick={closeAnd(() => openEditorWithInvoice(inv))}><Pencil size={16} /><span><b>Qaiməni düzəlt</b><small>Müştəri, məbləğ və məhsullar</small></span></button>}
+              {inv.status === "draft" && canApproveInvoice && <button type="button" onClick={closeAnd(() => onApproveInvoice(inv.id))}><Check size={16} /><span><b>Qaiməni təsdiqlə</b><small>Təsdiq gözləməsini bitir</small></span></button>}
+              {inv.status !== "cancelled" && canApproveInvoice && <button type="button" onClick={closeAnd(() => { const reason = window.prompt("Ləğv səbəbini yazın:", ""); if (reason !== null) onCancelInvoice(inv.id, reason); })}><X size={16} /><span><b>Rədd et / ləğv et</b><small>Qaiməni ləğv edilmiş et</small></span></button>}
+              {canRestartInvoice && <button type="button" onClick={closeAnd(() => restartInvoiceInEditor(inv))}><RotateCcw size={16} /><span><b>Başdan başla</b><small>Yeni təmiz qaimə versiyası yarat</small></span></button>}
+              {canDeleteInvoicePermanently && <button type="button" onClick={closeAnd(() => permanentlyDeleteInvoice(inv))}><Trash2 size={16} /><span><b>Qalıcı sil</b><small>Siyahıdan sil, audit izi qalır</small></span></button>}
+              <button type="button" onClick={() => void copyInvoiceDetails(inv)}><Copy size={16} /><span><b>Məlumatı kopyala</b><small>Nömrə, müştəri, tarix və məbləğ</small></span></button>
+            </div>
+          </div>
+        );
+      })(), document.body)}
     </>
   );
 }

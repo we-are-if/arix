@@ -44,6 +44,12 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
         ts INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_rate_limit_hits_key ON rate_limit_hits(key, ts);
+      CREATE TABLE IF NOT EXISTS metered_usage_events (
+        usage_key TEXT PRIMARY KEY,
+        meter_key TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_metered_usage_events_meter_key ON metered_usage_events(meter_key, created_at);
     `);
     if (pushDelivery) outbox = createPushOutbox(database, (job) => pushDelivery(job, cachedState));
     return database;
@@ -175,6 +181,75 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
     }
   };
 
+  // Durable counters for externally billed services are kept outside the
+  // application snapshot so ordinary business-data saves cannot reset a cap.
+  const reserveMeteredUse = (key, limit) => {
+    const db = open();
+    const meterKey = `metered:${String(key)}`;
+    const maximum = Math.max(1, Math.trunc(Number(limit) || 1));
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = Math.max(0, Number(getMeta(meterKey) || 0));
+      if (current >= maximum) {
+        db.exec("COMMIT");
+        return { allowed: false, count: current, limit: maximum };
+      }
+      const count = current + 1;
+      setMeta(meterKey, count);
+      db.exec("COMMIT");
+      return { allowed: true, count, limit: maximum };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  };
+
+  const releaseMeteredUse = (key) => {
+    const db = open();
+    const meterKey = `metered:${String(key)}`;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = Math.max(0, Number(getMeta(meterKey) || 0));
+      const count = Math.max(0, current - 1);
+      setMeta(meterKey, count);
+      db.exec("COMMIT");
+      return count;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  };
+
+  // Counts a business event only once. Unlike reserveMeteredUse this meter
+  // never blocks; callers can use it for usage that remains billable after a
+  // free allowance has been consumed. The event key makes browser retries and
+  // later edits of the same document idempotent.
+  const reserveMeteredOnce = (key, usageKey) => {
+    const db = open();
+    const meterKey = `metered:${String(key)}`;
+    const eventKey = String(usageKey);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = db.prepare("SELECT meter_key FROM metered_usage_events WHERE usage_key = ?").get(eventKey);
+      const current = Math.max(0, Number(getMeta(meterKey) || 0));
+      if (existing) {
+        db.exec("COMMIT");
+        return { counted: false, count: current };
+      }
+      const count = current + 1;
+      db.prepare("INSERT INTO metered_usage_events (usage_key, meter_key, created_at) VALUES (?, ?, ?)")
+        .run(eventKey, meterKey, new Date().toISOString());
+      setMeta(meterKey, count);
+      db.exec("COMMIT");
+      return { counted: true, count };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  };
+
+  const meteredUseCount = (key) => Math.max(0, Number(getMeta(`metered:${String(key)}`) || 0));
+
   const status = () => {
     const row = open().prepare("SELECT revision, updated_at FROM app_state WHERE id = ?").get(STATE_ID);
     return { engine: "sqlite", path: basename(sqlitePath), revision: row?.revision ?? 0, updatedAt: row?.updated_at ?? null, journalMode: "wal" };
@@ -188,7 +263,7 @@ export function createSQLiteStateStore({ dataDir, jsonPath, sqlitePath = join(da
     cachedState = null;
   };
 
-  return { initialize, read, write, createDailyBackup, status, close, rateLimitHit,
+  return { initialize, read, write, createDailyBackup, status, close, rateLimitHit, reserveMeteredUse, releaseMeteredUse, reserveMeteredOnce, meteredUseCount,
     supportsAtomicPush: Boolean(pushDelivery),
     enqueuePush: (jobs) => { open(); outbox?.enqueue(jobs); },
   };

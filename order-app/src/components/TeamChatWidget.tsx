@@ -366,6 +366,8 @@ export function TeamChatWidget({
   onClearPreset,
 }: TeamChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const chatHistoryEntryRef = useRef(false);
+  const chatClosedByBackRef = useRef(false);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
   const [assistantPartial, setAssistantPartial] = useState<{ channelId: string; text: string } | null>(null);
   const [infoOpen,setInfoOpen]=useState<"self"|"channel"|null>(null);
@@ -480,7 +482,7 @@ export function TeamChatWidget({
         if (Number.isFinite(x) && Number.isFinite(y)) {
           // A window resize can leave the saved spot outside the viewport
           return {
-            x: Math.max(12, Math.min(window.innerWidth - 66, x)),
+            x: stored?.tucked ? (x < window.innerWidth / 2 ? 0 : window.innerWidth - 36) : Math.max(12, Math.min(window.innerWidth - 66, x)),
             y: Math.max(12, Math.min(window.innerHeight - 66, y)),
           };
         }
@@ -488,11 +490,40 @@ export function TeamChatWidget({
     } catch {}
     return null;
   });
+  const [isFabTucked, setIsFabTucked] = useState(() => {
+    try {
+      return Boolean(JSON.parse(localStorage.getItem("arix_chat_fab_pos_v2") || "null")?.tucked);
+    } catch {
+      return false;
+    }
+  });
 
   const [viewport, setViewport] = useState(() => ({
     w: typeof window !== "undefined" ? window.innerWidth : 1200,
     h: typeof window !== "undefined" ? window.innerHeight : 800,
   }));
+
+  // The Android/iOS Back action closes this overlay before leaving the PWA.
+  useEffect(() => {
+    const closeFromBack = () => {
+      if (!isOpen) return;
+      chatClosedByBackRef.current = true;
+      chatHistoryEntryRef.current = false;
+      setIsOpen(false);
+      onCloseExternal?.();
+    };
+    window.addEventListener("popstate", closeFromBack);
+    if (isOpen && !chatHistoryEntryRef.current) {
+      window.history.pushState({ ...(window.history.state || {}), arixOverlay: "team-chat" }, "");
+      chatHistoryEntryRef.current = true;
+    }
+    if (!isOpen && chatHistoryEntryRef.current) {
+      chatHistoryEntryRef.current = false;
+      if (!chatClosedByBackRef.current) window.history.back();
+      chatClosedByBackRef.current = false;
+    }
+    return () => window.removeEventListener("popstate", closeFromBack);
+  }, [isOpen, onCloseExternal]);
 
   useEffect(() => {
     const handleResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
@@ -741,6 +772,7 @@ export function TeamChatWidget({
     }
 
     if (dragStartRef.current.moved) {
+      if (isFabTucked) setIsFabTucked(false);
       const nextX = Math.max(12, Math.min(window.innerWidth - 66, dragStartRef.current.initX + deltaX));
       const nextY = Math.max(12, Math.min(window.innerHeight - 66, dragStartRef.current.initY + deltaY));
       setFabPosition({ x: nextX, y: nextY });
@@ -755,9 +787,32 @@ export function TeamChatWidget({
 
     if (wasMoved && fabPosition) {
       try {
-        localStorage.setItem("arix_chat_fab_pos_v2", JSON.stringify(fabPosition));
+        const mobile = window.innerWidth <= 600;
+        const tuckLeft = fabPosition.x <= 28;
+        const tuckRight = fabPosition.x >= window.innerWidth - 94;
+        if (mobile && (tuckLeft || tuckRight)) {
+          // Mimic picture-in-picture apps: leave only a slim colored grab handle visible.
+          const tucked = { x: tuckLeft ? 0 : window.innerWidth - 36, y: fabPosition.y, tucked: true };
+          setFabPosition(tucked);
+          setIsFabTucked(true);
+          localStorage.setItem("arix_chat_fab_pos_v2", JSON.stringify(tucked));
+        } else {
+          setIsFabTucked(false);
+          localStorage.setItem("arix_chat_fab_pos_v2", JSON.stringify({ ...fabPosition, tucked: false }));
+        }
       } catch {}
     } else if (!wasMoved) {
+      if (isFabTucked) {
+        setIsFabTucked(false);
+        if (fabPosition) {
+          const restored = { ...fabPosition, x: fabPosition.x < window.innerWidth / 2 ? 12 : window.innerWidth - 66 };
+          setFabPosition(restored);
+          try { localStorage.setItem("arix_chat_fab_pos_v2", JSON.stringify({ ...restored, tucked: false })); } catch {}
+        }
+        setIsOpen(true);
+        suppressFabClickRef.current = true;
+        return;
+      }
       suppressFabClickRef.current = true;
       const nextOpen = !isOpen;
       setIsOpen(nextOpen);
@@ -766,6 +821,7 @@ export function TeamChatWidget({
   };
 
   const handleFabClick = () => {
+    if (isFabTucked) return;
     if (suppressFabClickRef.current) {
       suppressFabClickRef.current = false;
       return;
@@ -1589,7 +1645,7 @@ export function TeamChatWidget({
       <button
         ref={fabRef}
         type="button"
-        className={`team-chat-fab ${isOpen ? "is-active" : ""} ${totalUnread > 0 ? "has-unread" : ""} ${isDragging ? "is-dragging" : ""}`}
+        className={`team-chat-fab ${isOpen ? "is-active" : ""} ${totalUnread > 0 ? "has-unread" : ""} ${isDragging ? "is-dragging" : ""} ${isFabTucked ? "is-tucked" : ""} ${isFabTucked && (fabPosition?.x ?? 0) < viewport.w / 2 ? "is-tucked-left" : "is-tucked-right"}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -1603,6 +1659,8 @@ export function TeamChatWidget({
         aria-label="AriX Ekip Sohbeti"
         title="AriX Ekip Sohbeti (Sürükleyip istediğiniz yere bırakabilirsiniz)"
       >
+        {isFabTucked && <span className="team-chat-fab-edge-tab" aria-hidden="true"><MessageSquare size={11} /></span>}
+        {isFabTucked && totalUnread > 0 && <span className="team-chat-fab-edge-unread" aria-hidden="true" />}
         <div className="team-chat-fab-pulse" />
         
         {/* AriX Custom Floating Speech Emblem */}

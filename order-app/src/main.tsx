@@ -6,8 +6,15 @@ import "../../src/index.css";
 import "./styles.css";
 
 if ("serviceWorker" in navigator) {
+  let refreshingForUpdate = false;
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || refreshingForUpdate) return;
+    refreshingForUpdate = true;
+    window.location.reload();
+  });
   window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then((registration) => registration.update());
+    void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
   });
 }
 

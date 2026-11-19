@@ -405,7 +405,14 @@ export default function OrderDocumentPaper({
 
         <div className="approval-summary-strip">
           <div><ApprovalIcon kind="document" /><span><small>{isProforma ? "PROFORMA NO" : "FORM NO"}</small><b>{isProforma ? form.proformaNumber : form.number}</b><em>{order.number}</em></span></div>
-          <div><ApprovalIcon kind="calendar" /><span><small>{isProforma ? "ISSUE DATE" : "BELGE TARİHİ"}</small><b>{form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? (form.shipmentDate || form.date) : form.date}</b></span></div>
+          <div>
+            <ApprovalIcon kind="calendar" />
+            <span>
+              <small>{form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? "SHIPMENT DATE" : (isProforma ? "ISSUE DATE" : "BELGE TARİHİ")}</small>
+              <b>{form.documentType === "commercial_invoice" || form.documentType === "packing_list" ? (form.shipmentDate || form.date) : form.date}</b>
+              {(form.documentType === "commercial_invoice" || form.documentType === "packing_list") && form.date ? <em>Proforma date: {form.date}</em> : null}
+            </span>
+          </div>
           <div><ApprovalIcon kind="representative" /><span><small>{isProforma ? "SALES REPRESENTATIVE" : "SATIŞ TEMSİLCİSİ"}</small><b>{form.salesRepresentative || "-"}</b></span></div>
           <div><ApprovalIcon kind="source" /><span><small>{isProforma ? "INVOICE NO" : "KAYNAK"}</small><b>{isProforma ? (form.invoiceNumber || "-") : "ERSA DEPO"}</b></span></div>
           <div>
@@ -417,9 +424,6 @@ export default function OrderDocumentPaper({
             </span>
           </div>
         </div>
-        {(form.documentType === "commercial_invoice" || form.documentType === "packing_list") && (
-          <div className="approval-shipment-date"><b>Proforma date</b><span>{form.date}</span></div>
-        )}
 
         <div className="approval-company-panel">
           <strong>{isProforma ? "BUYER INFORMATION" : "MÜŞTERİ BİLGİLERİ"}</strong>
@@ -548,7 +552,6 @@ export default function OrderDocumentPaper({
               {form.lines.some((line) => (line.manual || Number(line.rollCount) <= 0) && Number(line.packageCount) > 0) && (
                 <span><small>Packages</small>{form.lines.reduce((sum, line) => sum + ((line.manual || Number(line.rollCount) <= 0) ? (Number(line.packageCount) || 0) : 0), 0)}</span>
               )}
-              <span><small>Net / Gross</small>{form.lines.reduce((sum, line) => sum + (Number(line.netWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} / {form.lines.reduce((sum, line) => sum + (Number(line.grossWeight) || 0), 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} kg</span>
             </div>
           </div>
         ) : isPackingList ? (
@@ -594,16 +597,9 @@ export default function OrderDocumentPaper({
           </div>
         )}
         {isPackingList && (
-          <div className="approval-commercial-panel approval-packing-shipment-panel">
-            <div className="approval-condition-heading"><ApprovalIcon kind="delivery" /><span><b>Shipment details</b><small>Packing list reference information</small></span></div>
-            <div className="approval-packing-shipment-grid">
-              <span><small>Invoice no.</small>{form.invoiceNumber || "-"}</span>
-              <span><small>Shipment date</small>{form.shipmentDate || form.date}</span>
-              <span><small>Place of loading</small>{form.loadingPlace || form.shipmentPort || "-"}</span>
-              <span><small>Destination</small>{form.destination || "-"}</span>
-              <span><small>Delivery term</small>{form.incoterm || "-"}</span>
-              <span><small>Country of origin</small>{form.countryOfOrigin || "-"}</span>
-            </div>
+          <div className="approval-commercial-panel approval-packing-declaration-panel">
+            <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>Packing declaration</b><small>Shipment contents confirmation</small></span></div>
+            <span>We hereby certify that the packages, quantities and weights stated in this packing list are true and correct.</span>
           </div>
         )}
       </div>
@@ -643,9 +639,16 @@ export default function OrderDocumentPaper({
 
       {isPackingList && (
         <section className="approval-packing-approval-tail">
-          <div className="approval-commercial-panel approval-packing-declaration-panel">
-            <div className="approval-condition-heading"><ApprovalIcon kind="note" /><span><b>Packing declaration</b><small>Shipment contents confirmation</small></span></div>
-            <span>We hereby certify that the packages, quantities and weights stated in this packing list are true and correct.</span>
+          <div className="approval-commercial-panel approval-packing-shipment-panel">
+            <div className="approval-condition-heading"><ApprovalIcon kind="delivery" /><span><b>Shipment details</b><small>Packing list reference information</small></span></div>
+            <div className="approval-packing-shipment-grid">
+              <span><small>Invoice no.</small>{form.invoiceNumber || "-"}</span>
+              <span><small>Shipment date</small>{form.shipmentDate || form.date}</span>
+              <span><small>Place of loading</small>{form.loadingPlace || form.shipmentPort || "-"}</span>
+              <span><small>Destination</small>{form.destination || "-"}</span>
+              <span><small>Delivery term</small>{form.incoterm || "-"}</span>
+              <span><small>Country of origin</small>{form.countryOfOrigin || "-"}</span>
+            </div>
           </div>
           <div className="approval-commercial-panel approval-commercial-stamp-panel">
             <div className="approval-commercial-stamp">

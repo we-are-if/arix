@@ -10,7 +10,7 @@ function round(value, digits = 4) {
 }
 
 function effectiveAt(document) {
-  return String(document.documentDate ?? document.createdAt ?? new Date(0).toISOString());
+  return String(document.stockDeliveredAt ?? document.documentDate ?? document.createdAt ?? new Date(0).toISOString());
 }
 
 function actorName(document) {
@@ -20,6 +20,7 @@ function actorName(document) {
 }
 
 function documentKind(document) {
+  if (document.type === "sale" && document.deferStockUntilDelivery === true) return ["sale_pending", "Teslimat bekleyen satış"];
   if (document.type === "sale" && (document.saleMode === "export" || document.exportMode)) return ["export", "İxrac"];
   const kinds = {
     purchase: ["purchase", "Alış"],
@@ -79,7 +80,9 @@ export function buildProductLedger(db, productId) {
     for (const [lineIndex, line] of (document.lines ?? []).entries()) {
       if (Number(line.productId) !== id) continue;
       const qty = Math.max(0, numberValue(line.qty));
-      const effect = stockEffect(String(document.type ?? ""), qty);
+      const effect = document.type === "sale" && document.deferStockUntilDelivery === true
+        ? { delta: 0, inQty: 0, outQty: 0 }
+        : stockEffect(String(document.type ?? ""), qty);
       const [kind, label] = documentKind(document);
       rows.push({
         id: `${document.id}:${lineIndex}`,
@@ -106,6 +109,37 @@ export function buildProductLedger(db, productId) {
         priority: 1,
       });
     }
+  }
+
+  for (const movement of db.deferredDeliveryMovements ?? []) {
+    if (Number(movement.productId) !== id) continue;
+    const sourceDocument = documentsById.get(String(movement.sourceDocumentId || ""));
+    if (sourceDocument && sourceDocument.deferStockUntilDelivery !== true) continue;
+    const qty = Math.max(0, numberValue(movement.quantity));
+    rows.push({
+      id: `deferred-delivery:${movement.id}`,
+      documentId: String(movement.sourceDocumentId || movement.orderId || ""),
+      documentCode: String(movement.orderNumber || movement.id || "").slice(0, 40),
+      kind: "deferredDelivery",
+      label: "Bekleyen satış teslimatı",
+      effectiveAt: String(movement.createdAt || new Date(0).toISOString()),
+      account: String(movement.warehouse || "depo"),
+      fromAccount: movement.warehouse || null,
+      toAccount: null,
+      counterparty: String(sourceDocument?.counterpartyName || ""),
+      employee: String(movement.createdBy || "AriX"),
+      qty: round(qty),
+      inQty: 0,
+      outQty: round(qty),
+      delta: round(-qty),
+      unitCost: null,
+      price: null,
+      total: null,
+      costTotal: null,
+      grossProfit: null,
+      description: "Teslimat Bekleyenler ekranından gönderildi",
+      priority: 1,
+    });
   }
 
   for (const group of groupCostEvents(db, id).values()) {

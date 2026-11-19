@@ -46,7 +46,9 @@ if ($Install) {
 if (-not `$created) { exit 0 }
 try {
   while (`$true) {
-    & "$installedScript"
+    # Run each sync cycle in a child process. A transient sync error may return
+    # exit code 1, but it must not terminate the long-running watcher.
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$installedScript"
     Start-Sleep -Seconds 60
   }
 } finally {

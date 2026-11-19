@@ -1,0 +1,5 @@
+@media (max-width: 700px) {
+  .board-view { min-width: 0; }
+  .board-view > .board { min-width: 0; max-width: 100%; }
+  .board-view > .board > .column { flex: 0 0 100%; min-width: 0; }
+}

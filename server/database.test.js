@@ -58,3 +58,22 @@ test("can return cached state without cloning for read-only requests", async () 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("metered service use has a durable hard limit", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "arix-metered-"));
+  const jsonPath = join(dir, "db.json");
+  const store = createSQLiteStateStore({ dataDir: dir, jsonPath });
+  try {
+    await store.initialize({ value: 1 }, (value) => value);
+    assert.deepEqual(store.reserveMeteredUse("vision-ocr:2026-11", 2), { allowed: true, count: 1, limit: 2 });
+    assert.deepEqual(store.reserveMeteredUse("vision-ocr:2026-11", 2), { allowed: true, count: 2, limit: 2 });
+    assert.deepEqual(store.reserveMeteredUse("vision-ocr:2026-11", 2), { allowed: false, count: 2, limit: 2 });
+    store.close();
+    const reloaded = createSQLiteStateStore({ dataDir: dir, jsonPath });
+    await reloaded.initialize({ value: 0 }, (value) => value);
+    assert.deepEqual(reloaded.reserveMeteredUse("vision-ocr:2026-11", 2), { allowed: false, count: 2, limit: 2 });
+    reloaded.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

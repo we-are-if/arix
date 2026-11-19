@@ -44,7 +44,11 @@ try {
     & (Join-Path $PSScriptRoot "Test-ArixScope.ps1") -Scope $Scope -Mode $CheckMode
   }
 
-  if ($Scope -in @("Daily", "All")) { Invoke-VerificationStep "Daily production build" @("run", "build:daily") }
+  if ($Scope -in @("Daily", "All")) {
+    Invoke-VerificationStep "Daily notification test" @("run", "test:daily-notification")
+    Invoke-VerificationStep "Daily resilience test" @("run", "test:daily-resilience")
+    Invoke-VerificationStep "Daily production build" @("run", "build:daily")
+  }
   if ($Scope -in @("Order", "All")) { Invoke-VerificationStep "Order production build" @("run", "build:orders") }
   if ($Scope -in @("Panel", "All")) { Invoke-VerificationStep "Panel production build" @("run", "build") }
   if ($Scope -in @("Server", "All")) { Invoke-VerificationStep "Server tests" @("run", "test:server") }

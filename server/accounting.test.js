@@ -55,6 +55,30 @@ test("posts a balanced sale journal with cost of goods sold", () => {
   assert.equal(accountingOverview(db).journalCount, 1);
 });
 
+test("posts customer debt now and defers inventory cost until delivery", () => {
+  const db = dbFixture();
+  normalizeAccountingStore(db);
+  const customer = ensureCounterpartyAccounting(db, { id: 4, kind: "customer", name: "Vadeli Alıcı" });
+  db.counterparties.push(customer);
+
+  const journal = upsertDocumentJournal(db, {
+    id: "sale-deferred-1",
+    type: "sale",
+    status: "posted",
+    posted: true,
+    deferStockUntilDelivery: true,
+    total: 50,
+    counterpartyId: 4,
+    counterpartyName: "Vadeli Alıcı",
+    lines: [{ productId: 1, qty: 10, price: 5 }],
+  });
+
+  assert.equal(journal.debit, 50);
+  assert.equal(journal.credit, 50);
+  assert.ok(journal.lines.some((line) => line.accountCode === "120.01.00004" && line.debit === 50));
+  assert.ok(!journal.lines.some((line) => line.accountCode === "621" || line.accountCode === "153"));
+});
+
 test("reposting the same source replaces its previous journal", () => {
   const db = dbFixture();
   normalizeAccountingStore(db);

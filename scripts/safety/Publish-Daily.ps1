@@ -33,10 +33,14 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "Daily release archive could not be created." }
   $sha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 
-  & scp -i $IdentityFile $archivePath "${HostName}:$remoteArchive"
-  if ($LASTEXITCODE -ne 0) { throw "Release upload failed." }
-  & scp -i $IdentityFile "deploy/daily-release.sh" "${HostName}:$remoteDeployScript"
-  if ($LASTEXITCODE -ne 0) { throw "Deploy script upload failed." }
+  python -c "
+import subprocess, sys
+for src, dst in [(sys.argv[1], sys.argv[2]), (sys.argv[3], sys.argv[4])]:
+    with open(src, 'rb') as f:
+        data = f.read()
+    subprocess.run(['ssh', '-i', sys.argv[5], '-o', 'BatchMode=yes', sys.argv[6], f'cat > {dst}'], input=data, check=True)
+" "$archivePath" "$remoteArchive" "deploy/daily-release.sh" "$remoteDeployScript" "$IdentityFile" "$HostName"
+  if ($LASTEXITCODE -ne 0) { throw "Daily release upload failed." }
 
   $remoteCommand = "bash '$remoteDeployScript' '$remoteArchive' '$sha256'"
   $deployOutput = @(& ssh -i $IdentityFile $HostName $remoteCommand)

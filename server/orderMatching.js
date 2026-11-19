@@ -98,7 +98,7 @@ function buildAliasMap(customAliases = []) {
 }
 
 const lineAnnotationRules = [
-  { key: "variant-1", pattern: /(?:^|\s)(-1)(?=\s|$)/giu, label: "-1" },
+  { key: "variant-1", pattern: /(?:^|\s|(?<=\p{L}))(-1)(?=\s|$)/giu, label: "-1" },
   { key: "new", pattern: /(?:^|\s)(yeni|new)(?=\s|$)/giu, label: "Yeni" },
   { key: "old", pattern: /(?:^|\s)(eski|köhnə|kohne|old)(?=\s|$)/giu, label: "Eski" },
 ];
@@ -188,8 +188,37 @@ function tokenSimilarity(a, b, aliasMap) {
   return similarity(a, b);
 }
 
+const CUSTOM_UNIT_PATTERNS = [
+  { unit: "BUCKET", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:kova|kap|teneke|bidon)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:kova|kap|teneke|bidon)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "KG", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:kilogram|kilo|kg)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:kilogram|kilo|kg)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "LT", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:litre|litr|lt|l)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:litre|litr|lt|l)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "BOX", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:kutu|koli)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:kutu|koli)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "BUNDLE", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:paket|pkt)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:paket|pkt)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "PCS", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:adet|ad|parça|parca|pcs)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:adet|ad|parça|parca|pcs)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "SET", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:set|takım|takim)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:set|takım|takim)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "BAG", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:çuval|cuval|torba)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:çuval|cuval|torba)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "CRATE", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:kasa|sandık|sandik)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:kasa|sandık|sandik)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+  { unit: "PALLET", regexAfter: /(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:palet)(?=$|[\s\-:])/i, regexBefore: /(?:^|[\s\-])(?:palet)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i },
+];
+
+const EXTERNAL_PRODUCT_KEYWORDS = /\b(?:tutkal|tutkali|tutkalı|silikon|silikonu|yapıştırıcı|yapistirici|astar|tiner|solvent|bant|mastik|köpük|kopuk|zımpara|zimpara)\b/i;
+
 export function quantityFromLine(line) {
   const source = String(line ?? "").trim();
+  for (const entry of CUSTOM_UNIT_PATTERNS) {
+    const match = source.match(entry.regexAfter) || source.match(entry.regexBefore);
+    if (match) {
+      const qty = Number(match[1].replace(",", "."));
+      return {
+        quantity: qty,
+        orderedRollCount: 0,
+        unit: entry.unit,
+        customUnit: true,
+        token: match[0].trim(),
+        tokens: [match[0].trim()],
+      };
+    }
+  }
   const tokens = [];
   const rollAfterNumber = source.match(/(?:^|[\s\-])(\d+(?:[.,]\d+)?)\s*(?:rulo|rul|rl|vr|r|top|bobin)(?=$|[\s\-:])/i);
   const rollBeforeNumber = source.match(/(?:^|[\s\-])(?:rulo|rul|rl|vr|r|top|bobin)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)(?=$|[\s\-:])/i);
@@ -312,7 +341,7 @@ export function productScore(query, product, aliasMap = buildAliasMap()) {
 export function matchOrderLine(line, products, customAliases = []) {
   const source = String(line ?? "").trim();
   const { text: sourceWithoutAnnotations, annotations } = extractLineAnnotations(source);
-  const { quantity, orderedRollCount, unit, token, tokens = [] } = quantityFromLine(sourceWithoutAnnotations);
+  const { quantity, orderedRollCount, unit, customUnit, token, tokens = [] } = quantityFromLine(sourceWithoutAnnotations);
   let query = tokens.length
     ? tokens.reduce((value, currentToken) => value.replace(currentToken, " "), sourceWithoutAnnotations).replace(/\s+/g, " ")
     : token ? sourceWithoutAnnotations.replace(token, " ").replace(/\s+/g, " ") : sourceWithoutAnnotations;
@@ -335,29 +364,37 @@ export function matchOrderLine(line, products, customAliases = []) {
         score: Math.max(0, Math.min(1, baseScore + (annotationMatch ? 0.045 : 0) - (hasUnrequestedVariant ? 0.035 : 0))),
       };
     })
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.score - a.score || Number(b.exact) - Number(a.exact) || Number(b.annotationMatch) - Number(a.annotationMatch));
 
   const best = ranked[0];
   const runnerUp = ranked[1];
   const scoreGap = best ? best.score - (runnerUp?.score ?? 0) : 0;
   const hasDecisiveAnnotation = Boolean(best?.annotationMatch && !runnerUp?.annotationMatch);
   const isAmbiguous = Boolean(best && !best.exact && !hasDecisiveAnnotation && scoreGap < 0.02);
-  const isHighConfidence = Boolean(best && best.score >= 0.76 && !isAmbiguous);
-  const isDecisiveCatalogMatch = Boolean(best && best.score >= 0.80 && scoreGap >= 0.08);
+  const isHighConfidence = Boolean(best && best.score >= 0.76 && !isAmbiguous && !customUnit);
+  const isDecisiveCatalogMatch = Boolean(best && best.score >= 0.80 && scoreGap >= 0.08 && !customUnit);
   const unmatchedAnnotations = annotations.filter((annotation) => !best || !productHasAnnotation(best.product, annotation.key));
+  const isDetectedExternal = !isHighConfidence && Boolean(query) && Boolean(customUnit || EXTERNAL_PRODUCT_KEYWORDS.test(query));
+  const resolvedUnit = isDetectedExternal
+    ? (customUnit ? unit : (orderedRollCount > 0 && !quantity ? "ROLL" : (unit === "mt" ? "M" : unit)))
+    : unit;
+  const resolvedQuantity = isDetectedExternal && !quantity && orderedRollCount > 0 ? orderedRollCount : quantity;
 
   return {
     source,
     query,
-    quantity,
-    unit,
+    quantity: resolvedQuantity,
+    unit: resolvedUnit,
     orderedRollCount,
+    ...(isDetectedExternal ? { manual: true } : {}),
     productId: isHighConfidence ? best.product.id : null,
     productName: isHighConfidence ? best.product.name : query,
     productCode: isHighConfidence ? (best.product.code || best.product.sku || "") : "",
     lineNote: unmatchedAnnotations.map((annotation) => annotation.label).join(", "),
     confidence: Number((best?.score ?? 0).toFixed(3)),
-    needsReview: !(quantity || orderedRollCount) || !best || !isHighConfidence || (!best.exact && best.score < 0.86 && !isDecisiveCatalogMatch),
+    needsReview: isDetectedExternal
+      ? !(resolvedQuantity || orderedRollCount)
+      : (!(quantity || orderedRollCount) || !best || !isHighConfidence || (!best.exact && best.score < 0.86 && !isDecisiveCatalogMatch)),
     alternatives: ranked.slice(0, 4).map(({ product, score }) => ({
       id: product.id,
       name: product.name,

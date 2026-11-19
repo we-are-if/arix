@@ -10,7 +10,7 @@ function round(value, digits = 4) {
 }
 
 function effectiveAt(document) {
-  return String(document.documentDate ?? document.createdAt ?? new Date(0).toISOString());
+  return String(document.stockDeliveredAt ?? document.documentDate ?? document.createdAt ?? new Date(0).toISOString());
 }
 
 function resolveStore(db, value) {
@@ -298,6 +298,7 @@ function stockBeforeExcludedSale(db, product, accountKey, excludeDocumentId) {
     && document.type === "sale"
     && document.saleMode !== "export"
     && !document.exportMode
+    && document.deferStockUntilDelivery !== true
     && storeKey(db, document.account) === accountKey
   );
   if (!excluded || excluded.posted === false) return available;
@@ -362,7 +363,7 @@ export function buildDepotRollInventory(db, options = {}) {
       for (const roll of selectedRolls(document)) addInboundRoll(inventory, roll, document);
       continue;
     }
-    if (document.type === "sale" && document.saleMode !== "export" && !document.exportMode && matchesAccount(db, document.account, account)) {
+    if (document.type === "sale" && document.deferStockUntilDelivery !== true && document.saleMode !== "export" && !document.exportMode && matchesAccount(db, document.account, account)) {
       applyMeasurementAdjustments(inventory, document.rollMeasurements);
       applySavedSale(inventory, document);
     }
