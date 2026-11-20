@@ -12368,6 +12368,156 @@ textarea {
   border-color: rgba(148, 163, 184, 0.22) !important;
   color: #f1f5f9 !important;
 }
+
+/* =========================================================
+   FAZ 2: MODERN ARIX APPROVAL FORMS PAGE
+   ========================================================= */
+.approval-forms-page {
+  gap: 10px !important;
+}
+.approval-forms-page .approval-forms-toolbar {
+  padding: 12px 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+}
+.approval-forms-page .approval-forms-title b {
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  color: #0f172a !important;
+}
+.approval-forms-page .approval-forms-search,
+.approval-forms-page .approval-forms-date-jump {
+  border-radius: 11px !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #f8fafc !important;
+  min-height: 38px !important;
+}
+.approval-forms-page .approval-new-offer {
+  background: linear-gradient(135deg, #5b4cf0 0%, #4838db 100%) !important;
+  border-color: transparent !important;
+  border-radius: 11px !important;
+  min-height: 38px !important;
+  box-shadow: 0 4px 12px rgba(81, 67, 237, 0.24);
+}
+.approval-forms-page .approval-forms-tabs {
+  display: inline-flex !important;
+  align-self: flex-start;
+  gap: 4px !important;
+  padding: 4px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 12px !important;
+  background: #f1f5f9 !important;
+}
+.approval-forms-page .approval-forms-tabs button {
+  min-height: 30px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+.approval-forms-page .approval-forms-tabs button.active {
+  background: #ffffff !important;
+  color: #5143ed !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+.approval-forms-page .approval-form-date-separator {
+  border-radius: 10px !important;
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+.approval-forms-page .approval-form-row {
+  border-radius: 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.approval-forms-page .approval-form-row:hover {
+  border-color: #c7d2fe !important;
+  box-shadow: 0 6px 18px rgba(81, 67, 237, 0.06);
+}
+.approval-forms-page .approval-form-pdf {
+  border-radius: 10px !important;
+  background: #f1efff !important;
+  border-color: #d8d4ff !important;
+  color: #4b3dde !important;
+  font-weight: 750 !important;
+}
+.theme-dark .approval-forms-page .approval-forms-toolbar,
+.theme-dark .approval-forms-page .approval-form-row {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  background: #171e2d !important;
+}
+.theme-dark .approval-forms-page .approval-forms-title b {
+  color: #f8fafc !important;
+}
+.theme-dark .approval-forms-page .approval-forms-search,
+.theme-dark .approval-forms-page .approval-forms-date-jump,
+.theme-dark .approval-forms-page .approval-form-date-separator {
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  background: #111827 !important;
+}
+.theme-dark .approval-forms-page .approval-forms-tabs {
+  background: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+.theme-dark .approval-forms-page .approval-forms-tabs button {
+  color: #94a3b8 !important;
+}
+.theme-dark .approval-forms-page .approval-forms-tabs button.active {
+  background: #1e293b !important;
+  color: #c7d2fe !important;
+}
+@media (max-width: 768px) {
+  .approval-forms-page .approval-forms-tabs {
+    width: 100%;
+  }
+  .approval-forms-page .approval-forms-tabs button {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+  .approval-forms-page .approval-form-row {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+  }
+}
+
+.arix-original-text-card {
+  padding: 10px 14px;
+  border: 1px solid #e0e7ff;
+  border-left: 4px solid #5143ed;
+  border-radius: 12px;
+  background: #f8faff;
+}
+.arix-original-text-card small {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #5143ed;
+  margin-bottom: 4px;
+}
+.arix-original-text-card pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.theme-dark .arix-original-text-card {
+  border-color: rgba(129, 140, 248, 0.25);
+  border-left-color: #818cf8;
+  background: rgba(99, 102, 241, 0.1);
+}
+.theme-dark .arix-original-text-card pre {
+  color: #f1f5f9;
+}
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
   padding: 3px 8px !important;

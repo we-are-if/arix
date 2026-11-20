@@ -12642,34 +12642,64 @@ function OrderDetail({
             </div>
           </details>
         )}
+        {(detailTab === "history" || contextOnlyView === "history") && rootOrder.originalText && (
+          <section className="arix-original-text-card">
+            <small>YAZILAN İLK SİPARİŞ METNİ (EŞLEŞME ÖNCESİ)</small>
+            <pre>{rootOrder.originalText}</pre>
+          </section>
+        )}
         {canViewAudit &&
           order.status !== "delivered" &&
           (order.audit ?? []).length > 0 && (
-            <details className="order-history">
+            <details className="order-history" open>
               <summary>{ui.changeHistory}</summary>
               <div>
-                {[...(order.audit ?? [])].reverse().map((entry) => (
-                  <p key={entry.id}>
-                    <b>
-                      {entry.action === "preparedQuantity" ||
-                      entry.action === "preparedRollCount"
-                        ? entry.productName
-                        : entry.action === "preparedCorrection"
-                          ? "Hazır ürün bilgisi düzeltildi"
+                {[...(order.audit ?? [])].reverse().map((entry) => {
+                  const statusLabel = (val?: string | number | null) =>
+                    val ? statusMeta[String(val) as Status]?.label || String(val) : "-";
+                  const actionTitle =
+                    entry.action === "preparedQuantity" || entry.action === "preparedRollCount"
+                      ? entry.productName
+                      : entry.action === "preparedCorrection"
+                        ? "Hazır ürün bilgisi düzeltildi"
                         : entry.action === "created"
-                          ? ui.createdBy
+                          ? "Sipariş oluşturuldu"
                           : entry.action === "status"
-                            ? `${entry.oldValue ?? "-"} → ${entry.newValue}`
+                            ? `${statusLabel(entry.oldValue)} → ${statusLabel(entry.newValue)}`
                             : entry.action === "draftSaved"
-                              ? ui.draftSaved
+                              ? "Taslak kaydedildi"
                               : entry.action === "orderEdited"
-                                ? ui.editOrder
+                                ? "Sipariş düzenlendi"
                                 : entry.action === "partialReady"
-                                  ? `${ui.done}: ${entry.newValue}`
+                                  ? `Hazır parti: ${entry.newValue}`
                                   : entry.action === "partialReadyCreated"
-                                    ? ui.originalOrder
-                                    : entry.action}
-                    </b>
+                                    ? "Kısmi sipariş oluşturuldu"
+                                    : entry.action === "testModeEnabled"
+                                      ? "Test modu açıldı"
+                                      : entry.action === "testModeDisabled"
+                                        ? "Test modu kapatıldı"
+                                        : entry.action === "orderLocked"
+                                          ? "Sipariş kilitlendi"
+                                          : entry.action === "orderUnlocked"
+                                            ? "Sipariş kilidi açıldı"
+                                            : entry.action === "cutAllowance"
+                                              ? `${entry.productName ? `${entry.productName} · ` : ""}Kesim payı güncellendi`
+                                              : entry.action === "despatchReady"
+                                                ? "İrsaliye onaylandı"
+                                                : entry.action === "despatchRevoked"
+                                                  ? "İrsaliye iptal edildi"
+                                                  : entry.action === "deliveryNote"
+                                                    ? "Teslim notu güncellendi"
+                                                    : entry.action === "deliveryPhoto"
+                                                      ? "Teslimat fotoğrafı güncellendi"
+                                                      : entry.action === "attachmentAdded"
+                                                        ? "Belge eklendi"
+                                                        : entry.action === "attachmentDeleted"
+                                                          ? "Belge silindi"
+                                                          : entry.action;
+                  return (
+                  <p key={entry.id}>
+                    <b>{actionTitle}</b>
                     {entry.action === "preparedQuantity" && (
                       <span>
                         {entry.oldValue ?? "-"} → {entry.newValue} mt
@@ -12685,11 +12715,12 @@ function OrderDetail({
                       <span>{entry.newValue}</span>
                     )}
                     <small>
-                      {entry.by} · {new Date(entry.at).toLocaleString(language)}
+                      {entry.by} · {new Date(entry.at).toLocaleString("tr-TR")}
                       {entry.reason ? ` · Neden: ${entry.reason}` : ""}
                     </small>
                   </p>
-                ))}
+                  );
+                })}
               </div>
             </details>
           )}
