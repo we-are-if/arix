@@ -15760,6 +15760,84 @@ function Modal({
   children: React.ReactNode;
 }) {
   useBrowserBackLayer(true, onClose);
+  const modalRef = useRef<HTMLElement | null>(null);
+  const storageKey = className.includes("order-detail-modal")
+    ? "arix-order-modal-size:detail"
+    : wide
+      ? "arix-order-modal-size:wide"
+      : "arix-order-modal-size:default";
+  const [customSize, setCustomSize] = useState<{ width?: number; height?: number }>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as { width?: number; height?: number };
+      return {
+        width: typeof parsed.width === "number" ? parsed.width : undefined,
+        height: typeof parsed.height === "number" ? parsed.height : undefined,
+      };
+    } catch {
+      return {};
+    }
+  });
+
+  const startResize = (edge: "right" | "left" | "bottom" | "corner") => (event: React.MouseEvent) => {
+    if (window.innerWidth <= 600 || !modalRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = modalRef.current.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startW = rect.width;
+    const startH = rect.height;
+    let latest: { width?: number; height?: number } = { ...customSize };
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      const next: { width?: number; height?: number } = { ...latest };
+      if (edge === "right" || edge === "corner") {
+        next.width = Math.round(Math.min(window.innerWidth - 24, Math.max(460, startW + dx * 2)));
+      } else if (edge === "left") {
+        next.width = Math.round(Math.min(window.innerWidth - 24, Math.max(460, startW - dx * 2)));
+      }
+      if (edge === "bottom" || edge === "corner") {
+        next.height = Math.round(Math.min(window.innerHeight - 24, Math.max(320, startH + dy)));
+      }
+      latest = next;
+      setCustomSize(next);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(latest));
+      } catch {
+        // ignore storage errors
+      }
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const resetSize = () => {
+    setCustomSize({});
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const inlineStyle: React.CSSProperties | undefined =
+    typeof window !== "undefined" && window.innerWidth > 600 && (customSize.width || customSize.height)
+      ? {
+          ...(customSize.width ? { width: `${Math.min(customSize.width, window.innerWidth - 24)}px`, maxWidth: "calc(100vw - 24px)" } : {}),
+          ...(customSize.height ? { height: `${Math.min(customSize.height, window.innerHeight - 24)}px`, maxHeight: "calc(100vh - 24px)" } : {}),
+        }
+      : undefined;
+
   return (
     <div
       className="modal-backdrop"
@@ -15767,7 +15845,11 @@ function Modal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <section className={`modal ${wide ? "wide" : ""} ${className}`.trim()}>
+      <section
+        ref={modalRef}
+        style={inlineStyle}
+        className={`modal ${wide ? "wide" : ""} ${className}`.trim()}
+      >
         <header>
           {showBack && (
             <button type="button" className="modal-back" aria-label="Geri" onClick={onClose}>
@@ -15785,6 +15867,10 @@ function Modal({
           </button>
         </header>
         <div className="modal-body">{children}</div>
+        <div className="modal-resize-handle is-left" onMouseDown={startResize("left")} onDoubleClick={resetSize} title="Genişliği ayarlamak için sürükleyin" />
+        <div className="modal-resize-handle is-right" onMouseDown={startResize("right")} onDoubleClick={resetSize} title="Genişliği ayarlamak için sürükleyin" />
+        <div className="modal-resize-handle is-bottom" onMouseDown={startResize("bottom")} onDoubleClick={resetSize} title="Yüksekliği ayarlamak için sürükleyin" />
+        <div className="modal-resize-handle is-corner" onMouseDown={startResize("corner")} onDoubleClick={resetSize} title="Boyutu ayarlamak için sürükleyin (çift tık: sıfırla)" />
       </section>
     </div>
   );

@@ -11761,7 +11761,7 @@ textarea {
    ARIX COMPACT HEADER ACTIONS, SEGMENTED TABS & NOTE CARD
    ========================================================= */
 .order-detail-modal {
-  width: min(980px, calc(100vw - 32px)) !important;
+  width: min(760px, calc(100vw - 32px));
 }
 .modal > header {
   display: flex !important;
@@ -11920,6 +11920,61 @@ textarea {
   .order-detail-header-bar {
     flex-wrap: nowrap;
   }
+  .modal-resize-handle {
+    display: none !important;
+  }
+}
+
+.modal {
+  position: relative;
+}
+.modal-resize-handle {
+  position: absolute;
+  z-index: 30;
+}
+.modal-resize-handle.is-left {
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 7px;
+  cursor: ew-resize;
+}
+.modal-resize-handle.is-right {
+  top: 16px;
+  bottom: 16px;
+  right: 0;
+  width: 7px;
+  cursor: ew-resize;
+}
+.modal-resize-handle.is-bottom {
+  left: 16px;
+  right: 16px;
+  bottom: 0;
+  height: 7px;
+  cursor: ns-resize;
+}
+.modal-resize-handle.is-corner {
+  right: 2px;
+  bottom: 2px;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  border-radius: 0 0 18px 0;
+}
+.modal-resize-handle.is-corner::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid #cbd5e1;
+  border-bottom: 2px solid #cbd5e1;
+  border-radius: 0 0 3px 0;
+  transition: border-color 0.15s ease;
+}
+.modal-resize-handle.is-corner:hover::after {
+  border-color: #5143ed;
 }
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
