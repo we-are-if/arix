@@ -9726,17 +9726,25 @@ textarea {
     border-top-color: rgba(148, 163, 184, 0.18) !important;
     background: #161d2a !important;
   }
+  .mobile-only-view-tabs button {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    min-height: 48px !important;
+    height: 48px !important;
+    border-radius: 14px !important;
+    padding: 4px 2px !important;
+  }
   .mobile-only-view-tabs .mobile-bottom-create-btn {
-    flex: 0 0 48px !important;
-    width: 48px !important;
+    flex: 1 1 0 !important;
+    width: auto !important;
     height: 48px !important;
     min-height: 48px !important;
-    border-radius: 15px !important;
+    border-radius: 14px !important;
     background: #513eea !important;
     color: #ffffff !important;
     box-shadow: 0 6px 16px rgba(81, 62, 234, 0.3);
     padding: 0 !important;
-    margin: 0 2px;
+    margin: 0 !important;
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;

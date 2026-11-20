@@ -3650,14 +3650,14 @@ export default function App() {
           className={pageTab === "board" ? "active" : ""}
           onClick={() => setPageTab("board")}
         >
-          <ListChecks aria-hidden="true" /><span>{text.workflowTab}</span>
+          <ListChecks aria-hidden="true" /><span>Siparişler</span>
         </button>
         {canViewApprovalForms && (
           <button
             className={pageTab === "forms" ? "active" : ""}
             onClick={() => setPageTab("forms")}
           >
-            <FileText aria-hidden="true" /><span>{text.approvalFormsTab}</span>
+            <FileText aria-hidden="true" /><span>Formlar</span>
           </button>
         )}
         {canSell && (
@@ -3676,7 +3676,7 @@ export default function App() {
             className={pageTab === "days" ? "active" : ""}
             onClick={() => setPageTab("days")}
           >
-            <CalendarDays aria-hidden="true" /><span>{text.daysTab}</span>
+            <CalendarDays aria-hidden="true" /><span>Raporlar</span>
           </button>
         )}
         {canViewStock && (
