@@ -3068,7 +3068,7 @@ export default function App() {
   return (
     <main className={`app-shell ${isDark ? "theme-dark" : ""} ${pageTab === "board" ? "is-board-view" : ""}`}>
       <header
-        className={`sticky top-0 z-40 border-b backdrop-blur ${isDark ? "glass-header-dark border-white/10" : "glass-header border-white/70"}`}
+        className={`sticky top-0 z-40 border-b ${isDark ? "glass-header-dark border-white/10" : "glass-header border-white/70"}`}
       >
         <div className="flex w-full items-center justify-between px-3 py-2.5 sm:px-5">
           <div className="flex items-center gap-2.5">
