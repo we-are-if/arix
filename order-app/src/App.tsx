@@ -3,7 +3,7 @@ import { canWithdrawApproval } from "../../shared/approvalPermissions.js";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Menu, Moon, MoreVertical, NotepadText, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
+import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Menu, MessageSquare, Moon, MoreVertical, NotepadText, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 import { matchOrderFormItems, mergeFormWarning } from "../../shared/orderFormItems.js";
 import { sortApprovalHistory } from "../../shared/approvalFormHistory.js";
@@ -11014,7 +11014,13 @@ function OrderDetail({
         subtitle={
           contextOnlyView
             ? `${order.number} · ${order.customerName}`
-            : `${order.number} · ${order.isLoanReturn ? "Borç iadesi · " : ""}${statusMeta[order.status].label} · ${order.createdBy}`
+            : (
+              <>
+                <span>{order.number}{order.isLoanReturn ? " · Borç iadesi" : ""}</span>
+                <br />
+                <span>{statusMeta[order.status].label} · {order.createdBy}</span>
+              </>
+            )
         }
         headerActions={
           <div className="order-detail-header-bar">
@@ -11026,7 +11032,7 @@ function OrderDetail({
                 title="Ekiple Konuş"
                 aria-label="Ekiple Konuş"
               >
-                💬
+                <MessageSquare size={16} aria-hidden="true" />
               </button>
             )}
             {detailTab === "prep" && order.status === "new" && canPrepare && !editing && (
@@ -15897,7 +15903,7 @@ function Modal({
   children,
 }: {
   title: string;
-  subtitle: string;
+  subtitle: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
   showBack?: boolean;

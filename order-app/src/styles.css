@@ -11811,11 +11811,18 @@ textarea {
   flex: 1 1 auto;
   min-width: 0;
 }
-.modal > header .modal-heading h2,
-.modal > header .modal-heading p {
+.modal > header .modal-heading h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.modal > header .modal-heading p {
+  white-space: normal !important;
+  line-height: 1.35;
+}
+.modal > header > button.close {
+  margin: 0 !important;
+  flex: 0 0 auto;
 }
 .modal-header-actions {
   display: flex;
