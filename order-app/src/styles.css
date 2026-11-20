@@ -9864,9 +9864,10 @@ textarea {
     -webkit-overflow-scrolling: touch;
   }
   .daily-archive {
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: auto !important;
     min-height: 0;
     gap: 8px;
     overflow: hidden;
@@ -9879,11 +9880,15 @@ textarea {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-    display: grid;
-    gap: 8px;
-    align-content: start;
-    padding-bottom: 4px;
+    touch-action: pan-y;
+    overscroll-behavior-y: contain;
+    display: block;
+    padding-bottom: 12px;
+  }
+  .daily-archive-body > * + * {
+    margin-top: 8px;
   }
   .daily-day-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
