@@ -12031,6 +12031,31 @@ textarea {
   background: #1e293b;
   color: #cbd5e1;
 }
+.order-detail-more-portal {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  background: transparent;
+}
+@media (max-width: 600px) {
+  .order-detail-more-portal {
+    display: flex;
+    align-items: flex-end;
+    background: rgba(15, 23, 42, 0.35);
+    padding: 12px 12px max(16px, env(safe-area-inset-bottom));
+  }
+  .order-detail-more-portal .order-detail-more-menu {
+    position: static !important;
+    width: 100% !important;
+    border-radius: 18px !important;
+    padding: 8px !important;
+  }
+  .order-detail-more-portal .order-detail-more-menu button {
+    min-height: 44px !important;
+    font-size: 14px !important;
+    padding: 0 14px !important;
+  }
+}
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
   padding: 3px 8px !important;

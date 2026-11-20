@@ -10065,6 +10065,7 @@ function OrderDetail({
   const detailTouchTimerRef = useRef<any>(null);
   const detailTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const moreBtnRef = useRef<HTMLButtonElement | null>(null);
   const [detailTab, setDetailTab] = useState<"prep" | "delivery" | "history">("prep");
 
   const handleProductContextMenu = (e: React.MouseEvent, item: OrderItem) => {
@@ -11081,6 +11082,7 @@ function OrderDetail({
             {!isWarehousePrepMode && (canEditOrder || canRollback || canLockOrder || canDeferDelivery || canDeleteOrder || isOwner) && (
               <div className="order-detail-more-wrap">
                 <button
+                  ref={moreBtnRef}
                   type="button"
                   className="secondary order-detail-more-btn icon-only"
                   aria-expanded={moreActionsOpen}
@@ -11090,71 +11092,89 @@ function OrderDetail({
                 >
                   <MoreVertical aria-hidden="true" />
                 </button>
-                {moreActionsOpen && (
-                  <div className="order-detail-more-menu" role="menu">
-                    {canEditOrder && !editing && !correctingPrepared && (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={busy}
-                        onClick={() => {
-                          setMoreActionsOpen(false);
-                          if (order.status === "delivered" && workflowRole === "owner") {
-                            setItems(order.items.map((item) => ({ ...item })));
-                            setCorrectingPrepared(true);
-                            setPreparedCorrectionReason("");
-                            setNotice("");
-                            setError("");
-                            return;
-                          }
-                          beginActivity("order_editing_started");
-                          setEditing(true);
-                        }}
-                      >
-                        <Pencil aria-hidden="true" /> {ui.editOrder}
-                      </button>
-                    )}
-                    {order.status === "preparing" && !order.exportPackingRequired && canRollback && (
-                      <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); setRollbackReason(""); setRollbackTarget("new"); }}>
-                        <RotateCcw aria-hidden="true" /> {ui.back}
-                      </button>
-                    )}
-                    {order.status === "ready" && canRollback && !order.parentOrderId && (
-                      <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); setRollbackReason(""); setRollbackTarget("preparing"); }}>
-                        <RotateCcw aria-hidden="true" /> {ui.back}
-                      </button>
-                    )}
-                    {canLockOrder && (
-                      <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void toggleOrderLock(); }}>
-                        {order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />} {order.lockedAt ? "Kilidi aç" : "Kilitle"}
-                      </button>
-                    )}
-                    {["new", "preparing", "ready"].includes(order.status) && canDeferDelivery && !order.deliveryWaitingSourceId && (
-                      <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void openDeferDelivery(); }}>
-                        <Truck aria-hidden="true" /> Teslimatı ertele
-                      </button>
-                    )}
-                    {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
-                      <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void archiveOrder(); }}>
-                        <Archive aria-hidden="true" /> Arşivle
-                      </button>
-                    )}
-                    {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
-                      <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void cancelOrder(); }}>
-                        <X aria-hidden="true" /> İptal et
-                      </button>
-                    )}
-                    {isOwner && (
-                      <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void setOrderTestMode(!order.isTest); }}>
-                        <Settings2 aria-hidden="true" /> {order.isTest ? "Test modunu kapat" : "Test moduna al"}
-                      </button>
-                    )}
-                    {canDeleteOrder && (
-                      <button type="button" role="menuitem" className="danger" disabled={busy} onClick={() => { setMoreActionsOpen(false); deleteOrder(); }}>
-                        <Trash2 aria-hidden="true" /> {ui.deleteOrder}
-                      </button>
-                    )}
-                  </div>
+                {moreActionsOpen && createPortal(
+                  <div className="order-detail-more-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) setMoreActionsOpen(false); }}>
+                    <div
+                      className="order-detail-more-menu"
+                      role="menu"
+                      style={
+                        typeof window !== "undefined" && window.innerWidth > 600 && moreBtnRef.current
+                          ? (() => {
+                              const r = moreBtnRef.current.getBoundingClientRect();
+                              return {
+                                position: "fixed",
+                                top: `${Math.min(window.innerHeight - 220, r.bottom + 6)}px`,
+                                right: `${Math.max(12, window.innerWidth - r.right)}px`,
+                              };
+                            })()
+                          : undefined
+                      }
+                    >
+                      {canEditOrder && !editing && !correctingPrepared && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={busy}
+                          onClick={() => {
+                            setMoreActionsOpen(false);
+                            if (order.status === "delivered" && workflowRole === "owner") {
+                              setItems(order.items.map((item) => ({ ...item })));
+                              setCorrectingPrepared(true);
+                              setPreparedCorrectionReason("");
+                              setNotice("");
+                              setError("");
+                              return;
+                            }
+                            beginActivity("order_editing_started");
+                            setEditing(true);
+                          }}
+                        >
+                          <Pencil aria-hidden="true" /> {ui.editOrder}
+                        </button>
+                      )}
+                      {order.status === "preparing" && !order.exportPackingRequired && canRollback && (
+                        <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); setRollbackReason(""); setRollbackTarget("new"); }}>
+                          <RotateCcw aria-hidden="true" /> {ui.back}
+                        </button>
+                      )}
+                      {order.status === "ready" && canRollback && !order.parentOrderId && (
+                        <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); setRollbackReason(""); setRollbackTarget("preparing"); }}>
+                          <RotateCcw aria-hidden="true" /> {ui.back}
+                        </button>
+                      )}
+                      {canLockOrder && (
+                        <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void toggleOrderLock(); }}>
+                          {order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />} {order.lockedAt ? "Kilidi aç" : "Kilitle"}
+                        </button>
+                      )}
+                      {["new", "preparing", "ready"].includes(order.status) && canDeferDelivery && !order.deliveryWaitingSourceId && (
+                        <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void openDeferDelivery(); }}>
+                          <Truck aria-hidden="true" /> Teslimatı ertele
+                        </button>
+                      )}
+                      {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
+                        <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void archiveOrder(); }}>
+                          <Archive aria-hidden="true" /> Arşivle
+                        </button>
+                      )}
+                      {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
+                        <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void cancelOrder(); }}>
+                          <X aria-hidden="true" /> İptal et
+                        </button>
+                      )}
+                      {isOwner && (
+                        <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void setOrderTestMode(!order.isTest); }}>
+                          <Settings2 aria-hidden="true" /> {order.isTest ? "Test modunu kapat" : "Test moduna al"}
+                        </button>
+                      )}
+                      {canDeleteOrder && (
+                        <button type="button" role="menuitem" className="danger" disabled={busy} onClick={() => { setMoreActionsOpen(false); deleteOrder(); }}>
+                          <Trash2 aria-hidden="true" /> {ui.deleteOrder}
+                        </button>
+                      )}
+                    </div>
+                  </div>,
+                  document.body,
                 )}
               </div>
             )}
