@@ -11178,52 +11178,72 @@ function OrderDetail({
           </label>
         )}
         {!contextOnlyView && (
-          <div className="daily-filter-tabs order-detail-tabs" role="tablist" aria-label="Sipariş detay menüsü">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailTab === "prep"}
-              className={detailTab === "prep" ? "active" : ""}
-              onClick={() => setDetailTab("prep")}
-            >
-              Hazırlama <b>{items.length}</b>
-            </button>
-            {((order.status === "ready" || order.status === "delivered") || (order.attachments || []).some((a) => !a.deletedAt)) && (
+          <div className="order-detail-tabs-row">
+            <div className="daily-filter-tabs order-detail-tabs" role="tablist" aria-label="Sipariş detay menüsü">
               <button
                 type="button"
                 role="tab"
-                aria-selected={detailTab === "delivery"}
-                className={detailTab === "delivery" ? "active" : ""}
-                onClick={() => setDetailTab("delivery")}
+                aria-selected={detailTab === "prep"}
+                className={detailTab === "prep" ? "active" : ""}
+                onClick={() => setDetailTab("prep")}
               >
-                Belgeler & Teslimat
+                Hazırlama <b>{items.length}</b>
               </button>
+              {((order.status === "ready" || order.status === "delivered") || (order.attachments || []).some((a) => !a.deletedAt)) && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={detailTab === "delivery"}
+                  className={detailTab === "delivery" ? "active" : ""}
+                  onClick={() => setDetailTab("delivery")}
+                >
+                  Belgeler & Teslimat
+                </button>
+              )}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === "history"}
+                className={detailTab === "history" ? "active" : ""}
+                onClick={() => setDetailTab("history")}
+              >
+                {ui.changeHistory} <b>{(order.history || []).length}</b>
+              </button>
+            </div>
+            {(order.isTest || order.lockedAt || order.isLoanReturn) && (
+              <div className="order-detail-mini-flags">
+                {order.isTest && (
+                  <button
+                    type="button"
+                    className="order-mini-flag test"
+                    disabled={!isOwner || busy}
+                    onClick={() => isOwner && void setOrderTestMode(false)}
+                    title="Bildirim gönderilmez, stok düşmez ve günlük satışa dahil edilmez."
+                  >
+                    Test modu {isOwner ? "×" : ""}
+                  </button>
+                )}
+                {order.lockedAt && (
+                  <span className="order-mini-flag locked" title="Bu sipariş kilitli">
+                    <Lock aria-hidden="true" /> Kilitli
+                  </span>
+                )}
+                {order.isLoanReturn && (
+                  <span className="order-mini-flag loan" title="Borç iadesi siparişi">
+                    Borç iadesi
+                  </span>
+                )}
+              </div>
             )}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailTab === "history"}
-              className={detailTab === "history" ? "active" : ""}
-              onClick={() => setDetailTab("history")}
-            >
-              {ui.changeHistory} <b>{(order.history || []).length}</b>
+          </div>
+        )}
+        {order.isLoanReturn && canEditOrder && ["new", "preparing", "ready"].includes(order.status) && !order.mergedOrderIds?.length && (
+          <div className="order-detail-loan-action">
+            <button type="button" className="secondary" disabled={busy} onClick={() => void recoverOrder("loan-return")}>
+              <RotateCcw aria-hidden="true" /> Borç iadesini kaldır
             </button>
           </div>
         )}
-        {isOwner && order.isTest && <div className="order-test-mode-banner active">
-          <div>
-            <b>TEST MODU AÇIK</b>
-            <span>Bildirim gönderilmez, stok düşmez ve gerçek günlük satışa dahil edilmez.</span>
-          </div>
-          <button type="button" className="secondary" disabled={busy} onClick={() => void setOrderTestMode(false)}>Test modunu kapat</button>
-        </div>}
-        {order.isLoanReturn && <div className="order-test-mode-banner active">
-          <div>
-            <b>BORÇ İADESİ</b>
-            <span>Teslim edildiğinde fiziksel stok ve bu müşteriye ait borç alış bakiyesi azalır; gün sonu teslimat ve satış toplamına dahil edilir.</span>
-          </div>
-          {canEditOrder && ["new", "preparing", "ready"].includes(order.status) && !order.mergedOrderIds?.length && <button type="button" className="secondary" disabled={busy} onClick={() => void recoverOrder("loan-return")}><RotateCcw aria-hidden="true" />Borç iadesini kaldır</button>}
-        </div>}
         {order.parentOrderNumber && (
           <div className="parent-order-link detail">
             {ui.originalOrder}: <b>{order.parentOrderNumber}</b>
