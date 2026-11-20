@@ -1357,6 +1357,7 @@ textarea {
 .approval-pdf-viewer nav button.approval-viewer-save:hover { background:#4338ca; border-color:#4338ca; }
 .approval-pdf-viewer nav button.approval-viewer-approve { border-color:#1cab70; background:#eafaf3; color:#117a50; }
 .approval-pdf-viewer nav button.approval-viewer-status { border-color:#9bdabc; background:#f0fbf5; color:#08775e; opacity:1; cursor:default; }
+.approval-pdf-viewer nav button.approval-viewer-customer-approved { border-color:#c9c5ff; background:#f0efff; color:#5145e5; }
 .approval-pdf-viewer nav button.approval-viewer-submit { border-color:#5145e5; background:#f0efff; color:#5145e5; }
 .approval-pdf-viewer nav button.approval-viewer-submit:hover { background:#5145e5; color:#fff; }
 .approval-pdf-viewer nav button.approval-viewer-withdraw { border-color:#e8b545; background:#fffaf0; color:#946c16; }
@@ -1438,6 +1439,11 @@ textarea {
 .approval-form-state em { line-height:1.15; }
 .approval-form-state.approved { color:#148455; }
 .approval-form-state.approved i { border-color:#22b875; background:#22b875; color:#fff; }
+.approval-form-state.customer-approved { color:#5b54c7; }
+.approval-form-state.customer-approved i { border-color:#5b54c7; background:#5b54c7; color:#fff; }
+.approval-form-state.customer-sent { color:#946c16; }
+.approval-form-state.customer-rejected { color:#c83d4f; }
+.approval-form-state.customer-rejected i { border-color:#ef8a98; background:#fff1f3; }
 .approval-form-state.merged { color:#5b54c7; }
 .approval-form-state.merged i { border-color:#c9c5ff; background:#f0efff; color:#5148d8; }
 .approval-form-state.merged i svg { width:12px; height:12px; }
