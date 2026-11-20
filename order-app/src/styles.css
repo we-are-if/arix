@@ -11355,11 +11355,29 @@ textarea {
   align-items: center !important;
   justify-content: flex-start !important;
   flex-wrap: wrap !important;
-  gap: 4px 10px !important;
+  gap: 6px 10px !important;
   text-align: left !important;
+  font-size: 13.5px !important;
+  line-height: 1.35 !important;
+}
+.order-detail-modal .prep-row > div:first-child > small {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #f1f0ff;
+  color: #5143ed !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+.order-detail-modal .prep-row > div:first-child > strong {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
 }
 .order-detail-modal .prep-row > div:first-child > span {
   margin-left: auto;
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  color: #334155 !important;
 }
 .order-detail-tabs {
   margin: 2px 0 6px;
@@ -11742,26 +11760,36 @@ textarea {
 /* =========================================================
    ARIX COMPACT HEADER ACTIONS, SEGMENTED TABS & NOTE CARD
    ========================================================= */
+.order-detail-modal {
+  width: min(980px, calc(100vw - 32px)) !important;
+}
 .modal > header {
   display: flex !important;
   align-items: center !important;
-  flex-wrap: wrap !important;
+  flex-wrap: nowrap !important;
   gap: 10px 12px !important;
 }
 .modal > header .modal-heading {
-  flex: 1 1 200px;
+  flex: 1 1 auto;
   min-width: 0;
+}
+.modal > header .modal-heading h2,
+.modal > header .modal-heading p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .modal-header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
   margin-left: auto;
 }
 .order-detail-header-bar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
 }
 .order-detail-header-bar button,
@@ -11863,6 +11891,12 @@ textarea {
   color: #f1f5f9;
 }
 @media (max-width: 600px) {
+  .order-detail-modal {
+    width: 100% !important;
+  }
+  .modal > header {
+    flex-wrap: wrap !important;
+  }
   .modal > .modal-body {
     padding: 10px 14px max(22px, env(safe-area-inset-bottom)) !important;
   }
