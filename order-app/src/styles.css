@@ -11344,18 +11344,24 @@ textarea {
 }
 .order-detail-modal .prep-row {
   padding: 10px 12px !important;
-  gap: 8px !important;
+  gap: 10px !important;
 }
 .order-detail-modal .prep-inputs {
-  gap: 6px 8px !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  flex-wrap: wrap !important;
+  gap: 8px 10px !important;
+  width: auto !important;
 }
 .order-detail-modal .actual {
   gap: 3px !important;
+  flex: 0 0 auto;
 }
 .order-detail-modal .actual span {
   font-size: 11px !important;
 }
 .order-detail-modal .actual input {
+  width: 112px !important;
   height: 36px !important;
   min-height: 36px !important;
   border-radius: 10px !important;
@@ -11363,28 +11369,50 @@ textarea {
 }
 .order-detail-modal .prep-cut-allowance,
 .order-detail-modal .cut-allowance-editor {
-  grid-column: 1 / -1;
-  display: flex !important;
+  grid-column: auto !important;
+  width: auto !important;
+  display: inline-flex !important;
   align-items: center !important;
-  justify-content: space-between !important;
-  flex-wrap: wrap !important;
-  gap: 6px 10px !important;
-  padding-top: 2px;
+  justify-content: flex-start !important;
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
+  min-height: 36px !important;
+  padding-top: 0 !important;
 }
+.order-detail-modal .prep-cut-allowance > label,
 .order-detail-modal .cut-allowance-toggle {
   display: inline-flex !important;
   flex-direction: row !important;
   align-items: center !important;
-  gap: 6px !important;
-  min-height: 28px !important;
+  gap: 5px !important;
+  min-height: 36px !important;
   font-size: 12px !important;
-  white-space: nowrap;
+  font-weight: 700 !important;
+  white-space: nowrap !important;
+  margin: 0 !important;
 }
+.order-detail-modal .prep-cut-allowance > label input[type="checkbox"],
 .order-detail-modal .cut-allowance-toggle input {
   width: 15px !important;
   height: 15px !important;
   min-height: 15px !important;
   margin: 0 !important;
+  flex: 0 0 15px !important;
+}
+@media (max-width: 600px) {
+  .order-detail-modal .prep-inputs {
+    width: 100% !important;
+  }
+  .order-detail-modal .actual {
+    flex: 1 1 calc(50% - 5px) !important;
+  }
+  .order-detail-modal .actual input {
+    width: 100% !important;
+  }
+  .order-detail-modal .prep-cut-allowance {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
 }
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
