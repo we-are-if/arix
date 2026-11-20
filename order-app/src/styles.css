@@ -9307,8 +9307,19 @@ textarea {
   .app-shell .daily-archive {
     flex: 1 1 auto;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    gap: 12px;
+  }
+  .app-shell .daily-archive-body {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
-    padding-right: 2px;
+    display: grid;
+    gap: 12px;
+    align-content: start;
+    padding-right: 4px;
   }
   .app-shell .stock-page {
     flex: 1 1 auto;
@@ -9860,26 +9871,30 @@ textarea {
     gap: 8px;
     overflow: hidden;
   }
-  .daily-archive > .daily-day-navigator,
-  .daily-archive > .day-control {
+  .daily-day-strip-wrap {
     flex: 0 0 auto;
+    gap: 6px;
   }
-  .daily-archive > .day-group,
-  .daily-archive > .daily-empty {
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .daily-archive > .day-group > header {
-    flex: 0 0 auto;
-  }
-  .daily-archive > .day-group > .day-orders {
+  .daily-archive-body {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    display: grid;
+    gap: 8px;
+    align-content: start;
+    padding-bottom: 4px;
+  }
+  .daily-day-strip {
+    grid-template-columns: repeat(7, minmax(76px, 1fr)) !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .daily-day-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .daily-day-card {
+    padding: 7px 8px !important;
   }
   .stock-page {
     display: flex;
@@ -10214,6 +10229,127 @@ textarea {
 }
 .mobile-stock-tabs {
   display: none;
+}
+
+/* =========================================================
+   ARIX DAILY 7-DAY DATE STRIP FOR RAPORLAR
+   ========================================================= */
+.daily-day-strip-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.daily-day-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.daily-day-card {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+  transition: all 0.16s ease;
+}
+.daily-day-card:hover {
+  border-color: #a5b4fc;
+  background: #f8faff;
+}
+.daily-day-card small {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.daily-day-card b {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1e293b;
+  white-space: nowrap;
+}
+.daily-day-card span {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+}
+.daily-day-card.has-orders span {
+  color: #4f46e5;
+  font-weight: 700;
+}
+.daily-day-card.active {
+  border-color: #5143ed;
+  background: #5143ed;
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(81, 67, 237, 0.28);
+}
+.daily-day-card.active small {
+  color: #c7d2fe;
+}
+.daily-day-card.active b,
+.daily-day-card.active span {
+  color: #ffffff;
+}
+.daily-day-calendar-btn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border: 1px solid #dfe4ec;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #5143ed;
+  cursor: pointer;
+  margin: 0;
+}
+.daily-day-calendar-btn:hover {
+  border-color: #818cf8;
+  background: #f5f4ff;
+}
+.daily-day-calendar-btn svg {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+.daily-day-calendar-btn input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.theme-dark .daily-day-card,
+.theme-dark .daily-day-calendar-btn {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: #1e293b;
+  color: #e2e8f0;
+}
+.theme-dark .daily-day-card b {
+  color: #f1f5f9;
+}
+.theme-dark .daily-day-card small,
+.theme-dark .daily-day-card span {
+  color: #94a3b8;
+}
+.theme-dark .daily-day-card.active {
+  border-color: #6355ef;
+  background: #6355ef;
+}
+.theme-dark .daily-day-card.active b,
+.theme-dark .daily-day-card.active span {
+  color: #ffffff;
 }
 .mobile-filter-toggle {
   display: none;

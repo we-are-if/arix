@@ -5032,6 +5032,30 @@ function DailyArchive({
   const [dayActionBusy, setDayActionBusy] = useState(false);
   const availableDays = useMemo(() => groups.map(([day]) => day).filter(Boolean), [groups]);
   const [selectedArchiveDay, setSelectedArchiveDay] = useState("");
+  const stripCenterDay = selectedArchiveDay || currentDay?.date || new Date().toISOString().slice(0, 10);
+  const dayStripDates = useMemo(() => {
+    const base = new Date(`${stripCenterDay}T12:00:00`);
+    if (Number.isNaN(base.getTime())) return [];
+    const countsByDay = new Map(groups.map(([day, list]) => [day, list.length]));
+    return Array.from({ length: 7 }, (_, idx) => {
+      const d = new Date(base);
+      d.setDate(base.getDate() + (idx - 3));
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      return {
+        iso,
+        shortWeekday: d.toLocaleDateString(language, { weekday: "short" }).toLocaleUpperCase(language),
+        dayMonth: d.toLocaleDateString(language, { day: "numeric", month: "short" }),
+        weekday: d.toLocaleDateString(language, { weekday: "short" }),
+        count: countsByDay.get(iso) ?? 0,
+      };
+    });
+  }, [stripCenterDay, groups, language]);
+  const shiftArchiveDay = (delta: number) => {
+    const base = new Date(`${stripCenterDay}T12:00:00`);
+    if (Number.isNaN(base.getTime())) return;
+    base.setDate(base.getDate() + delta);
+    setSelectedArchiveDay(`${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`);
+  };
   useEffect(() => {
     if (selectedArchiveDay && availableDays.includes(selectedArchiveDay)) return;
     setSelectedArchiveDay(
@@ -5390,17 +5414,38 @@ function DailyArchive({
   return (
     <>
     <section className="daily-archive">
-      <nav className="daily-day-navigator" aria-label="Rapor günü seçici">
+      <nav className="daily-day-strip-wrap" aria-label="Rapor günü seçici">
         <button
           type="button"
           className="daily-day-nav-button"
-          disabled={selectedArchiveIndex < 0 || selectedArchiveIndex >= availableDays.length - 1}
-          onClick={() => setSelectedArchiveDay(availableDays[selectedArchiveIndex + 1] || selectedArchiveDay)}
-          aria-label="Önceki rapor günü"
+          onClick={() => shiftArchiveDay(-1)}
+          aria-label="Önceki gün"
         ><ChevronLeft aria-hidden="true" /></button>
-        <label className="daily-day-picker">
+        <div className="daily-day-strip">
+          {dayStripDates.map((entry) => {
+            const active = entry.iso === stripCenterDay;
+            return (
+              <button
+                key={entry.iso}
+                type="button"
+                className={`daily-day-card ${active ? "active" : ""} ${entry.count > 0 ? "has-orders" : ""}`}
+                onClick={() => setSelectedArchiveDay(entry.iso)}
+              >
+                <small>{active ? "SEÇİLMİŞ GÜN" : entry.shortWeekday}</small>
+                <b>{entry.dayMonth}</b>
+                <span>{entry.count > 0 ? `${entry.count} sipariş` : entry.weekday}</span>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          className="daily-day-nav-button"
+          onClick={() => shiftArchiveDay(1)}
+          aria-label="Sonraki gün"
+        ><ChevronRight aria-hidden="true" /></button>
+        <label className="daily-day-calendar-btn" title="Takvimden tarih seç">
           <CalendarDays aria-hidden="true" />
-          <span>Rapor günü</span>
           <input
             type="date"
             value={selectedArchiveDay}
@@ -5408,14 +5453,8 @@ function DailyArchive({
             aria-label="Rapor günü seç"
           />
         </label>
-        <button
-          type="button"
-          className="daily-day-nav-button"
-          disabled={selectedArchiveIndex <= 0}
-          onClick={() => setSelectedArchiveDay(availableDays[selectedArchiveIndex - 1] || selectedArchiveDay)}
-          aria-label="Sonraki rapor günü"
-        ><ChevronRight aria-hidden="true" /></button>
       </nav>
+      <div className="daily-archive-body">
       <div className={`day-control ${currentDay?.closed ? "closed" : "open"}`}>
         <div>
           <span>{currentDay?.closed ? ui.dayClosed : ui.dayOpen}</span>
@@ -5549,6 +5588,7 @@ function DailyArchive({
           </section>}
         </section>;
       })}
+      </div>
       {reportPreview && (
         <DailyReportPreview
           url={reportPreview.url}
