@@ -16060,7 +16060,7 @@ function Modal({
           </div>
           {headerActions && <div className="modal-header-actions">{headerActions}</div>}
           <button className="close" aria-label="Bağla" onClick={onClose}>
-            ×
+            <X size={16} aria-hidden="true" />
           </button>
         </header>
         <div className="modal-body">{children}</div>
