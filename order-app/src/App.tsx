@@ -6128,20 +6128,25 @@ function CreateOrder({
 
   return (
     <Modal
-      title={`${ui.new} ${ui.title.toLocaleLowerCase(language)}`}
+      className="create-order-modal"
+      title={`${ui.new} ${ui.title.toLocaleLowerCase("tr-TR")}`}
       subtitle={ui.preparingHint}
-      onClose={onClose}
-      wide
-    >
-      {(customerName || text || note || matches.length > 0) && (
-        <div className="create-order-draft-bar">
-          <span>Kaydedilmiş taslak açık</span>
-          <button type="button" onClick={clearDraft} disabled={busy}>
+      headerActions={
+        (customerName || text || note || matches.length > 0) ? (
+          <button
+            type="button"
+            className="secondary create-order-clear-btn"
+            onClick={clearDraft}
+            disabled={busy}
+            title="Taslağı sil ve yeni başla"
+          >
             <Trash2 aria-hidden="true" />
-            Taslağı sil ve yeni başla
+            <span className="hide-mobile">Taslağı sil</span>
           </button>
-        </div>
-      )}
+        ) : undefined
+      }
+      onClose={onClose}
+    >
       <div className="form-grid">
         <label className="autocomplete-wrap">
           <span>{ui.customer}</span>

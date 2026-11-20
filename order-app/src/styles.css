@@ -11805,7 +11805,7 @@ textarea {
   display: flex !important;
   align-items: center !important;
   flex-wrap: nowrap !important;
-  gap: 10px 12px !important;
+  gap: 6px !important;
 }
 .modal > header .modal-heading {
   flex: 1 1 auto;
@@ -12282,6 +12282,91 @@ textarea {
 .theme-dark .delivery-scope-header .despatch-scope {
   background: #111827;
   border-color: rgba(148, 163, 184, 0.2);
+}
+
+/* =========================================================
+   FAZ 2: MODERN ARIX CREATE ORDER MODAL
+   ========================================================= */
+.create-order-modal {
+  width: min(680px, calc(100vw - 32px));
+}
+.create-order-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border-radius: 9px !important;
+  border: 1px solid #fecaca !important;
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+.create-order-clear-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.create-order-modal .form-grid {
+  gap: 10px !important;
+}
+.create-order-modal .form-grid label > span,
+.create-order-modal .modal-body > label > span {
+  font-size: 11px !important;
+  font-weight: 750 !important;
+  color: #475569 !important;
+}
+.create-order-modal .form-grid input,
+.create-order-modal .modal-body > label textarea {
+  border-radius: 11px !important;
+  border: 1px solid #dfe4ec !important;
+  background: #f8fafc !important;
+}
+.create-order-modal .form-grid input:focus,
+.create-order-modal .modal-body > label textarea:focus {
+  background: #ffffff !important;
+  border-color: #6366f1 !important;
+}
+.create-order-modal .order-type-toggles {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  margin: 0 !important;
+}
+.create-order-modal .order-type-toggles .test-order-toggle {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  min-height: 36px !important;
+  padding: 6px 10px !important;
+  border-radius: 10px !important;
+  gap: 6px !important;
+}
+.create-order-modal .order-type-toggles .test-order-toggle small {
+  display: none !important;
+}
+.create-order-modal .order-type-toggles .test-order-toggle svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+.create-order-modal .order-type-toggles .test-order-toggle b {
+  font-size: 12px !important;
+}
+.create-order-modal .order-ocr-actions {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+.create-order-modal .order-ocr-button {
+  min-height: 38px !important;
+  border-radius: 11px !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+}
+.theme-dark .create-order-modal .form-grid input,
+.theme-dark .create-order-modal .modal-body > label textarea {
+  background: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  color: #f1f5f9 !important;
 }
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
