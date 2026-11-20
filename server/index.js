@@ -7161,9 +7161,10 @@ async function handleOrderBoard(req, res, url, parts) {
     const lockedOrder = db.orderBoard.find((item) => String(item.id) === id);
     const readOnlyPreview = isReadOnlyApprovalPreview(req.method, parts[2], parts[3]);
     const lockExempt = readOnlyPreview || parts[2] === "lock" || parts[2] === "presence" || (parts[2] === "approval-form" && parts[3] === "presence");
+    const allowSeparateMergedForm = Boolean(lockedOrder?.keepSeparateFormOnMerge && !lockedOrder?.mergeUndoneAt && parts[2] === "approval-form");
     if (lockedOrder?.archivedAt && parts[2] !== "unarchive" && !readOnlyPreview) return send(res, 409, { error: "Bu sipariş arşivde. İşlem yapmak için önce aktife alın." });
     if (lockedOrder?.lockedAt && !lockExempt) return send(res, 423, { error: `Bu sipariş ${lockedOrder.lockedBy || "bir kullanıcı"} tarafından kilitlendi. İşlem yapmak için önce kilidi açın.` });
-    if ((lockedOrder?.mergedIntoOrderId || lockedOrder?.mergeUndoneAt) && !lockExempt && !(req.method === "DELETE" && parts[3] === "revisions")) {
+    if ((lockedOrder?.mergedIntoOrderId || lockedOrder?.mergeUndoneAt) && !lockExempt && !allowSeparateMergedForm && !(req.method === "DELETE" && parts[3] === "revisions")) {
       return send(res, 409, { error: "Bu sipariş birleştirme geçmişindedir. İşlemi güncel siparişten yapın." });
     }
   }
@@ -7663,7 +7664,7 @@ async function handleOrderBoard(req, res, url, parts) {
   if (req.method === "PUT" && id && parts[2] === "approval-form") {
     const order = db.orderBoard.find((item) => String(item.id) === id);
     if (!order) return notFound(res);
-    if (order.mergedIntoOrderId || order.mergeUndoneAt) return send(res, 409, { error: "Bu form birleştirme geçmişine aittir. Güncel siparişten yeni form oluşturun." });
+    if ((order.mergedIntoOrderId && !order.keepSeparateFormOnMerge) || order.mergeUndoneAt) return send(res, 409, { error: "Bu form birleştirme geçmişine aittir. Güncel siparişten yeni form oluşturun." });
     if (order.isLoanReturn) return send(res, 409, { error: "Borç iadesi için sipariş onay formu oluşturulmaz." });
     if (order.inheritedApprovalForm) return send(res, 409, { error: `${order.inheritedApprovalForm.orderNumber} siparişinin toplam formu (${order.inheritedApprovalForm.formNumber}) bu teslimat için kullanılıyor; tekrar form oluşturulmaz.` });
     const body = await parseBody(req);
@@ -7687,7 +7688,7 @@ async function handleOrderBoard(req, res, url, parts) {
     const canReviseExistingExportDocument = documentType !== "domestic" && Boolean(previousForm);
     const canPrepareExportPacking = body.status !== "approved" && order.exportPackingRequired && documentType === "packing_list" && (workflowRole === "owner" || workflowRole === "warehouse" || hasPermission(req.authUser, "orders.prepare"));
     if (!canSell && !canPrepareExportPacking && !(workflowRole === "sales" && previousForm?.status === "rejected")) return send(res, 403, { error: "Sifariş təsdiq formasını yalnız satış əməkdaşı hazırlaya bilər." });
-    if (!["ready", "delivered"].includes(order.status) && !order.isTest && !canReviseExistingExportDocument && !(order.exportPackingRequired && ["commercial_invoice", "packing_list"].includes(documentType))) {
+    if (!["ready", "delivered"].includes(order.status) && !(order.status === "fulfilled" && order.keepSeparateFormOnMerge) && !order.isTest && !canReviseExistingExportDocument && !(order.exportPackingRequired && ["commercial_invoice", "packing_list"].includes(documentType))) {
       return send(res, 409, { error: "Təsdiq formu yalnız hazır sifariş üçün yaradıla bilər." });
     }
     const actor = req.authUser?.name ?? "Satış";
@@ -8656,7 +8657,8 @@ async function handleOrderBoard(req, res, url, parts) {
     if (selected.some((order) => order.status !== "ready")) return send(res, 409, { error: "Yalnız Hazır aşamasındaki siparişler birleştirilebilir." });
     if (selected.some((order) => order.lockedAt || order.archivedAt || order.mergedIntoOrderId)) return send(res, 409, { error: "Kilitli, arşivdeki veya daha önce birleştirilmiş kaynak sipariş seçilemez." });
     const formWarning = mergeFormWarning(selected);
-    if (formWarning) return send(res, 409, { error: formWarning });
+    const formStrategy = String(body.formStrategy || "");
+    if (formWarning && !["keep_separate", "combine_single"].includes(formStrategy)) return send(res, 409, { error: formWarning });
     const customerKey = normalizeSalesRepresentativeName(selected[0].customerName);
     if (selected.some((order) => normalizeSalesRepresentativeName(order.customerName) !== customerKey)) return send(res, 409, { error: "Yalnız aynı müşteriye ait siparişler birleştirilebilir." });
     for (const field of ["isTest", "isLoanReturn", "isExport"]) {
@@ -8674,10 +8676,13 @@ async function handleOrderBoard(req, res, url, parts) {
     }
     const now = new Date().toISOString();
     const actor = req.authUser?.name ?? "Kullanıcı";
+    const actorId = String(req.authUser?.id || "");
     const businessDate = activeOrderDayKey(db);
     const mergedOrderIds = [...new Set(selected.flatMap((order) => order.mergedOrderIds?.length ? order.mergedOrderIds : [order.id]))];
     const mergedOrderNumbers = [...new Set(selected.flatMap((order) => order.mergedOrderNumbers?.length ? order.mergedOrderNumbers : [order.number]))];
     const despatchSource = hasDespatch ? selected[0] : null;
+    const keepSeparateForms = Boolean(formWarning && formStrategy === "keep_separate");
+    const combineSingleForm = Boolean(formWarning && formStrategy === "combine_single");
     const merged = {
       id: randomUUID(),
       number: nextOrderNumber(db, businessDate),
@@ -8688,6 +8693,7 @@ async function handleOrderBoard(req, res, url, parts) {
       isTest: Boolean(selected[0].isTest),
       isLoanReturn: Boolean(selected[0].isLoanReturn),
       isExport: Boolean(selected[0].isExport),
+      ...(keepSeparateForms ? { keepSeparateForms: true } : {}),
       items: selected.flatMap((order) => structuredClone(order.items || [])),
       originalItems: selected.flatMap((order) => structuredClone(order.originalItems || order.items || [])),
       mergedOrderIds,
@@ -8707,12 +8713,199 @@ async function handleOrderBoard(req, res, url, parts) {
       updatedAt: now,
       readyAt: now,
       history: [{ status: "ready", at: now, by: actor }],
-      audit: [{ id: randomUUID(), action: "readyOrdersMerged", oldValue: selected.map((order) => order.number).join(", "), newValue: "Tek teslimat", by: actor, userId: req.authUser?.id, at: now }],
+      audit: [{ id: randomUUID(), action: "readyOrdersMerged", oldValue: selected.map((order) => order.number).join(", "), newValue: keepSeparateForms ? "Tek teslimat · Ayrı formlar korundu" : combineSingleForm ? "Tek teslimat · Tek formda birleştirildi" : "Tek teslimat", by: actor, userId: req.authUser?.id, at: now }],
     };
+
+    if (combineSingleForm) {
+      const customer = findOrderCustomerByName(db.orderCustomers, merged.customerName);
+      const isExport = Boolean(merged.isExport || customer?.customerType === "foreign");
+      const firstSourceWithForm = selected.find((source) => source.approvalForm);
+      const templateForm = firstSourceWithForm?.approvalForm
+        ? structuredClone(firstSourceWithForm.approvalForm.exportDocuments?.proforma || firstSourceWithForm.approvalForm)
+        : null;
+      const priceSource = templateForm?.priceSource === "ANTREPO_TRANSIT" ? "ANTREPO_TRANSIT" : "DEPO";
+      const lookupCustomerPrice = (code) => {
+        const key = String(code || "").trim().toLocaleUpperCase("tr");
+        if (!key) return 0;
+        const listPrice = Number(customer?.priceLists?.[priceSource]?.[key]);
+        if (Number.isFinite(listPrice) && listPrice >= 0) return listPrice;
+        const directPrice = Number(customer?.prices?.[key]);
+        return Number.isFinite(directPrice) && directPrice >= 0 ? directPrice : 0;
+      };
+      const combinedLines = [];
+      for (const source of selected) {
+        const sourceItems = Array.isArray(source.items) ? source.items : [];
+        const sourceForm = source.approvalForm?.exportDocuments?.proforma || source.approvalForm || null;
+        const sourceFormLines = Array.isArray(sourceForm?.lines) ? sourceForm.lines : [];
+        const lineToItemIdx = sourceFormLines.length ? matchOrderFormItems(sourceFormLines, sourceItems) : [];
+        for (let idx = 0; idx < sourceItems.length; idx += 1) {
+          const item = sourceItems[idx];
+          const matchedLineIdx = lineToItemIdx.indexOf(idx);
+          const matchedLine = matchedLineIdx >= 0 ? sourceFormLines[matchedLineIdx] : null;
+          const isCustom = isCustomUnitOrderItem(item);
+          const quantity = Number(item.preparedQuantity ?? item.quantity ?? item.orderedRollCount) || 0;
+          const rollCount = isCustom && String(item.unit || "").toUpperCase() !== "ROLL" && String(item.unit || "").toLowerCase() !== "rulo"
+            ? 0
+            : (Number(item.preparedRollCount) > 0 ? Number(item.preparedRollCount) : (Number(item.orderedRollCount) || 0));
+          const unitPrice = matchedLine && Number.isFinite(Number(matchedLine.unitPrice))
+            ? Number(matchedLine.unitPrice)
+            : (Number.isFinite(Number(item.quoteUnitPrice)) ? Number(item.quoteUnitPrice) : lookupCustomerPrice(item.productCode));
+          const discountRate = matchedLine && Number.isFinite(Number(matchedLine.discountRate))
+            ? Number(matchedLine.discountRate)
+            : (Number.isFinite(Number(item.quoteDiscountRate)) ? Number(item.quoteDiscountRate) : 0);
+          const vatRate = isExport
+            ? 0
+            : (matchedLine && Number.isFinite(Number(matchedLine.vatRate))
+              ? Number(matchedLine.vatRate)
+              : (Number.isFinite(Number(item.quoteVatRate)) ? Number(item.quoteVatRate) : 20));
+          const unit = matchedLine?.unit || (isCustom ? String(item.unit || "PCS").toUpperCase() : "M2");
+          const innerQuantity = Math.max(0, Number(matchedLine?.innerQuantity ?? matchedLine?.unitsPerBox ?? item.innerQuantity) || 0);
+          const innerUnit = matchedLine?.innerUnit || (item.innerUnit ? String(item.innerUnit).toUpperCase() : (innerQuantity > 0 ? (unit === "BOX" ? "PCS" : (unit === "BUCKET" ? "KG" : undefined)) : undefined));
+          combinedLines.push({
+            productId: isCustom ? null : (item.productId ?? null),
+            productCode: String(item.productCode || matchedLine?.productCode || "").trim().slice(0, 80),
+            productName: String(item.productName || matchedLine?.productName || "").trim().slice(0, 240),
+            quantity,
+            rollCount,
+            width: Number(matchedLine?.width || 1.42),
+            unitPrice,
+            discountRate,
+            vatRate,
+            unit,
+            ...(unit === "BOX" && innerQuantity > 0 ? { unitsPerBox: innerQuantity } : {}),
+            ...(innerQuantity > 0 ? { innerQuantity } : {}),
+            ...(innerUnit ? { innerUnit } : {}),
+            ...(matchedLine?.priceBasis ? { priceBasis: matchedLine.priceBasis } : (innerQuantity > 0 ? { priceBasis: "PACKAGE" } : {})),
+            manual: Boolean(isCustom || matchedLine?.manual),
+            packageCount: Math.max(0, Math.trunc(Number(matchedLine?.packageCount) || 0)),
+            netWeight: Math.max(0, Number(matchedLine?.netWeight) || 0),
+            grossWeight: Math.max(0, Number(matchedLine?.grossWeight) || 0),
+            hsCode: String(matchedLine?.hsCode || (!isCustom ? "392043100000" : "")).trim().slice(0, 40),
+            countryOfOrigin: String(matchedLine?.countryOfOrigin || templateForm?.countryOfOrigin || "CHINA").trim().slice(0, 160),
+          });
+        }
+      }
+      const mergeRejectReason = `${merged.number} birleşik sipariş formunda birleştirildi`;
+      for (const source of selected) {
+        if (!source.approvalForm) continue;
+        let revisions = approvalFormRevisionList(source.approvalForm);
+        const rejectSnapshot = (target) => {
+          revisions = appendApprovalFormRevision(revisions, target, {
+            at: target.updatedAt || target.approvedAt || target.preparedAt || now,
+            by: target.updatedBy || target.approvedBy || target.preparedBy || actor,
+            reason: target.approvalNote || target.rejectionReason || "",
+          });
+          const next = {
+            ...target,
+            status: "rejected",
+            submittedForApproval: false,
+            rejectedAt: now,
+            rejectedBy: actor,
+            rejectionReason: mergeRejectReason,
+            updatedAt: now,
+            updatedBy: actor,
+          };
+          delete next.approvedAt;
+          delete next.approvedBy;
+          delete next.submittedAt;
+          delete next.submittedBy;
+          delete next.archive;
+          return next;
+        };
+        if (source.approvalForm.exportDocuments && typeof source.approvalForm.exportDocuments === "object") {
+          const nextExportDocs = {};
+          for (const [docType, docForm] of Object.entries(source.approvalForm.exportDocuments)) {
+            if (!docForm || typeof docForm !== "object") continue;
+            nextExportDocs[docType] = docForm.status === "rejected" ? docForm : rejectSnapshot(docForm);
+          }
+          const rootRejected = source.approvalForm.status === "rejected" ? { ...source.approvalForm } : rejectSnapshot(source.approvalForm);
+          source.approvalForm = { ...rootRejected, exportDocuments: nextExportDocs };
+        } else if (source.approvalForm.status !== "rejected") {
+          source.approvalForm = rejectSnapshot(source.approvalForm);
+        }
+        source.approvalForm.revisions = appendApprovalFormRevision(revisions, source.approvalForm, {
+          at: now,
+          by: actor,
+          reason: mergeRejectReason,
+        });
+        source.audit ??= [];
+        source.audit.push({ id: randomUUID(), action: "approvalFormRejected", newValue: mergeRejectReason, by: actor, userId: req.authUser?.id, at: now });
+      }
+      const documentType = isExport ? "proforma" : "domestic";
+      const nextDocumentNumber = isExport ? exportApprovalDocumentNumber(documentType, merged.number) : documentNumberFromSource("SOF", merged.number);
+      const combinedForm = {
+        ...(templateForm?.exchangeRateDate && documentType === "domestic" ? { exchangeRateDate: templateForm.exchangeRateDate } : {}),
+        number: nextDocumentNumber,
+        documentType,
+        proformaNumber: documentNumberFromSource("PRF", merged.number),
+        invoiceNumber: "",
+        date: now.slice(0, 10),
+        revisionDate: now.slice(0, 16),
+        salesRepresentative: normalizeSalesRepresentativeName(templateForm?.salesRepresentative || customer?.salesRepresentative || actor).slice(0, 160),
+        salesRepresentativeUserId: String(templateForm?.salesRepresentativeUserId || customer?.salesRepresentativeUserId || actorId).trim().slice(0, 160),
+        currency: isExport && (!templateForm?.currency || templateForm.currency === "TRY") ? "USD" : (templateForm?.currency || "USD"),
+        exchangeRate: isExport ? 1 : (Number(templateForm?.exchangeRate) > 0 ? Number(templateForm.exchangeRate) : 1),
+        priceSource,
+        vatIncluded: Boolean(templateForm?.vatIncluded),
+        lines: combinedLines,
+        overallDiscountRate: Math.min(100, Math.max(0, Number(templateForm?.overallDiscountRate) || 0)),
+        extraCharge: Math.max(0, Number(templateForm?.extraCharge) || 0),
+        extraChargeLabel: String(templateForm?.extraChargeLabel || "Nakliye / ek ücret").trim().slice(0, 100),
+        paymentTerms: String(templateForm?.paymentTerms || "").trim().slice(0, 1000),
+        deliveryTerms: String(templateForm?.deliveryTerms || "").trim().slice(0, 1000),
+        note: String(merged.note || templateForm?.note || "").trim().slice(0, 2000),
+        customerName: String(templateForm?.customerName || customer?.name || merged.customerName).trim().slice(0, 200),
+        customerContact: String(templateForm?.customerContact || customer?.contact || "").trim().slice(0, 160),
+        customerAddress: String(templateForm?.customerAddress || customer?.addressLine1 || customer?.address || "").trim().slice(0, 500),
+        customerPhone: String(templateForm?.customerPhone || customer?.phone || "").trim().slice(0, 80),
+        customerEmail: String(templateForm?.customerEmail || customer?.email || "").trim().slice(0, 200),
+        customerTaxOffice: String(templateForm?.customerTaxOffice || "").trim().slice(0, 120),
+        customerTaxNumber: String(templateForm?.customerTaxNumber || "").trim().slice(0, 40),
+        packageType: String(templateForm?.packageType || "STANDARD EXPORT PACKAGING").trim().slice(0, 160),
+        productDescription: String(templateForm?.productDescription || "PVC FOIL").trim().slice(0, 300),
+        incoterm: String(templateForm?.incoterm || "FCA Istanbul, Türkiye - Incoterms® 2020").trim().slice(0, 200),
+        shipmentPort: String(templateForm?.shipmentPort || "Istanbul / Türkiye").trim().slice(0, 160),
+        destination: String(templateForm?.destination || customer?.address || "").trim().slice(0, 300),
+        countryOfOrigin: String(templateForm?.countryOfOrigin || "CHINA").trim().slice(0, 160),
+        bankName: String(templateForm?.bankName || "ALBARAKA TÜRK PARTICIPATION BANK").trim().slice(0, 200),
+        swiftCode: String(templateForm?.swiftCode || "BTFHTRISXXX").trim().slice(0, 40),
+        iban: String(templateForm?.iban || "TR56 0020 3000 0998 7324 0000 02").trim().slice(0, 80),
+        buyerOrderNumber: String(templateForm?.buyerOrderNumber || "").trim().slice(0, 100),
+        transportMode: String(templateForm?.transportMode || "ROAD").trim().slice(0, 40),
+        vehicleContainerNumber: String(templateForm?.vehicleContainerNumber || "").trim().slice(0, 100),
+        transportDocumentNumber: String(templateForm?.transportDocumentNumber || "").trim().slice(0, 100),
+        loadingPlace: String(templateForm?.loadingPlace || "Istanbul / Türkiye").trim().slice(0, 160),
+        marksAndNumbers: String(templateForm?.marksAndNumbers || "").trim().slice(0, 500),
+        freightAmount: Math.max(0, Number(templateForm?.freightAmount) || 0),
+        insuranceAmount: Math.max(0, Number(templateForm?.insuranceAmount) || 0),
+        exporterDeclaration: String(templateForm?.exporterDeclaration || "We hereby certify that the information contained in this invoice is true and correct.").trim().slice(0, 1000),
+        preparedAt: now,
+        preparedBy: actor,
+        preparedByUserId: actorId,
+        status: "draft",
+        submittedForApproval: false,
+        updatedAt: now,
+        updatedBy: actor,
+      };
+      if (isExport) {
+        const { revisions: _revisions, ...docSnapshot } = combinedForm;
+        merged.approvalForm = { ...combinedForm, exportDocuments: { proforma: docSnapshot } };
+      } else {
+        merged.approvalForm = combinedForm;
+      }
+      merged.approvalForm.revisions = appendApprovalFormRevision([], merged.approvalForm, {
+        at: now,
+        by: actor,
+        reason: `${selected.map((order) => order.number).join(", ")} birleştirilerek oluşturuldu`,
+      });
+      merged.audit.push({ id: randomUUID(), action: "approvalFormDraftSaved", newValue: merged.approvalForm.number, by: actor, userId: req.authUser?.id, at: now });
+    }
+
     for (const source of selected) {
       source.status = "fulfilled";
       source.mergedIntoOrderId = merged.id;
       source.mergedIntoOrderNumber = merged.number;
+      if (keepSeparateForms) source.keepSeparateFormOnMerge = true;
       source.updatedAt = now;
       source.history ??= [];
       source.history.push({ status: "fulfilled", at: now, by: actor });

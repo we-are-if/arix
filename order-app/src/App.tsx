@@ -720,9 +720,12 @@ type Order = {
   isExport?: boolean;
   mergedOrderIds?: string[];
   mergedOrderNumbers?: string[];
+  mergeSourceOrderIds?: string[];
   mergedIntoOrderId?: string;
   mergedIntoOrderNumber?: string;
   mergeUndoneAt?: string;
+  keepSeparateForms?: boolean;
+  keepSeparateFormOnMerge?: boolean;
   exportPackingRequired?: boolean;
   exportPackingStatus?: "pending" | "preparing" | "ready";
   lockedAt?: string;
@@ -2051,6 +2054,7 @@ export default function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [mergeReadySelection, setMergeReadySelection] = useState<Order[] | null>(null);
   const [mergeReadyCheckedIds, setMergeReadyCheckedIds] = useState<string[]>([]);
+  const [mergeFormStrategy, setMergeFormStrategy] = useState<"keep_separate" | "combine_single">("keep_separate");
   const [mergeReadyBusy, setMergeReadyBusy] = useState(false);
   const [mergeReadyError, setMergeReadyError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -2573,15 +2577,24 @@ export default function App() {
   const selectedMergeFormWarning = mergeFormWarning((mergeReadySelection || []).filter((order) => mergeReadyCheckedIds.includes(order.id)));
   const mergeReadyOrders = async (selected: Order[]) => {
     const warning = mergeFormWarning(selected);
-    if (warning) { setMergeReadyError(warning); return; }
     setMergeReadyBusy(true);
     setMergeReadyError("");
     setError("");
     try {
-      const merged = await api<Order>("/api/orders/merge-ready", { method: "POST", body: JSON.stringify({ orderIds: selected.map((order) => order.id) }) });
+      const merged = await api<Order>("/api/orders/merge-ready", {
+        method: "POST",
+        body: JSON.stringify({
+          orderIds: selected.map((order) => order.id),
+          ...(warning ? { formStrategy: mergeFormStrategy } : {}),
+        }),
+      });
       setMergeReadySelection(null);
       setMergeReadyCheckedIds([]);
+      setMergeFormStrategy("keep_separate");
       await load();
+      if (canViewApprovalForms) {
+        api<Order[]>("/api/orders/approval-forms").then(setApprovalOrders).catch(() => undefined);
+      }
       setActiveOrder(merged);
     } catch (cause) {
       setMergeReadyError(cause instanceof Error ? cause.message : "Hazır siparişler birleştirilemedi.");
@@ -3474,9 +3487,29 @@ export default function App() {
           setMergeReadyError("");
           setMergeReadySelection(null);
           setMergeReadyCheckedIds([]);
+          setMergeFormStrategy("keep_separate");
         }}>
           <div className="merge-ready-groups">
-              {(selectedMergeFormWarning || mergeReadyError) && <div className="error" role="alert">{selectedMergeFormWarning || mergeReadyError}</div>}
+              {mergeReadyError && <div className="error" role="alert">{mergeReadyError}</div>}
+              {Boolean(selectedMergeFormWarning) && (
+                <fieldset className="defer-delivery-document-policy">
+                  <legend>Sipariş formu birleştirme tercihi</legend>
+                  <label className={mergeFormStrategy === "keep_separate" ? "selected" : ""}>
+                    <input type="radio" name="merge-form-strategy" checked={mergeFormStrategy === "keep_separate"} onChange={() => setMergeFormStrategy("keep_separate")} />
+                    <span>
+                      <b>Formlar ayrı kalsın, sadece teslimatı birleştir</b>
+                      <small>Mevcut sipariş formları iptal edilmez ve kendi numaralarıyla ayrı korunur. Siparişler yalnız teslimat için tek kartta birleşir.</small>
+                    </span>
+                  </label>
+                  <label className={mergeFormStrategy === "combine_single" ? "selected" : ""}>
+                    <input type="radio" name="merge-form-strategy" checked={mergeFormStrategy === "combine_single"} onChange={() => setMergeFormStrategy("combine_single")} />
+                    <span>
+                      <b>Eski formları iptal et ve tek formda birleştir</b>
+                      <small>Mevcut formlar otomatik iptal edilip geçmiş sürümlere alınır; tüm ürünler ve fiyatlar yeni birleşik siparişin tek formuna aktarılır.</small>
+                    </span>
+                  </label>
+                </fieldset>
+              )}
               <article className="merge-ready-summary">
                 <div className="merge-ready-summary-copy">
                   <span className="merge-ready-summary-icon"><Layers3 aria-hidden="true" /></span>
@@ -3485,11 +3518,12 @@ export default function App() {
                     <small>{mergeReadyCheckedIds.length < 2 ? "Birleştirmek için en az iki sipariş seçin." : "Seçilen siparişler tek teslimatta birleştirilecek."}</small>
                   </span>
                 </div>
-                <button type="button" className="primary" disabled={mergeReadyBusy || mergeReadyCheckedIds.length < 2 || Boolean(selectedMergeFormWarning)} onClick={() => void mergeReadyOrders(mergeReadySelection.filter((order) => mergeReadyCheckedIds.includes(order.id)))}>Seçilenleri birleştir</button>
+                <button type="button" className="primary" disabled={mergeReadyBusy || mergeReadyCheckedIds.length < 2} onClick={() => void mergeReadyOrders(mergeReadySelection.filter((order) => mergeReadyCheckedIds.includes(order.id)))}>Seçilenleri birleştir</button>
               </article>
               <div className="merge-ready-picker">
                 {mergeReadySelection.map((order) => {
                   const selected = mergeReadyCheckedIds.includes(order.id);
+                  const hasActiveForm = Boolean(mergeFormWarning([order]));
                   return (
                   <label key={order.id} className={selected ? "is-selected" : ""}>
                     <input
@@ -3507,7 +3541,7 @@ export default function App() {
                     </span>
                     <span className="merge-ready-order-meta">
                       <b>{order.items.map((item) => preparedQuantityLabel(item)).join(" · ")}</b>
-                      <small>{order.items.length} ürün satırı{mergeFormWarning([order]) ? " · Önce formu iptal edin" : ""}</small>
+                      <small>{order.items.length} ürün satırı{hasActiveForm ? ` · ${order.approvalForm?.number || "Sipariş formu mevcut"}` : ""}</small>
                     </span>
                   </label>
                 );})}
@@ -3592,8 +3626,11 @@ export default function App() {
             setActiveOrder(null);
           }}
           onChanged={(next) => {
-            setActiveOrder(next);
+            setActiveOrder((current) => current?.id === next.id ? next : current);
             void load();
+            if (canViewApprovalForms) {
+              api<Order[]>("/api/orders/approval-forms").then(setApprovalOrders).catch(() => undefined);
+            }
             if (next.status === "cancelled" || next.deliveryWaitingSourceId || next.isDeferredDelivery) void loadSupportingData();
             void loadNotifications();
           }}
@@ -6656,7 +6693,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
     order.approvalForm?.documentType !== "domestic" && isAssignedRepresentative;
   const canEditRejectedOwn = order.approvalForm?.status === "rejected" &&
     workflowRole(session.role) === "sales" && (ownsOrder || isAssignedRepresentative);
-  const isHistoricalMerge = Boolean(order.mergedIntoOrderId || order.mergeUndoneAt);
+  const isHistoricalMerge = Boolean((order.mergedIntoOrderId && !order.keepSeparateFormOnMerge) || order.mergeUndoneAt);
   const canEdit = !historical && !isHistoricalMerge && (isOwner || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn || canManageExportForm);
   const canApprove = !historical && !isHistoricalMerge && (isOwner ||
     Boolean(session.permissions?.includes("order_forms.approve")) ||
@@ -9244,6 +9281,7 @@ function OrderDetail({
     });
   };
   const [approvalOpen, setApprovalOpen] = useState(false);
+  const [approvalTargetOrder, setApprovalTargetOrder] = useState<Order | null>(null);
   const [approvalMode, setApprovalMode] = useState<"documents" | "packing">("documents");
   const preserveRestoredWork = useRef(Boolean(savedWork.items?.length || savedWork.deliveryNote || savedWork.despatchNumber || savedWork.withoutDespatch));
   // Presence/refresh updates must never overwrite a number the user is currently pasting.
@@ -9805,8 +9843,9 @@ function OrderDetail({
       }
       return;
     }
-    if (action === "documents" && canManageDocuments) {
+    if (action === "documents" && canManageDocuments && !order.keepSeparateForms) {
       beginActivity(order.approvalForm ? "approval_form_editing_started" : "approval_form_preparing_started");
+      setApprovalTargetOrder(order);
       setApprovalMode(order.exportPackingRequired ? "packing" : "documents");
       setApprovalOpen(true);
       return;
@@ -10857,6 +10896,42 @@ function OrderDetail({
         )}
         {!order.inheritedApprovalForm && !order.isLoanReturn && (order.status === "ready" || order.status === "delivered" || order.exportPackingRequired) &&
           (canSell || (order.exportPackingRequired && canPrepare)) && (
+            order.keepSeparateForms ? (
+              <div style={{ display: "grid", gap: "0.55rem" }}>
+                {(order.mergeSourceOrderIds?.length ? order.mergeSourceOrderIds : (order.mergedOrderIds || []))
+                  .map((sourceId) => allOrders.find((candidate) => candidate.id === sourceId))
+                  .filter((source): source is Order => Boolean(source))
+                  .map((source) => (
+                    <section key={source.id} className="approval-entry">
+                      <div>
+                        <small>AYRI SİPARİŞ ONAY FORMU · {source.number}</small>
+                        <strong>
+                          {source.approvalForm
+                            ? `${source.approvalForm.number} · ${source.approvalForm.status === "approved" ? "Onaylandı" : source.approvalForm.status === "rejected" ? "Reddedildi" : "Onay bekliyor"}`
+                            : "Müşteriye gönderilecek fiyatlı form"}
+                        </strong>
+                        <span>
+                          {source.items.map((item) => item.productName).join(" · ")}
+                        </span>
+                      </div>
+                      <div className="approval-entry-actions">
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => {
+                            beginActivity(source.approvalForm ? "approval_form_editing_started" : "approval_form_preparing_started");
+                            setApprovalTargetOrder(source);
+                            setApprovalMode(source.exportPackingRequired ? "packing" : "documents");
+                            setApprovalOpen(true);
+                          }}
+                        >
+                          {source.approvalForm ? "Formu aç" : "Form oluştur"}
+                        </button>
+                      </div>
+                    </section>
+                  ))}
+              </div>
+            ) : (
             <section className="approval-entry">
               <div>
                 <small>{order.exportPackingRequired ? "İHRACAT PALET HAZIRLIĞI" : "SİPARİŞ ONAY FORMU"}</small>
@@ -10874,12 +10949,13 @@ function OrderDetail({
                 </span>
               </div>
               <div className="approval-entry-actions">
-                {order.exportPackingRequired && canSell && <button type="button" className="secondary" onClick={() => { setApprovalMode("documents"); setApprovalOpen(true); }}>İhracat belgeleri</button>}
+                {order.exportPackingRequired && canSell && <button type="button" className="secondary" onClick={() => { setApprovalTargetOrder(order); setApprovalMode("documents"); setApprovalOpen(true); }}>İhracat belgeleri</button>}
                 <button
                   type="button"
                   className="primary"
                   onClick={() => {
                     beginActivity(order.approvalForm ? "approval_form_editing_started" : "approval_form_preparing_started");
+                    setApprovalTargetOrder(order);
                     setApprovalMode(order.exportPackingRequired ? "packing" : "documents");
                     setApprovalOpen(true);
                   }}
@@ -10888,6 +10964,7 @@ function OrderDetail({
                 </button>
               </div>
             </section>
+            )
           )}
         {order.status === "ready" && (
           <section className="delivery-form readonly">
@@ -11534,21 +11611,27 @@ function OrderDetail({
       {approvalOpen && (
         <ApprovalFormEditor
           products={products}
-          key={order.id}
-          order={order}
+          key={(approvalTargetOrder || order).id}
+          order={approvalTargetOrder || order}
           customers={customers}
           printSettings={printSettings}
           session={session}
           language={language}
           packingMode={approvalMode === "packing"}
           allowApproval={false}
-          onClose={() => setApprovalOpen(false)}
+          onClose={() => { setApprovalOpen(false); setApprovalTargetOrder(null); }}
           onSaved={(next) => {
+            if (approvalTargetOrder && approvalTargetOrder.id !== order.id) {
+              setApprovalTargetOrder(next);
+            }
             onChanged(next);
             // Form onaya gönderildiğinde editörün arkasında açık kalan sipariş
             // formu penceresini de kapat. Böylece ilk × kullanıcıyı tekrar
             // "Form oluştur" ekranına geri götürmez.
-            if (next.approvalForm?.submittedForApproval || next.approvalForm?.status === "approved") setApprovalOpen(false);
+            if (next.approvalForm?.submittedForApproval || next.approvalForm?.status === "approved") {
+              setApprovalOpen(false);
+              setApprovalTargetOrder(null);
+            }
             if (next.approvalForm?.status === "approved" && next.approvalForm.archive?.path) onShowApprovalPdf(next);
           }}
         />
@@ -11812,7 +11895,7 @@ function ApprovalFormEditor({
   const actorIsAssignedRepresentative = order.approvalForm?.salesRepresentativeUserId === session.id || Boolean(representativeIdentity(order.approvalForm?.salesRepresentative) && representativeIdentity(order.approvalForm?.salesRepresentative) === representativeIdentity(session.name));
   const canManageExportForm = Boolean(session.permissions?.includes("order_forms.export_manage")) && form.documentType !== "domestic" && actorIsAssignedRepresentative;
   const canEditRejectedOwn = order.approvalForm?.status === "rejected" && workflowRole(session.role) === "sales" && (actorOwnsOrder || actorIsAssignedRepresentative);
-  const isHistoricalMerge = Boolean(order.mergedIntoOrderId || order.mergeUndoneAt);
+  const isHistoricalMerge = Boolean((order.mergedIntoOrderId && !order.keepSeparateFormOnMerge) || order.mergeUndoneAt);
   const canEdit = !isHistoricalMerge && (workflowRole(session.role) === "owner" || Boolean(session.permissions?.includes("order_forms.edit")) || canEditRejectedOwn || canManageExportForm || (order.exportPackingRequired && (workflowRole(session.role) === "warehouse" || Boolean(session.permissions?.includes("orders.prepare")))));
   const [editing, setEditing] = useState(
     canEdit && ((packingMode && order.exportPackingRequired) ||

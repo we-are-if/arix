@@ -22,6 +22,7 @@ export function undoReadyMerge(orders, order) {
     source.status = "ready";
     delete source.mergedIntoOrderId;
     delete source.mergedIntoOrderNumber;
+    delete source.keepSeparateFormOnMerge;
   }
   order.status = "cancelled";
   return sources;
