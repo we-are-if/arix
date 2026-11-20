@@ -3371,49 +3371,6 @@ export default function App() {
             </div>
           </div>
         )}
-        <div className="order-view-tabs mobile-only-view-tabs" role="tablist">
-          <button
-            className={pageTab === "board" ? "active" : ""}
-            onClick={() => setPageTab("board")}
-          >
-            <ListChecks aria-hidden="true" /><span>{text.workflowTab}</span>
-          </button>
-          {canViewApprovalForms && (
-            <button
-              className={pageTab === "forms" ? "active" : ""}
-              onClick={() => setPageTab("forms")}
-            >
-              <FileText aria-hidden="true" /><span>{text.approvalFormsTab}</span>
-            </button>
-          )}
-          {canSell && (
-            <button
-              type="button"
-              className="mobile-bottom-create-btn"
-              onClick={() => setCreateOpen(true)}
-              aria-label={text.create}
-              title={text.create}
-            >
-              <Plus aria-hidden="true" />
-            </button>
-          )}
-          {canViewDays && (
-            <button
-              className={pageTab === "days" ? "active" : ""}
-              onClick={() => setPageTab("days")}
-            >
-              <CalendarDays aria-hidden="true" /><span>{text.daysTab}</span>
-            </button>
-          )}
-          {canViewStock && (
-            <button
-              className={pageTab === "stock" ? "active" : ""}
-              onClick={() => setPageTab("stock")}
-            >
-              <Layers3 aria-hidden="true" /><span>Stok</span>
-            </button>
-          )}
-        </div>
         {initialDataLoading && !orders.length && (
           <div className="orders-loading-state">
             <span />
@@ -3686,6 +3643,50 @@ export default function App() {
         )}
       </div>
       </div>
+      </div>
+
+      <div className="order-view-tabs mobile-only-view-tabs" role="tablist">
+        <button
+          className={pageTab === "board" ? "active" : ""}
+          onClick={() => setPageTab("board")}
+        >
+          <ListChecks aria-hidden="true" /><span>{text.workflowTab}</span>
+        </button>
+        {canViewApprovalForms && (
+          <button
+            className={pageTab === "forms" ? "active" : ""}
+            onClick={() => setPageTab("forms")}
+          >
+            <FileText aria-hidden="true" /><span>{text.approvalFormsTab}</span>
+          </button>
+        )}
+        {canSell && (
+          <button
+            type="button"
+            className="mobile-bottom-create-btn"
+            onClick={() => setCreateOpen(true)}
+            aria-label={text.create}
+            title={text.create}
+          >
+            <Plus aria-hidden="true" />
+          </button>
+        )}
+        {canViewDays && (
+          <button
+            className={pageTab === "days" ? "active" : ""}
+            onClick={() => setPageTab("days")}
+          >
+            <CalendarDays aria-hidden="true" /><span>{text.daysTab}</span>
+          </button>
+        )}
+        {canViewStock && (
+          <button
+            className={pageTab === "stock" ? "active" : ""}
+            onClick={() => setPageTab("stock")}
+          >
+            <Layers3 aria-hidden="true" /><span>Stok</span>
+          </button>
+        )}
       </div>
 
       {activeDeliveryWaiting && (
