@@ -1531,10 +1531,10 @@ const HeaderIcon = {
 
 const statusMeta: Record<Status, { label: string; tone: string }> = {
   new: { label: "Yeni", tone: "violet" },
-  preparing: { label: "Hazırlanır", tone: "amber" },
+  preparing: { label: "Hazırlanıyor", tone: "amber" },
   ready: { label: "Hazır", tone: "green" },
-  delivered: { label: "Təhvil verildi", tone: "gray" },
-  cancelled: { label: "Ləğv edildi", tone: "red" },
+  delivered: { label: "Teslim edildi", tone: "gray" },
+  cancelled: { label: "İptal edildi", tone: "red" },
   fulfilled: { label: "Tamamlandı", tone: "gray" },
 };
 
