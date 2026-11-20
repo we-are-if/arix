@@ -11636,23 +11636,24 @@ textarea {
   border-radius: 12px !important;
   padding: 8px 12px !important;
 }
-.order-detail-modal .prep-summary {
+.order-detail-modal .prepared-values {
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
   justify-content: flex-start !important;
   flex-wrap: wrap !important;
-  gap: 8px 12px !important;
+  gap: 6px 8px !important;
   padding-top: 2px;
+  text-align: left !important;
 }
-.order-detail-modal .prep-summary > * {
+.order-detail-modal .prepared-values > * {
   padding: 4px 9px;
   border-radius: 8px;
   background: #f1f5f9;
   font-size: 12px !important;
   font-weight: 700;
 }
-.order-detail-modal .prep-summary > b {
+.order-detail-modal .prepared-values > b {
   background: #ecfdf5;
   color: #059669 !important;
 }
@@ -11683,7 +11684,7 @@ textarea {
   border-color: rgba(148, 163, 184, 0.24) !important;
   color: #e2e8f0 !important;
 }
-.theme-dark .order-detail-modal .prep-summary > * {
+.theme-dark .order-detail-modal .prepared-values > * {
   background: #1e293b;
   color: #cbd5e1;
 }
