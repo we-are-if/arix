@@ -7251,6 +7251,8 @@ function StockPage({
   onChanged: () => void;
 }) {
   const [search, setSearch] = useState("");
+  const [stockFilter, setStockFilter] = useState<"all" | "low" | "out">("all");
+  const [mobileStockTab, setMobileStockTab] = useState<"products" | "movements" | "documents">("products");
   const [movements, setMovements] = useState<OrderStockMovement[]>([]);
   const [documents, setDocuments] = useState<StockDocument[]>([]);
   const [createDocumentOpen, setCreateDocumentOpen] = useState(false);
@@ -7264,11 +7266,18 @@ function StockPage({
   }, []);
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("tr");
-    if (!query) return products;
-    return products.filter((product) =>
-      `${product.code || product.sku || ""} ${product.name}`.toLocaleLowerCase("tr").includes(query),
-    );
-  }, [products, search]);
+    return products.filter((product) => {
+      if (query && !`${product.code || product.sku || ""} ${product.name}`.toLocaleLowerCase("tr").includes(query)) {
+        return false;
+      }
+      if (stockFilter !== "all") {
+        const available = Number(product.availableQuantity ?? (Number(product.physicalQuantity ?? 0) - Number(product.reservedQuantity ?? 0)));
+        if (stockFilter === "out" && available > 0) return false;
+        if (stockFilter === "low" && !(available > 0 && available <= 100)) return false;
+      }
+      return true;
+    });
+  }, [products, search, stockFilter]);
   const summary = useMemo(() => {
     const available = products.map((product) =>
       Number(product.availableQuantity ?? (Number(product.physicalQuantity ?? 0) - Number(product.reservedQuantity ?? 0))),
@@ -7296,9 +7305,36 @@ function StockPage({
       </div>
       <div className="stock-page-toolbar">
         <label><ScanText aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ürün kodu veya adıyla ara" /></label>
+        <div className="stock-filter-chips" role="group" aria-label="Stok durumu filtresi">
+          {[
+            { id: "all", label: "Tümü" },
+            { id: "low", label: `Kritik (${summary.low})` },
+            { id: "out", label: `Tükendi (${summary.out})` },
+          ].map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              className={`board-filter-chip ${stockFilter === chip.id ? "active" : ""}`}
+              onClick={() => setStockFilter(chip.id as typeof stockFilter)}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
         <span>{filtered.length} ürün</span>
       </div>
-      <div className="stock-page-content">
+      <div className="mobile-stock-tabs" role="tablist" aria-label="Stok görünümleri">
+        <button type="button" role="tab" aria-selected={mobileStockTab === "products"} className={mobileStockTab === "products" ? "active" : ""} onClick={() => setMobileStockTab("products")}>
+          Ürünler <b>{filtered.length}</b>
+        </button>
+        <button type="button" role="tab" aria-selected={mobileStockTab === "movements"} className={mobileStockTab === "movements" ? "active" : ""} onClick={() => setMobileStockTab("movements")}>
+          Hareketler <b>{movements.length}</b>
+        </button>
+        <button type="button" role="tab" aria-selected={mobileStockTab === "documents"} className={mobileStockTab === "documents" ? "active" : ""} onClick={() => setMobileStockTab("documents")}>
+          Evraklar <b>{documents.length}</b>
+        </button>
+      </div>
+      <div className={`stock-page-content mobile-tab-${mobileStockTab}`}>
         <div className="stock-overview-table stock-page-table">
           <div className="stock-overview-head"><span>Ürün</span><span>Fiziki</span><span>Rezerv</span><span>Kullanılabilir</span><span>Rulo</span><span>Durum</span></div>
           <div className="stock-overview-body">
