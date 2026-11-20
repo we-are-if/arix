@@ -9695,10 +9695,10 @@ textarea {
   .order-content {
     flex: 1 1 auto;
     min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 8px 10px 14px !important;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 8px 10px 8px !important;
   }
   .app-shell.is-board-view .order-content {
     display: flex;
@@ -9778,12 +9778,94 @@ textarea {
     height: 38px;
     margin-bottom: 4px;
   }
-  .app-shell.is-board-view .app-page-footer {
+  .app-page-footer {
     display: none;
+  }
+  .approval-forms-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden !important;
+  }
+  .approval-forms-page > .approval-forms-toolbar,
+  .approval-forms-page > .approval-credit-strip,
+  .approval-forms-page > .approval-forms-tabs {
+    flex: 0 0 auto;
+  }
+  .approval-forms-page > .approval-forms-table,
+  .approval-forms-page > .offer-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .daily-archive {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .daily-archive > .daily-day-navigator,
+  .daily-archive > .day-control {
+    flex: 0 0 auto;
+  }
+  .daily-archive > .day-group,
+  .daily-archive > .daily-empty {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .daily-archive > .day-group > header {
+    flex: 0 0 auto;
+  }
+  .daily-archive > .day-group > .day-orders {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .stock-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding-bottom: 0 !important;
+    overflow: hidden;
+  }
+  .stock-page > .stock-page-header,
+  .stock-page > .stock-page-summary,
+  .stock-page > .stock-page-toolbar {
+    flex: 0 0 auto;
+  }
+  .stock-page > .stock-page-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-items: stretch;
+  }
+  .stock-page-table,
+  .stock-page-movements {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden !important;
+  }
+  .stock-page-table .stock-overview-body,
+  .stock-page-movements > div {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .day-product-head,
   .day-product-list li {
-    grid-template-columns: 68px minmax(0, 1fr) 54px 44px;
+    grid-template-columns: 62px minmax(0, 1fr) 48px 38px;
     gap: 6px;
   }
   .day-product-head span:nth-child(5),
