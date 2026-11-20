@@ -11738,6 +11738,148 @@ textarea {
     justify-content: center;
   }
 }
+
+/* =========================================================
+   ARIX COMPACT HEADER ACTIONS, SEGMENTED TABS & NOTE CARD
+   ========================================================= */
+.modal > header {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 10px 12px !important;
+}
+.modal > header .modal-heading {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.order-detail-header-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.order-detail-header-bar button,
+.order-detail-header-bar .order-detail-more-btn {
+  min-height: 34px !important;
+  padding: 0 12px !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+  white-space: nowrap;
+}
+.order-detail-header-bar button.primary {
+  background: linear-gradient(135deg, #5b4cf0 0%, #4838db 100%) !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(81, 67, 237, 0.26);
+}
+.order-detail-header-bar button.secondary,
+.order-detail-header-bar .order-lock-top-action {
+  background: #ffffff !important;
+  border: 1px solid #dfe4ec !important;
+  color: #334155 !important;
+}
+.order-detail-header-bar .arix-chat-order-trigger-btn {
+  background: #f1efff !important;
+  border: 1px solid #d8d4ff !important;
+  color: #4b3dde !important;
+}
+.modal > .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 20px 22px !important;
+}
+.order-detail-tabs {
+  display: inline-flex !important;
+  align-self: flex-start;
+  gap: 4px !important;
+  padding: 4px !important;
+  border-radius: 12px !important;
+  background: #f1f5f9 !important;
+  border: 1px solid #e2e8f0;
+  margin: 0 !important;
+}
+.order-detail-tabs button {
+  min-height: 30px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: #475569 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+.order-detail-tabs button.active {
+  background: #ffffff !important;
+  color: #5143ed !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+.arix-customer-note {
+  border: 1px solid #e0e7ff !important;
+  border-left: 4px solid #5143ed !important;
+  border-radius: 12px !important;
+  background: #f8faff !important;
+  padding: 9px 13px !important;
+  margin: 0 !important;
+}
+.arix-customer-note small {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #5143ed;
+  margin-bottom: 2px;
+}
+.arix-customer-note p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.theme-dark .order-detail-tabs {
+  background: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.2);
+}
+.theme-dark .order-detail-tabs button {
+  color: #94a3b8 !important;
+}
+.theme-dark .order-detail-tabs button.active {
+  background: #1e293b !important;
+  color: #c7d2fe !important;
+}
+.theme-dark .arix-customer-note {
+  background: rgba(99, 102, 241, 0.1) !important;
+  border-color: rgba(129, 140, 248, 0.25) !important;
+  border-left-color: #818cf8 !important;
+}
+.theme-dark .arix-customer-note p {
+  color: #f1f5f9;
+}
+@media (max-width: 600px) {
+  .modal > .modal-body {
+    padding: 10px 14px max(22px, env(safe-area-inset-bottom)) !important;
+  }
+  .modal-header-actions {
+    order: 3;
+    flex: 1 1 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .modal-header-actions::-webkit-scrollbar {
+    display: none;
+  }
+  .order-detail-header-bar {
+    flex-wrap: nowrap;
+  }
+}
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
   padding: 3px 8px !important;
