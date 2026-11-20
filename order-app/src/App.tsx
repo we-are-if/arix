@@ -2094,6 +2094,7 @@ export default function App() {
   const [quickNoteError, setQuickNoteError] = useState("");
   const colTouchTimerRef = useRef<any>(null);
   const colTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
 
   const handleOpenContextMenu = (target: ContextMenuTarget, pos: { x: number; y: number }) => {
     setContextMenuTarget(target);
@@ -2163,6 +2164,7 @@ export default function App() {
   const [notificationSettingsBusy, setNotificationSettingsBusy] = useState(false);
   const [boardSearch, setBoardSearch] = useState("");
   const [boardFilter, setBoardFilter] = useState<"all" | "my" | "despatch_pending" | "form_pending" | "export">("all");
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [mobileBoardStatus, setMobileBoardStatus] = useState<BoardStatus>("new");
   const boardRef = useRef<HTMLElement | null>(null);
   const [archiveOrdersOpen, setArchiveOrdersOpen] = useState(false);
@@ -3420,22 +3422,31 @@ export default function App() {
         )}
         {initialDataLoading && !orders.length ? null : pageTab === "board" ? (
           <div className="board-view">
-            <div className="board-toolbar">
-              <label className="board-search">
-                <Search aria-hidden="true" />
-                <input
-                  type="search"
-                  value={boardSearch}
-                  onChange={(event) => setBoardSearch(event.target.value)}
-                  placeholder="Müşteri adı veya sipariş no ile ara"
-                  aria-label="Müşteri adı veya sipariş no ile sipariş ara"
-                />
-                {boardSearch && (
-                  <button type="button" onClick={() => setBoardSearch("")} aria-label="Aramayı temizle">
-                    <X aria-hidden="true" />
-                  </button>
-                )}
-              </label>
+            <div className={`board-toolbar ${mobileFiltersOpen || boardFilter !== "all" ? "filters-open" : ""}`}>
+              <div className="board-search-row">
+                <label className="board-search">
+                  <Search aria-hidden="true" />
+                  <input
+                    type="search"
+                    value={boardSearch}
+                    onChange={(event) => setBoardSearch(event.target.value)}
+                    placeholder="Müşteri adı veya sipariş no ile ara"
+                    aria-label="Müşteri adı veya sipariş no ile sipariş ara"
+                  />
+                  {boardSearch && (
+                    <button type="button" onClick={() => setBoardSearch("")} aria-label="Aramayı temizle">
+                      <X aria-hidden="true" />
+                    </button>
+                  )}
+                </label>
+                <button
+                  type="button"
+                  className={`mobile-filter-toggle ${mobileFiltersOpen || boardFilter !== "all" ? "active" : ""}`}
+                  onClick={() => setMobileFiltersOpen((v) => !v)}
+                >
+                  Filtre{boardFilter !== "all" ? " •" : ""}
+                </button>
+              </div>
               <div className="board-filter-chips" role="group" aria-label="Hızlı filtreler">
                 {[
                   { id: "all", label: "Tümü" },
@@ -4749,6 +4760,7 @@ function BoardColumn({
 }) {
   const colTouchTimerRef = useRef<any>(null);
   const colTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
   const meta = statusMeta[status];
   const text = copy[language];
   return (
@@ -4943,7 +4955,7 @@ function BoardColumn({
               </div>
               <h3>{order.customerName}</h3>
               <ul>
-                {order.items.slice(0, 4).map((item, index) => (
+                {(expandedCardIds[order.id] ? order.items : order.items.slice(0, 4)).map((item, index) => (
                   <li key={`${item.productId}-${index}`}>
                     <span>{item.productName}</span>
                     <b>{status === "ready" ? preparedQuantityLabel(item) : orderedQuantityLabel(item)}</b>
@@ -4951,7 +4963,24 @@ function BoardColumn({
                 ))}
               </ul>
               {order.items.length > 4 && (
-                <small>+{order.items.length - 4} məhsul</small>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="card-expand-btn"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setExpandedCardIds((current) => ({ ...current, [order.id]: !current[order.id] }));
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setExpandedCardIds((current) => ({ ...current, [order.id]: !current[order.id] }));
+                  }}
+                >
+                  {expandedCardIds[order.id] ? "Daha az göster" : `+${order.items.length - 4} ürün daha · Tümünü gör`}
+                </span>
               )}
               <footer>
                 <span>
