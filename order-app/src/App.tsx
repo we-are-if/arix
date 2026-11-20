@@ -3,7 +3,7 @@ import { canWithdrawApproval } from "../../shared/approvalPermissions.js";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Menu, Moon, MoreVertical, NotepadText, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
+import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Menu, Moon, MoreVertical, NotepadText, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 import { matchOrderFormItems, mergeFormWarning } from "../../shared/orderFormItems.js";
 import { sortApprovalHistory } from "../../shared/approvalFormHistory.js";
@@ -5030,6 +5030,8 @@ function DailyArchive({
   const [copiedSummaryDay, setCopiedSummaryDay] = useState("");
   const [dayCloseConfirmOpen, setDayCloseConfirmOpen] = useState(false);
   const [dayActionBusy, setDayActionBusy] = useState(false);
+  const [reportFilter, setReportFilter] = useState<"all" | "delivered" | "pending" | "carried">("all");
+  const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
   const availableDays = useMemo(() => groups.map(([day]) => day).filter(Boolean), [groups]);
   const [selectedArchiveDay, setSelectedArchiveDay] = useState("");
   const stripCenterDay = selectedArchiveDay || currentDay?.date || new Date().toISOString().slice(0, 10);
@@ -5465,139 +5467,288 @@ function DailyArchive({
         ><ChevronRight aria-hidden="true" /></button>
       </nav>
       <div className="daily-archive-body">
-      <div className={`day-control ${currentDay?.closed ? "closed" : "open"}`}>
-        <div>
-          <span>{currentDay?.closed ? ui.dayClosed : ui.dayOpen}</span>
-          {currentDay?.date && <b>{new Date(`${currentDay.date}T12:00:00`).toLocaleDateString(language, { day: "2-digit", month: "long", year: "numeric" })}</b>}
-          {currentDay?.closed && currentDay.automatic && <strong className="automatic-day-close">Sistem tarafından otomatik kapatıldı</strong>}
-          {currentDay?.closed && !currentDay.automatic && currentDay.closedBy && <small>{currentDay.closedBy} tarafından kapatıldı</small>}
-          {currentDay?.closedAt && <small>{new Date(currentDay.closedAt).toLocaleString("tr-TR")}</small>}
-          {currentDay?.closed && Number(currentDay.carriedCount) > 0 && <small>{currentDay.carriedCount} sipariş {currentDay.carriedToDate ? new Date(`${currentDay.carriedToDate}T12:00:00`).toLocaleDateString("tr-TR") : "sonraki iş gününe"} devredildi</small>}
+        <div className={`daily-report-bar ${currentDay?.closed ? "closed" : "open"}`}>
+          <div className="daily-report-bar-info">
+            <span className={`daily-day-pill ${currentDay?.closed ? "closed" : "open"}`}>
+              {currentDay?.closed ? <Lock aria-hidden="true" /> : <LockOpen aria-hidden="true" />}
+              {currentDay?.closed ? ui.dayClosed : ui.dayOpen}
+            </span>
+            {currentDay?.date && (
+              <b>{new Date(`${currentDay.date}T12:00:00`).toLocaleDateString(language, { day: "2-digit", month: "long", year: "numeric" })}</b>
+            )}
+            {currentDay?.closed && currentDay.automatic && <small>Sistem tarafından otomatik kapatıldı</small>}
+            {currentDay?.closed && !currentDay.automatic && currentDay.closedBy && (
+              <small>{currentDay.closedBy} tarafından kapatıldı</small>
+            )}
+            {currentDay?.closed && Number(currentDay.carriedCount) > 0 && (
+              <small>· {currentDay.carriedCount} sipariş devredildi</small>
+            )}
+          </div>
+          <div className="daily-report-bar-actions">
+            {visibleGroups[0]?.[1]?.length ? (
+              <button
+                type="button"
+                className="daily-action-btn"
+                disabled={reportBusyDay === visibleGroups[0][0]}
+                onClick={() => void downloadDayReport(visibleGroups[0][0], visibleGroups[0][1])}
+              >
+                <FileText aria-hidden="true" />
+                <span>{reportBusyDay === visibleGroups[0][0] ? "Hazırlanıyor…" : "PDF"}</span>
+              </button>
+            ) : null}
+            {isOwner && (
+              <button
+                type="button"
+                className={`daily-action-btn ${currentDay?.closed ? "primary" : ""}`}
+                disabled={dayActionBusy}
+                onClick={() => (currentDay?.closed ? void runDayToggle() : setDayCloseConfirmOpen(true))}
+              >
+                {dayActionBusy ? "İşleniyor…" : currentDay?.closed ? ui.openDay : ui.closeDay}
+              </button>
+            )}
+          </div>
         </div>
-        {isOwner && (
-          <button
-            className={currentDay?.closed ? "primary" : "secondary"}
-            disabled={dayActionBusy}
-            onClick={() => currentDay?.closed ? void runDayToggle() : setDayCloseConfirmOpen(true)}
-          >
-            {dayActionBusy ? "İşleniyor…" : currentDay?.closed ? ui.openDay : ui.closeDay}
-          </button>
+
+        {reportError && <p className="form-error">{reportError}</p>}
+
+        {!groups.length && <div className="daily-empty">{ui.dailyEmpty}</div>}
+        {!!groups.length && !visibleGroups.length && (
+          <div className="daily-empty">
+            {new Date(`${stripCenterDay}T12:00:00`).toLocaleDateString(language, { day: "2-digit", month: "long", year: "numeric" })} için kayıtlı sipariş yok.
+          </div>
         )}
-      </div>
-      {!groups.length && <div className="daily-empty">{ui.dailyEmpty}</div>}
-      {!!groups.length && !visibleGroups.length && <div className="daily-empty">Bu gün için kayıtlı sipariş yok.</div>}
-      {reportError && <p className="form-error">{reportError}</p>}
-      {visibleGroups.map(([day, orders]) => {
-        const carriedOrders = orders.filter((order) => Boolean(order.reportRolloverTo));
-        const deliveredOrders = orders.filter((order) => order.status === "delivered" && !order.reportRolloverTo);
-        const pendingOrders = orders.filter((order) => order.status !== "delivered" && !order.reportRolloverTo);
-        const renderOrder = (order: Order) => (
-          <button
-            className={`day-order ${order.reportRolloverTo ? "is-carried" : order.status === "delivered" ? "is-delivered" : "is-pending"}`}
-            key={order.id}
-            onClick={() => onOpen(order)}
-          >
-            <div className="day-order-head">
-              <div>
-                <strong>{order.customerName}</strong>
-                <span>{order.number}</span>
+
+        {visibleGroups.map(([day, orders]) => {
+          const carriedOrders = orders.filter((order) => Boolean(order.reportRolloverTo));
+          const deliveredOrders = orders.filter((order) => order.status === "delivered" && !order.reportRolloverTo);
+          const pendingOrders = orders.filter((order) => order.status !== "delivered" && !order.reportRolloverTo);
+          const activeFilter =
+            reportFilter === "carried" && carriedOrders.length === 0 ? "all" : reportFilter;
+          const filteredOrders =
+            activeFilter === "delivered"
+              ? deliveredOrders
+              : activeFilter === "pending"
+                ? pendingOrders
+                : activeFilter === "carried"
+                  ? carriedOrders
+                  : orders;
+          const totalMeters = orders.reduce(
+            (sum, order) =>
+              sum + safeItems(order).reduce((s, item) => s + (Number(item.preparedQuantity || item.quantity) || 0), 0),
+            0,
+          );
+          const totalRolls = orders.reduce(
+            (sum, order) =>
+              sum + safeItems(order).reduce((s, item) => s + (Number(item.preparedRollCount) || 0), 0),
+            0,
+          );
+          return (
+            <div className="daily-day-panel" id={`order-day-${day}`} key={day}>
+              <div className="daily-kpi-strip">
+                <div className="daily-kpi-card">
+                  <span>Toplam Sipariş</span>
+                  <strong>{orders.length}</strong>
+                  <small>{deliveredOrders.length} teslim · {pendingOrders.length} bekleyen</small>
+                </div>
+                <div className="daily-kpi-card">
+                  <span>Toplam Metre</span>
+                  <strong>{Number.isInteger(totalMeters) ? totalMeters : totalMeters.toFixed(1)} mt</strong>
+                  <small>{orders.reduce((s, o) => s + safeItems(o).length, 0)} kalem ürün</small>
+                </div>
+                <div className="daily-kpi-card">
+                  <span>Toplam Rulo</span>
+                  <strong>{totalRolls}</strong>
+                  <small>{carriedOrders.length > 0 ? `${carriedOrders.length} devreden` : "Gün içi"}</small>
+                </div>
               </div>
-              <div className="day-order-state">
-                <span className={`day-status status-${order.status}`}>
-                  {statusMeta[order.status]?.label || order.status}
-                </span>
-                <time>
-                  {new Date(
-                    order.deliveredAt || order.updatedAt || order.createdAt,
-                  ).toLocaleTimeString(language, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </time>
+
+              <div className="daily-filter-row">
+                <div className="daily-filter-tabs" role="tablist" aria-label="Rapor sipariş filtreleri">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeFilter === "all"}
+                    className={activeFilter === "all" ? "active" : ""}
+                    onClick={() => setReportFilter("all")}
+                  >
+                    Tümü <b>{orders.length}</b>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeFilter === "delivered"}
+                    className={activeFilter === "delivered" ? "active" : ""}
+                    onClick={() => setReportFilter("delivered")}
+                  >
+                    Teslim <b>{deliveredOrders.length}</b>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeFilter === "pending"}
+                    className={activeFilter === "pending" ? "active" : ""}
+                    onClick={() => setReportFilter("pending")}
+                  >
+                    Bekleyen <b>{pendingOrders.length}</b>
+                  </button>
+                  {carriedOrders.length > 0 && (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activeFilter === "carried"}
+                      className={activeFilter === "carried" ? "active" : ""}
+                      onClick={() => setReportFilter("carried")}
+                    >
+                      Devreden <b>{carriedOrders.length}</b>
+                    </button>
+                  )}
+                </div>
+                {deliveredOrders.length > 0 && (
+                  <button
+                    type="button"
+                    className="copy-delivered-summary"
+                    onClick={() => void copyDeliveredSummary(day, deliveredOrders)}
+                  >
+                    <ClipboardCopy aria-hidden="true" />
+                    <span>{copiedSummaryDay === day ? "Kopyalandı" : "Teslim Özeti"}</span>
+                  </button>
+                )}
               </div>
-            </div>
-            {order.reportRolloverTo && (
-              <div className="day-document-badge">Sonraki güne devredildi: <b>{new Date(`${order.reportRolloverTo}T12:00:00`).toLocaleDateString(language)}</b></div>
-            )}
-            {order.parentOrderNumber && (
-              <div className="parent-order-link">
-                {ui.originalOrder}: <b>{order.parentOrderNumber}</b>
-              </div>
-            )}
-            {order.isLoanReturn && (
-              <div className="day-document-badge loan-return"><b>Borç iadesi</b></div>
-            )}
-            {(order.attachments || []).some((attachment) => !attachment.deletedAt) && (
-              <div className="day-document-badge">
-                {ui.documents}: <b>{(order.attachments || []).filter((attachment) => !attachment.deletedAt).length}</b>
-              </div>
-            )}
-            <div className="day-product-head">
-              <span>{ui.code}</span><span>{ui.productName}</span><span>mt</span>
-              <span>{ui.rollCount}</span><span>{ui.preparedBy}</span>
-            </div>
-            <ul className="day-product-list">
-              {safeItems(order).map((item, index) => (
-                <li key={`${item.productId}-${index}`}>
-                  <span data-label={ui.code}>{item.productCode || "-"}</span>
-                  <span data-label={ui.productName}>{item.productName}{item.lineNote ? ` · ${item.lineNote}` : ""}</span>
-                  <b data-label="mt">{item.preparedQuantity || item.quantity}</b>
-                  <b data-label={ui.rollCount}>{item.preparedRollCount || "-"}</b>
-                  <span data-label={ui.preparedBy}>{itemHasPreparedAmount(order, item) ? item.preparedBy || order.preparedBy || "-" : "-"}</span>
-                </li>
-              ))}
-            </ul>
-            <footer>
-              <span>{ui.createdBy}: <b>{order.createdBy}</b></span>
-              {order.status === "delivered" ? (
-                <span>{ui.deliveredBy}: <b>{order.deliveredBy || "-"}</b> · {order.deliveredAt ? new Date(order.deliveredAt).toLocaleString(language) : "-"}</span>
+
+              {filteredOrders.length === 0 ? (
+                <div className="daily-empty">Bu filtrede sipariş bulunmuyor.</div>
               ) : (
-                <span>{ui.preparedBy}: <b>{preparedByForDisplay(order)}</b></span>
+                <div className="daily-order-cards">
+                  {filteredOrders.map((order) => {
+                    const items = safeItems(order);
+                    const isExpanded = Boolean(expandedOrders[order.id]);
+                    const orderMeters = items.reduce(
+                      (sum, item) => sum + (Number(item.preparedQuantity || item.quantity) || 0),
+                      0,
+                    );
+                    const orderRolls = items.reduce((sum, item) => sum + (Number(item.preparedRollCount) || 0), 0);
+                    const attachmentCount = (order.attachments || []).filter((attachment) => !attachment.deletedAt).length;
+                    const stateClass = order.reportRolloverTo
+                      ? "is-carried"
+                      : order.status === "delivered"
+                        ? "is-delivered"
+                        : "is-pending";
+                    return (
+                      <article className={`daily-order-card ${stateClass} ${isExpanded ? "expanded" : ""}`} key={order.id}>
+                        <button
+                          type="button"
+                          className="daily-order-card-head"
+                          aria-expanded={isExpanded}
+                          onClick={() =>
+                            setExpandedOrders((prev) => ({ ...prev, [order.id]: !prev[order.id] }))
+                          }
+                        >
+                          <div className="daily-order-card-main">
+                            <div className="daily-order-card-title">
+                              <strong>{order.customerName}</strong>
+                              <span className={`day-status status-${order.status}`}>
+                                {statusMeta[order.status]?.label || order.status}
+                              </span>
+                            </div>
+                            <div className="daily-order-card-meta">
+                              <span>{order.number}</span>
+                              <span>·</span>
+                              <b>{Number.isInteger(orderMeters) ? orderMeters : orderMeters.toFixed(1)} mt</b>
+                              {orderRolls > 0 && (
+                                <>
+                                  <span>·</span>
+                                  <span>{orderRolls} rulo</span>
+                                </>
+                              )}
+                              <span>·</span>
+                              <time>
+                                {new Date(order.deliveredAt || order.updatedAt || order.createdAt).toLocaleTimeString(
+                                  language,
+                                  { hour: "2-digit", minute: "2-digit" },
+                                )}
+                              </time>
+                            </div>
+                            {(order.reportRolloverTo || order.isLoanReturn || attachmentCount > 0 || order.parentOrderNumber) && (
+                              <div className="daily-order-card-badges">
+                                {order.reportRolloverTo && (
+                                  <span className="daily-mini-badge">
+                                    Devir: {new Date(`${order.reportRolloverTo}T12:00:00`).toLocaleDateString(language)}
+                                  </span>
+                                )}
+                                {order.isLoanReturn && <span className="daily-mini-badge warn">Borç iadesi</span>}
+                                {attachmentCount > 0 && <span className="daily-mini-badge">{attachmentCount} belge</span>}
+                                {order.parentOrderNumber && (
+                                  <span className="daily-mini-badge">{order.parentOrderNumber}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <ChevronDown className="daily-order-card-chevron" aria-hidden="true" />
+                        </button>
+
+                        {isExpanded && (
+                          <div className="daily-order-card-body">
+                            <ul className="daily-order-products">
+                              {items.map((item, index) => (
+                                <li key={`${item.productId}-${index}`}>
+                                  <div className="daily-order-product-name">
+                                    <strong>{item.productName}</strong>
+                                    <small>
+                                      {item.productCode || "-"}
+                                      {item.lineNote ? ` · ${item.lineNote}` : ""}
+                                    </small>
+                                  </div>
+                                  <div className="daily-order-product-qty">
+                                    <b>{item.preparedQuantity || item.quantity} mt</b>
+                                    <span>
+                                      {item.preparedRollCount ? `${item.preparedRollCount} rulo` : "-"}
+                                      {itemHasPreparedAmount(order, item)
+                                        ? ` · ${item.preparedBy || order.preparedBy || "-"}`
+                                        : ""}
+                                    </span>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+
+                            <div className="daily-order-card-footer">
+                              <div className="daily-order-card-people">
+                                <span>{ui.createdBy}: <b>{order.createdBy}</b></span>
+                                {order.status === "delivered" ? (
+                                  <span>{ui.deliveredBy}: <b>{order.deliveredBy || "-"}</b></span>
+                                ) : (
+                                  <span>{ui.preparedBy}: <b>{preparedByForDisplay(order)}</b></span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                className="daily-open-order-btn"
+                                onClick={() => onOpen(order)}
+                              >
+                                <Eye aria-hidden="true" />
+                                <span>Siparişi aç</span>
+                              </button>
+                            </div>
+
+                            {(order.deliveryNote || order.deliveryPhoto) && (
+                              <div className="delivery-proof">
+                                <div>
+                                  <b>{ui.deliveryProof}</b>
+                                  <span>{order.deliveryNote || "-"}</span>
+                                </div>
+                                {order.deliveryPhoto && <img src={order.deliveryPhoto} alt={ui.deliveryPhoto} />}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
               )}
-            </footer>
-            {(order.deliveryNote || order.deliveryPhoto) && (
-              <div className="delivery-proof">
-                <div><b>{ui.deliveryProof}</b><span>{order.deliveryNote || "-"}</span></div>
-                {order.deliveryPhoto && <img src={order.deliveryPhoto} alt={ui.deliveryPhoto} />}
-              </div>
-            )}
-          </button>
-        );
-        return <section className="day-group" id={`order-day-${day}`} key={day}>
-          <header>
-            <div className="day-group-title">
-              <h2>{new Date(`${day}T12:00:00`).toLocaleDateString(language, {
-                day: "2-digit",
-                month: "long",
-                year: "numeric",
-                weekday: "long",
-              })}</h2>
-              <div className="day-summary-chips">
-                <span><b>{orders.length}</b> toplam</span>
-                <span className="pending"><b>{pendingOrders.length}</b> hazır değil</span>
-                <span className="delivered"><b>{deliveredOrders.length}</b> teslim edildi</span>
-                {carriedOrders.length > 0 && <span><b>{carriedOrders.length}</b> sonraki güne devreden</span>}
-              </div>
             </div>
-            <button type="button" className="day-report-download" disabled={reportBusyDay === day} onClick={() => void downloadDayReport(day, orders)}>
-              <FileText aria-hidden="true" />
-              <span>{reportBusyDay === day ? "PDF hazırlanıyor…" : "PDF raporunu görüntüle"}</span>
-            </button>
-          </header>
-          {pendingOrders.length > 0 && <section className="day-order-section pending">
-            <header><span className="day-section-dot" /><div><h3>Hazır olmayanlar</h3><small>Hazırlama veya teslim süreci devam eden siparişler</small></div><b>{pendingOrders.length}</b></header>
-            <div className="day-orders">{pendingOrders.map(renderOrder)}</div>
-          </section>}
-          {carriedOrders.length > 0 && <section className="day-order-section carried">
-            <header><span className="day-section-dot" /><div><h3>Sonraki güne devredenler</h3><small>Gün kapanışında teslim edilmediği için aktarılan siparişler</small></div><b>{carriedOrders.length}</b></header>
-            <div className="day-orders">{carriedOrders.map(renderOrder)}</div>
-          </section>}
-          {deliveredOrders.length > 0 && <section className="day-order-section delivered">
-            <header><span className="day-section-dot" /><div><h3>Teslim edilenler</h3><small>Teslim işlemi tamamlanmış siparişler</small></div><button type="button" className="copy-delivered-summary" onClick={() => void copyDeliveredSummary(day, deliveredOrders)}><ClipboardCopy aria-hidden="true" /><span>{copiedSummaryDay === day ? "Kopyalandı" : "Grup metnini kopyala"}</span></button><b>{deliveredOrders.length}</b></header>
-            <div className="day-orders">{deliveredOrders.map(renderOrder)}</div>
-          </section>}
-        </section>;
-      })}
+          );
+        })}
       </div>
       {reportPreview && (
         <DailyReportPreview

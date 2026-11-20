@@ -1,4 +1,4 @@
-const APP_SHELL_VERSION = "2026-11-20-modern-ui-v12";
+const APP_SHELL_VERSION = "2026-11-20-modern-ui-v13";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
