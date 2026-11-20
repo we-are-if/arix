@@ -140,7 +140,7 @@ function isFullRollQuantity(value) {
 
 function isCustomUnitOrderItem(item) {
   const unit = String(item?.unit || "").trim().toUpperCase();
-  if (unit && unit !== "M" && unit !== "M2") return true;
+  if (unit && unit !== "M" && unit !== "MT" && unit !== "M2") return true;
   if (item?.manual === true || item?.isExternal === true) return true;
   if ((item?.productId === null || item?.productId === undefined || item?.productId === "") && String(item?.productName || "").trim()) return true;
   return false;

@@ -14,10 +14,10 @@ export function mergeFormWarning(orders) {
   return blocked.length ? `Önce sipariş formunu iptal edin. Bekleyen veya onaylı formu olan siparişler birleştirilemez: ${blocked.join(" · ")}. Formu açıp Reddet / İptal işlemini kullanın; eski belge geçmişte korunur.` : "";
 }
 
-export function orderLineMatchesItem(line, item) {
+export function orderLineMatchesItem(line, item, { allowManualCatalogFallback = false } = {}) {
   if (!line || !item) return false;
-  // An extra manual document row must not consume a catalog order row.
-  if (line.manual === true && !item.manual && item.productId != null) return false;
+  // An extra manual document row must not consume a catalog order row when a non-manual row exists.
+  if (!allowManualCatalogFallback && line.manual === true && !item.manual && item.productId != null) return false;
   if (line.productId != null && item.productId != null && String(line.productId) === String(item.productId)) {
     return true;
   }
@@ -35,25 +35,41 @@ export function orderLineMatchesItem(line, item) {
 // A product may occur more than once after a merge. Consume each source row once.
 export function matchOrderFormItems(lines, items) {
   const used = new Set();
-  return lines.map((line) => {
+  const result = new Array(lines.length).fill(-1);
+
+  const tryMatchLine = (line, lineIndex, allowManualCatalogFallback) => {
+    if (!line || result[lineIndex] >= 0) return;
     const ref = line.sourceItemRef;
     if (ref && Number.isInteger(ref.index) && !used.has(ref.index)) {
       const source = items[ref.index];
-      if (source && (source.manual || source.productId == null) && line.manual === true
+      if (source && (source.manual || source.productId == null || allowManualCatalogFallback) && line.manual === true
         && String(source.productCode || "") === ref.code && String(source.productName || "") === ref.name) {
         used.add(ref.index);
-        return ref.index;
+        result[lineIndex] = ref.index;
+        return;
       }
     }
     const candidates = items.map((item, index) => ({ item, index }))
-      .filter(({ item, index }) => !used.has(index) && orderLineMatchesItem(line, item));
+      .filter(({ item, index }) => !used.has(index) && orderLineMatchesItem(line, item, { allowManualCatalogFallback }));
     const exact = candidates.find(({ item }) => Math.abs(Number(line.quantity || 0) - Number(item.preparedQuantity ?? item.quantity ?? item.orderedRollCount ?? 0)) < 0.001);
     const index = (exact || candidates[0])?.index ?? -1;
     if (index >= 0) {
       used.add(index);
-      return index;
+      result[lineIndex] = index;
     }
-    if (line.manual) return -1;
-    return -1;
+  };
+
+  // Pass 1: Non-manual lines and explicit manual-to-manual matches get priority
+  lines.forEach((line, lineIndex) => {
+    tryMatchLine(line, lineIndex, false);
   });
+
+  // Pass 2: Lines saved with manual=true that correspond to an unclaimed catalog order item
+  lines.forEach((line, lineIndex) => {
+    if (result[lineIndex] < 0 && line?.manual === true) {
+      tryMatchLine(line, lineIndex, true);
+    }
+  });
+
+  return result;
 }
