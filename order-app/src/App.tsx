@@ -3,7 +3,7 @@ import { canWithdrawApproval } from "../../shared/approvalPermissions.js";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Moon, NotepadText, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
+import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Moon, MoreVertical, NotepadText, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 import { matchOrderFormItems, mergeFormWarning } from "../../shared/orderFormItems.js";
 import { sortApprovalHistory } from "../../shared/approvalFormHistory.js";
@@ -2162,6 +2162,9 @@ export default function App() {
   const [myNotificationSettings, setMyNotificationSettings] = useState<{ preferences: { inApp: boolean; push: boolean; events: Record<string, boolean> }; permissions: { events: Record<string, boolean> } } | null>(null);
   const [notificationSettingsBusy, setNotificationSettingsBusy] = useState(false);
   const [boardSearch, setBoardSearch] = useState("");
+  const [boardFilter, setBoardFilter] = useState<"all" | "my" | "despatch_pending" | "form_pending" | "export">("all");
+  const [mobileBoardStatus, setMobileBoardStatus] = useState<BoardStatus>("new");
+  const boardRef = useRef<HTMLElement | null>(null);
   const [archiveOrdersOpen, setArchiveOrdersOpen] = useState(false);
   const [inactiveOrdersOpen, setInactiveOrdersOpen] = useState(false);
   const [inactiveOrderBusyId, setInactiveOrderBusyId] = useState("");
@@ -2494,9 +2497,26 @@ export default function App() {
   const grouped = useMemo(
     () => {
       const query = boardSearch.trim().toLocaleLowerCase("tr-TR");
-      const boardOrders = query
-        ? orders.filter((order) => order.customerName.toLocaleLowerCase("tr-TR").includes(query))
-        : orders;
+      const actorId = String(session?.id || "");
+      const actorName = representativeIdentity(session?.name || "");
+      const boardOrders = orders.filter((order) => {
+        if (query && !order.customerName.toLocaleLowerCase("tr-TR").includes(query) && !order.number.toLocaleLowerCase("tr-TR").includes(query)) {
+          return false;
+        }
+        if (boardFilter === "my") {
+          const owns = order.createdByUserId
+            ? String(order.createdByUserId) === actorId
+            : representativeIdentity(order.createdBy || "") === actorName;
+          const repMatches = order.approvalForm?.salesRepresentativeUserId
+            ? String(order.approvalForm.salesRepresentativeUserId) === actorId
+            : Boolean(actorName && representativeIdentity(order.approvalForm?.salesRepresentative || "") === actorName);
+          return owns || repMatches;
+        }
+        if (boardFilter === "despatch_pending") return order.status === "ready" && !order.despatchReady;
+        if (boardFilter === "form_pending") return order.status === "ready" && (!order.approvalForm || order.approvalForm.status !== "approved") && !order.isLoanReturn;
+        if (boardFilter === "export") return Boolean(order.isExport);
+        return true;
+      });
       return {
         new: boardOrders.filter((order) => order.status === "new"),
         preparing: boardOrders.filter((order) => order.status === "preparing"),
@@ -2510,7 +2530,7 @@ export default function App() {
         }),
       };
     },
-    [orders, orderDay?.date, boardSearch],
+    [orders, orderDay?.date, boardSearch, boardFilter, session?.id, session?.name],
   );
   const deliveredByDay = useMemo(() => {
     const groups = new Map<string, Order[]>();
@@ -3242,22 +3262,86 @@ export default function App() {
         )}
         {initialDataLoading && !orders.length ? null : pageTab === "board" ? (
           <div className="board-view">
-            <label className="board-search">
-              <Search aria-hidden="true" />
-              <input
-                type="search"
-                value={boardSearch}
-                onChange={(event) => setBoardSearch(event.target.value)}
-                placeholder="Müşteri adıyla ara"
-                aria-label="Müşteri adıyla sipariş ara"
-              />
-              {boardSearch && (
-                <button type="button" onClick={() => setBoardSearch("")} aria-label="Aramayı temizle">
-                  <X aria-hidden="true" />
-                </button>
-              )}
-            </label>
-            <section className="board">
+            <div className="board-toolbar">
+              <label className="board-search">
+                <Search aria-hidden="true" />
+                <input
+                  type="search"
+                  value={boardSearch}
+                  onChange={(event) => setBoardSearch(event.target.value)}
+                  placeholder="Müşteri adı veya sipariş no ile ara"
+                  aria-label="Müşteri adı veya sipariş no ile sipariş ara"
+                />
+                {boardSearch && (
+                  <button type="button" onClick={() => setBoardSearch("")} aria-label="Aramayı temizle">
+                    <X aria-hidden="true" />
+                  </button>
+                )}
+              </label>
+              <div className="board-filter-chips" role="group" aria-label="Hızlı filtreler">
+                {[
+                  { id: "all", label: "Tümü" },
+                  { id: "my", label: "Benim" },
+                  { id: "despatch_pending", label: "İrsaliyesiz" },
+                  { id: "form_pending", label: "Form bekleyen" },
+                  { id: "export", label: "İhracat" },
+                ].map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className={`board-filter-chip ${boardFilter === chip.id ? "active" : ""}`}
+                    onClick={() => setBoardFilter(chip.id as typeof boardFilter)}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mobile-board-tabs" role="tablist" aria-label="Sipariş aşamaları">
+              {visibleBoardStatuses.map((status) => {
+                const meta = statusMeta[status];
+                const active = (visibleBoardStatuses.includes(mobileBoardStatus) ? mobileBoardStatus : visibleBoardStatuses[0]) === status;
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    className={`mobile-board-tab ${active ? "active" : ""}`}
+                    onClick={() => {
+                      setMobileBoardStatus(status);
+                      const boardEl = boardRef.current;
+                      const colEl = boardEl?.querySelector<HTMLElement>(`.column-${status}`);
+                      if (boardEl && colEl) {
+                        boardEl.scrollTo({ left: colEl.offsetLeft - boardEl.offsetLeft, behavior: "smooth" });
+                      }
+                    }}
+                  >
+                    <span className={`status-dot ${meta.tone}`} />
+                    <span>{text[status]}</span>
+                    <b>{grouped[status].length}</b>
+                  </button>
+                );
+              })}
+            </div>
+            <section
+              className="board"
+              ref={boardRef}
+              onScroll={(event) => {
+                const boardEl = event.currentTarget;
+                if (boardEl.scrollWidth <= boardEl.clientWidth + 10) return;
+                const center = boardEl.scrollLeft + boardEl.clientWidth / 2;
+                for (const status of visibleBoardStatuses) {
+                  const colEl = boardEl.querySelector<HTMLElement>(`.column-${status}`);
+                  if (!colEl) continue;
+                  const left = colEl.offsetLeft - boardEl.offsetLeft;
+                  if (center >= left && center <= left + colEl.offsetWidth) {
+                    if (mobileBoardStatus !== status) setMobileBoardStatus(status);
+                    break;
+                  }
+                }
+              }}
+            >
               {visibleBoardStatuses.map((status) => (
                 <BoardColumn
                   key={status}
@@ -4586,64 +4670,117 @@ function BoardColumn({
                 <b>{order.createdBy}</b>
               </div>
               <div className="card-top">
-                <span>{order.number}</span>
-                <time>
-                  {new Date(order.createdAt).toLocaleTimeString(language, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </time>
+                <span className="card-number">{order.number}</span>
+                <div className="card-top-right">
+                  <time>
+                    {new Date(order.createdAt).toLocaleTimeString(language, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </time>
+                  {onOpenContextMenu && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="card-quick-menu"
+                      title="Hızlı işlemler"
+                      aria-label={`${order.number} hızlı işlemler`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        onOpenContextMenu({
+                          type: "order",
+                          order: {
+                            id: order.id,
+                            number: order.number,
+                            customerName: order.customerName,
+                            status: order.status,
+                            itemsCount: order.items?.length,
+                            hasNote: Boolean(order.note?.trim()),
+                          },
+                        }, { x: rect.left, y: rect.bottom + 4 });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        onOpenContextMenu({
+                          type: "order",
+                          order: {
+                            id: order.id,
+                            number: order.number,
+                            customerName: order.customerName,
+                            status: order.status,
+                            itemsCount: order.items?.length,
+                            hasNote: Boolean(order.note?.trim()),
+                          },
+                        }, { x: rect.left, y: rect.bottom + 4 });
+                      }}
+                    >
+                      <MoreVertical aria-hidden="true" />
+                    </span>
+                  )}
+                </div>
               </div>
-              {order.lockedAt && (
-                <div className="order-lock-badge" title={order.lockReason || "Sipariş değişikliklere karşı kilitlendi"}>
-                  <Lock aria-hidden="true" /><b>Kilitli</b><span>{order.lockedBy}</span>
-                </div>
-              )}
-              {order.parentOrderNumber && (
-                <div className="parent-order-link">
-                  {text.originalOrder}: <b>{order.parentOrderNumber}</b>
-                </div>
-              )}
-              {order.mergedOrderNumbers?.length ? (
-                <div className="parent-order-link merged-order-link">Birleşenler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
-              ) : null}
-              {(order.isPartialDelivery || order.partialDeliverySourceId) && (
-                <div className="order-kind-badge partial-delivery"><b>Kısmi teslim</b></div>
-              )}
-              {order.status === "ready" && (order.hasPartialDelivery || order.audit?.some((entry) => entry.action === "partialDeliveryCreated")) && (
-                <div className="order-kind-badge partial-remaining"><b>Kısmi teslim · Kalan miktar</b></div>
-              )}
-              {order.status === "ready" && (
-                <div className="parent-order-link">
-                  <b>
-                    {order.despatchReady
-                      ? order.withoutDespatch
-                        ? text.deliveryWithoutDespatchReady
-                        : `${text.despatchReady}: ${order.despatchNumber}`
-                      : text.despatchPending}
-                  </b>
-                </div>
-              )}
-              {order.exportPackingRequired && (
-                <div className="parent-order-link">
-                  <b>Palet hazırlanacak · Packing List bekliyor</b>
-                </div>
-              )}
-              {order.isLoanReturn && (
-                <div className="order-kind-badge loan-return">
-                  <b>Borç iadesi</b>
-                </div>
-              )}
-              {order.isDeferredDelivery && (
-                <div className="order-kind-badge deferred-delivery">
-                  <b>Bekleyen teslimattan aktarıldı</b>
-                </div>
-              )}
-              {(order.quoteId || order.quoteNumber || order.audit?.some((entry) => entry.action === "createdFromOffer")) && (
-                <div className="order-kind-badge quote-converted">
-                  <b>Tekliften aktarıldı</b>
-                </div>
-              )}
+              <div className="card-badges">
+                {order.lockedAt && (
+                  <div className="order-lock-badge" title={order.lockReason || "Sipariş değişikliklere karşı kilitlendi"}>
+                    <Lock aria-hidden="true" /><b>Kilitli</b><span>{order.lockedBy}</span>
+                  </div>
+                )}
+                {order.parentOrderNumber && (
+                  <div className="parent-order-link">
+                    {text.originalOrder}: <b>{order.parentOrderNumber}</b>
+                  </div>
+                )}
+                {order.mergedOrderNumbers?.length ? (
+                  <div className="parent-order-link merged-order-link">Birleşenler: <b>{order.mergedOrderNumbers.join(" · ")}</b></div>
+                ) : null}
+                {(order.isPartialDelivery || order.partialDeliverySourceId) && (
+                  <div className="order-kind-badge partial-delivery"><b>Kısmi teslim</b></div>
+                )}
+                {order.status === "ready" && (order.hasPartialDelivery || order.audit?.some((entry) => entry.action === "partialDeliveryCreated")) && (
+                  <div className="order-kind-badge partial-remaining"><b>Kısmi teslim · Kalan miktar</b></div>
+                )}
+                {order.status === "ready" && (
+                  <div className={`parent-order-link ${order.despatchReady ? "is-despatch-ready" : "is-despatch-pending"}`}>
+                    <b>
+                      {order.despatchReady
+                        ? order.withoutDespatch
+                          ? text.deliveryWithoutDespatchReady
+                          : `${text.despatchReady}: ${order.despatchNumber}`
+                        : text.despatchPending}
+                    </b>
+                  </div>
+                )}
+                {order.status === "ready" && order.approvalForm && (
+                  <div className={`parent-order-link ${order.approvalForm.status === "approved" ? "is-form-approved" : "is-form-draft"}`}>
+                    <b>{order.approvalForm.number} · {order.approvalForm.status === "approved" ? "Onaylı" : order.approvalForm.status === "rejected" ? "Reddedildi" : "Taslak"}</b>
+                  </div>
+                )}
+                {order.exportPackingRequired && (
+                  <div className="parent-order-link">
+                    <b>Palet hazırlanacak · Packing List bekliyor</b>
+                  </div>
+                )}
+                {order.isLoanReturn && (
+                  <div className="order-kind-badge loan-return">
+                    <b>Borç iadesi</b>
+                  </div>
+                )}
+                {order.isDeferredDelivery && (
+                  <div className="order-kind-badge deferred-delivery">
+                    <b>Bekleyen teslimattan aktarıldı</b>
+                  </div>
+                )}
+                {(order.quoteId || order.quoteNumber || order.audit?.some((entry) => entry.action === "createdFromOffer")) && (
+                  <div className="order-kind-badge quote-converted">
+                    <b>Tekliften aktarıldı</b>
+                  </div>
+                )}
+              </div>
               <h3>{order.customerName}</h3>
               <ul>
                 {order.items.slice(0, 4).map((item, index) => (
@@ -9291,6 +9428,7 @@ function OrderDetail({
     onChanged(next);
   };
   const canPrepare = workflowRole === "owner" || workflowRole === "warehouse" || Boolean(session.permissions?.includes("orders.prepare"));
+  const isWarehousePrepMode = workflowRole === "warehouse" && ["new", "preparing"].includes(order.status) && !contextOnlyView;
   const canRollback = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.rollback"));
   const canSell = workflowRole === "owner" || Boolean(session.permissions?.includes("orders.create")) || Boolean(session.permissions?.includes("order_forms.edit"));
   const canDeliver =
@@ -10065,11 +10203,125 @@ function OrderDetail({
   return (
     <>
       <Modal
-        className={`order-detail-modal status-${order.status}${contextOnlyView ? ` context-${contextOnlyView}-only` : ""}`}
+        className={`order-detail-modal status-${order.status}${contextOnlyView ? ` context-${contextOnlyView}-only` : ""}${isWarehousePrepMode ? " warehouse-prep-mode" : ""}`}
         title={contextOnlyView === "delivery" ? "Teslimatı yönet" : contextOnlyView === "history" ? "İşlem geçmişi" : editing ? ui.editOrder : order.customerName}
         subtitle={contextOnlyView ? `${order.number} · ${order.customerName}` : `${order.number} · ${order.isLoanReturn ? "Borç iadesi · " : ""}${statusMeta[order.status].label}`}
         onClose={onClose}
       >
+        <div className="modal-top-actions">
+          {canEditOrder && !editing && !correctingPrepared && (
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                if (order.status === "delivered" && workflowRole === "owner") {
+                  setItems(order.items.map((item) => ({ ...item })));
+                  setCorrectingPrepared(true);
+                  setPreparedCorrectionReason("");
+                  setNotice("");
+                  setError("");
+                  return;
+                }
+                beginActivity("order_editing_started");
+                setEditing(true);
+              }}
+            >
+              {ui.editOrder}
+            </button>
+          )}
+          {canEditOrder && editing && (
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={saveChanges}
+            >
+              {ui.saveChanges}
+            </button>
+          )}
+          {!isWarehousePrepMode && ["new", "preparing", "ready"].includes(order.status) && canDeferDelivery && !order.deliveryWaitingSourceId && (
+            <button
+              className="secondary defer-delivery-action"
+              disabled={busy}
+              onClick={() => void openDeferDelivery()}
+            >
+              <Truck aria-hidden="true" />Teslimatı ertele
+            </button>
+          )}
+          {!isWarehousePrepMode && canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
+            <button
+              className="secondary archive-order-action"
+              disabled={busy}
+              onClick={() => void archiveOrder()}
+            >
+              <Archive aria-hidden="true" />Arşivle
+            </button>
+          )}
+          {!isWarehousePrepMode && canDeleteOrder && (
+            <button
+              className="danger-button"
+              disabled={busy}
+              onClick={deleteOrder}
+            >
+              {ui.deleteOrder}
+            </button>
+          )}
+          {!isWarehousePrepMode && canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
+            <button className="secondary cancel-order-action" disabled={busy} onClick={() => void cancelOrder()}>
+              İptal et
+            </button>
+          )}
+          {order.status === "new" && canPrepare && (
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() => changeStatus("preparing")}
+            >
+              {ui.start}
+            </button>
+          )}
+          {order.status === "preparing" && !order.exportPackingRequired && (canPrepare || canRollback) && (
+            <>
+              {canRollback && <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("new"); }}>{ui.back}</button>}
+              {canPrepare && !preparationEditing && <button className="primary" disabled={busy} onClick={() => setPreparationEditing(true)}>Hazırlamaya devam et</button>}
+              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={() => { setItems(prepareItems(order)); setPreparationEditing(false); }}>Vazgeç</button>}
+              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={saveDraft}>Taslağı kaydet · Ara ver</button>}
+              {canPrepare && preparationEditing && <button className="primary" disabled={busy || items.every((item) => !(Number(item.preparedQuantity) > 0))} onClick={() => changeStatus("ready")}>{ui.done}</button>}
+            </>
+          )}
+          {order.status === "ready" && canRollback && !order.parentOrderId && (
+            <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("preparing"); }}>{ui.back}</button>
+          )}
+          {["ready", "delivered"].includes(order.status) && workflowRole === "owner" && correctingPrepared && (
+            <>
+              <button className="secondary" disabled={busy} onClick={() => { setItems(order.items.map((item) => ({ ...item }))); setPreparedCorrectionReason(""); setCorrectingPrepared(false); }}>Vazgeç</button>
+              <button className="primary" disabled={busy} onClick={savePreparedCorrection}>Düzeltmeyi kaydet</button>
+            </>
+          )}
+          {order.status === "ready" && canDeliver && order.despatchReady && (
+            <button
+              className="primary"
+              disabled={busy || (!canDeliverWithoutProof && (!deliveryNote.trim() || !hasDeliveryProof))}
+              onClick={() => void deliverSelected()}
+            >
+              {deliverySelection.every((entry) => entry.selected) ? ui.delivered : "Seçilenleri teslim et"}
+            </button>
+          )}
+        </div>
+        {notice && <p className="form-success">{notice}</p>}
+        {error && <p className="form-error">{error}</p>}
+        {correctingPrepared && (
+          <label className="prepared-correction-reason">
+            <span>Düzenleme nedeni <b>*</b></span>
+            <textarea
+              value={preparedCorrectionReason}
+              onChange={(event) => setPreparedCorrectionReason(event.target.value)}
+              placeholder="Metre, rulo veya kesim payının neden düzeltildiğini yazın"
+              rows={2}
+              maxLength={300}
+              required
+            />
+          </label>
+        )}
         <div className="order-audit">
           <span>{ui.createdBy}</span>
           <b>{order.createdBy}</b>
@@ -10083,7 +10335,7 @@ function OrderDetail({
               💬 Ekiple Konuş
             </button>
           )}
-          {canLockOrder && <button className="order-lock-top-action" type="button" disabled={busy} onClick={() => void toggleOrderLock()}>{order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}<span>{order.lockedAt ? "Kilidi aç" : "Kilitle"}</span></button>}
+          {!isWarehousePrepMode && canLockOrder && <button className="order-lock-top-action" type="button" disabled={busy} onClick={() => void toggleOrderLock()}>{order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}<span>{order.lockedAt ? "Kilidi aç" : "Kilitle"}</span></button>}
         </div>
         {isOwner && <div className={`order-test-mode-banner ${order.isTest ? "active" : ""}`}>
           <div>
@@ -10149,7 +10401,7 @@ function OrderDetail({
             {products.map((product) => <option key={product.id} value={product.name}>{product.code || product.sku || ""}</option>)}
           </datalist>
         </>}
-        {(order.attachments || []).some(
+        {!isWarehousePrepMode && (order.attachments || []).some(
           (attachment) => !attachment.deletedAt,
         ) && (
           <div className="attached-document-summary">
@@ -11406,122 +11658,6 @@ function OrderDetail({
             </details>
           )}
         {order.lockedAt && <div className="order-lock-notice"><Lock aria-hidden="true" /><span><b>Sipariş kilitli</b><small>{order.lockedBy}{order.lockReason ? ` · ${order.lockReason}` : ""}</small></span></div>}
-        {notice && <p className="form-success">{notice}</p>}
-        {error && <p className="form-error">{error}</p>}
-        {correctingPrepared && (
-          <label className="prepared-correction-reason">
-            <span>Düzenleme nedeni <b>*</b></span>
-            <textarea
-              value={preparedCorrectionReason}
-              onChange={(event) => setPreparedCorrectionReason(event.target.value)}
-              placeholder="Metre, rulo veya kesim payının neden düzeltildiğini yazın"
-              rows={2}
-              maxLength={300}
-              required
-            />
-          </label>
-        )}
-        <div className="modal-actions">
-          {canEditOrder && !editing && !correctingPrepared && (
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => {
-                if (order.status === "delivered" && workflowRole === "owner") {
-                  setItems(order.items.map((item) => ({ ...item })));
-                  setCorrectingPrepared(true);
-                  setPreparedCorrectionReason("");
-                  setNotice("");
-                  setError("");
-                  return;
-                }
-                beginActivity("order_editing_started");
-                setEditing(true);
-              }}
-            >
-              {ui.editOrder}
-            </button>
-          )}
-          {canEditOrder && editing && (
-            <button
-              className="primary"
-              disabled={busy}
-              onClick={saveChanges}
-            >
-              {ui.saveChanges}
-            </button>
-          )}
-          {["new", "preparing", "ready"].includes(order.status) && canDeferDelivery && !order.deliveryWaitingSourceId && (
-            <button
-              className="secondary defer-delivery-action"
-              disabled={busy}
-              onClick={() => void openDeferDelivery()}
-            >
-              <Truck aria-hidden="true" />Teslimatı ertele
-            </button>
-          )}
-          {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
-            <button
-              className="secondary archive-order-action"
-              disabled={busy}
-              onClick={() => void archiveOrder()}
-            >
-              <Archive aria-hidden="true" />Arşivle
-            </button>
-          )}
-          {canDeleteOrder && (
-            <button
-              className="danger-button"
-              disabled={busy}
-              onClick={deleteOrder}
-            >
-              {ui.deleteOrder}
-            </button>
-          )}
-          {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
-            <button className="secondary cancel-order-action" disabled={busy} onClick={() => void cancelOrder()}>
-              İptal et
-            </button>
-          )}
-          {order.status === "new" && canPrepare && (
-            <button
-              className="primary full"
-              disabled={busy}
-              onClick={() => changeStatus("preparing")}
-            >
-              {ui.start}
-            </button>
-          )}
-          {order.status === "preparing" && !order.exportPackingRequired && (canPrepare || canRollback) && (
-            <>
-              {canRollback && <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("new"); }}>{ui.back}</button>}
-              {canPrepare && !preparationEditing && <button className="primary" disabled={busy} onClick={() => setPreparationEditing(true)}>Hazırlamaya devam et</button>}
-              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={() => { setItems(prepareItems(order)); setPreparationEditing(false); }}>Vazgeç</button>}
-              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={saveDraft}>Taslağı kaydet · Ara ver</button>}
-              {canPrepare && preparationEditing && <button className="primary" disabled={busy || items.every((item) => !(Number(item.preparedQuantity) > 0))} onClick={() => changeStatus("ready")}>{ui.done}</button>}
-            </>
-          )}
-          {order.status === "ready" && canRollback && !order.parentOrderId && (
-            <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("preparing"); }}>{ui.back}</button>
-          )}
-          {["ready", "delivered"].includes(order.status) && workflowRole === "owner" && correctingPrepared && (
-            <>
-              <button className="secondary" disabled={busy} onClick={() => { setItems(order.items.map((item) => ({ ...item }))); setPreparedCorrectionReason(""); setCorrectingPrepared(false); }}>Vazgeç</button>
-              <button className="primary" disabled={busy} onClick={savePreparedCorrection}>Düzeltmeyi kaydet</button>
-            </>
-          )}
-          {order.status === "ready" && canDeliver && order.despatchReady && (
-            <>
-              <button
-                className="primary"
-                disabled={busy || (!canDeliverWithoutProof && (!deliveryNote.trim() || !hasDeliveryProof))}
-                onClick={() => void deliverSelected()}
-              >
-                {deliverySelection.every((entry) => entry.selected) ? ui.delivered : "Seçilenleri teslim et"}
-              </button>
-            </>
-          )}
-        </div>
       </Modal>
       {rollbackTarget && (
         <Modal
@@ -11883,6 +12019,7 @@ function ApprovalFormEditor({
   const [archivePath, setArchivePath] = useState(initial.archive?.windowsPath ?? initial.archive?.path ?? "");
   const [archiveActionNotice, setArchiveActionNotice] = useState("");
   const [detailPageBreak, setDetailPageBreak] = useState(false);
+  const [editorTab, setEditorTab] = useState<"products" | "info" | "terms" | "preview">("products");
   const [palletMoveTargets, setPalletMoveTargets] = useState<Record<string, number>>({});
   const [palletMoveCounts, setPalletMoveCounts] = useState<Record<string, number>>({});
   const [palletMoveQuantities, setPalletMoveQuantities] = useState<Record<string, number>>({});
@@ -12665,7 +12802,11 @@ function ApprovalFormEditor({
     })();
   }, [previewOnly, isProforma, onPreviewPdf, order.id, previewEndpoint]);
   const topActionButtons = !previewOnly ? (
-    <div className="approval-modal-header-actions">
+    <div className="modal-top-actions approval-top-actions">
+      <button type="button" className="secondary mobile-hide-print" onClick={() => void print()}>
+        <Printer size={15} aria-hidden="true" />
+        <span>{labels.print}</span>
+      </button>
       {canEdit && !editing && (
         <button type="button" className="secondary" disabled={busy} onClick={beginApprovalEditing}>
           <Pencil size={15} aria-hidden="true" />
@@ -12707,6 +12848,11 @@ function ApprovalFormEditor({
           <span>Onayı geri çek</span>
         </button>
       )}
+      {canReject && (
+        <button type="button" className="danger-button" disabled={busy} onClick={() => void rejectForm()}>
+          Reddet
+        </button>
+      )}
       {canApprove && (
         <button
           type="button"
@@ -12730,9 +12876,11 @@ function ApprovalFormEditor({
       onClose={onClose}
       wide={!previewOnly}
       showBack
-      headerActions={topActionButtons}
       className={`approval-modal ${isPackingTask ? "packing-task-only" : ""} ${previewOnly && !editing ? "preview-only" : ""}`}
     >
+      {topActionButtons}
+      {error && <p className="form-error">{error}</p>}
+      {archiveActionNotice && <p className="form-success archive-action-notice" role="status">{archiveActionNotice}</p>}
       {isProforma && !previewOnly && !singleDocument && (
         <nav className="approval-document-switch" aria-label="Export document view">
           <button type="button" className={form.documentType === "proforma" ? "active" : ""} onClick={() => switchExportDocument("proforma")}>Proforma</button>
@@ -12740,7 +12888,28 @@ function ApprovalFormEditor({
           <button type="button" className={form.documentType === "packing_list" ? "active" : ""} onClick={() => switchExportDocument("packing_list")}>Packing List</button>
         </nav>
       )}
-      <div className="approval-workspace">
+      {!previewOnly && (
+        <nav className="approval-editor-tabs" role="tablist" aria-label="Form bölümleri">
+          <button type="button" role="tab" aria-selected={editorTab === "products"} className={editorTab === "products" ? "active" : ""} onClick={() => setEditorTab("products")}>
+            <Layers3 size={14} aria-hidden="true" />
+            <span>Ürünler & Fiyatlar</span>
+            <b>{form.lines.length}</b>
+          </button>
+          <button type="button" role="tab" aria-selected={editorTab === "info"} className={editorTab === "info" ? "active" : ""} onClick={() => setEditorTab("info")}>
+            <UserRound size={14} aria-hidden="true" />
+            <span>Müşteri & Belge</span>
+          </button>
+          <button type="button" role="tab" aria-selected={editorTab === "terms"} className={editorTab === "terms" ? "active" : ""} onClick={() => setEditorTab("terms")}>
+            <NotepadText size={14} aria-hidden="true" />
+            <span>{isProforma ? "Koşullar & Sevkiyat" : "Koşullar & Notlar"}</span>
+          </button>
+          <button type="button" role="tab" aria-selected={editorTab === "preview"} className={`approval-preview-tab-btn ${editorTab === "preview" ? "active" : ""}`} onClick={() => setEditorTab("preview")}>
+            <Eye size={14} aria-hidden="true" />
+            <span>Önizleme (A4)</span>
+          </button>
+        </nav>
+      )}
+      <div className={`approval-workspace tab-${editorTab}`}>
         {isHistoricalMerge && <div className="approval-order-sync-alert" role="status"><b>Birleştirme geçmişi · {order.mergedIntoOrderNumber || order.number}</b><span>Bu belge korunur. Güncel formu birleşik siparişten oluşturun.</span></div>}
         {shouldOfferOrderSync && (
           <div className="approval-order-sync-alert" role="status">
@@ -12756,6 +12925,7 @@ function ApprovalFormEditor({
           </div>
         )}
         <section className={`approval-editor ${editing ? "" : "is-readonly"}`} aria-disabled={!editing}>
+          {editorTab === "info" && <div className="approval-tab-panel">
           <div className="approval-fields four">
             {!singleDocument && <label>
               {isProforma ? "Document type" : "Belge türü"}
@@ -12973,6 +13143,15 @@ function ApprovalFormEditor({
             />
             <span>{isPackingList ? "KDV fiyatlara dahil" : isProforma ? "Prices include VAT" : "KDV fiyatlara dahil"}</span>
           </label>
+          </div>}
+          {editorTab === "products" && <div className="approval-tab-panel">
+          {!isPackingList && (
+            <div className="approval-quick-meta-bar">
+              <span><b>{form.currency}</b>{!isProforma && form.currency !== "TRY" ? ` · Kur: ${Number(form.exchangeRate || 0).toLocaleString("tr-TR", { maximumFractionDigits: 4 })}` : ""}</span>
+              <span>{form.vatIncluded ? "KDV Dâhil" : "KDV Hariç"}</span>
+              <span>{form.customerName || order.customerName}</span>
+            </div>
+          )}
           {isPackingList && <section className="approval-pallet-planner">
             <div className="approval-pallet-planner-head">
               <div><b>{packingStep === 1 ? "1. Palet rulo sayılarını ayarla" : "2. Ürün ve metre dağılımını düzenle"}</b><small>Toplam: {packingTotalRolls} rulo</small></div>
@@ -13594,6 +13773,15 @@ function ApprovalFormEditor({
               );
             })}
           </div>
+          {!isPackingList && (
+            <div className="approval-live-totals-bar">
+              <span><small>{isProforma ? "Subtotal" : "Ara toplam"}</small><b>{dualMoney(totals.subtotal, form).primary}</b></span>
+              <span><small>{isProforma ? "Tax" : vatRateLabel}</small><b>{dualMoney(totals.vat, form).primary}</b></span>
+              <span className="is-grand"><small>{isProforma ? "Total" : "Genel toplam"}</small><b>{dualMoney(totals.total, form).primary}</b></span>
+            </div>
+          )}
+          </div>}
+          {editorTab === "terms" && <div className="approval-tab-panel">
           <div className="approval-terms-section">
             <div className="approval-terms-row-three">
               <label className="approval-input-box">
@@ -13675,6 +13863,7 @@ function ApprovalFormEditor({
               </label>
             </div>
           </div>
+          </div>}
         </section>
         <section className="approval-paper-wrap">
           <div className="approval-preview-top-toolbar">
@@ -14089,8 +14278,6 @@ function ApprovalFormEditor({
           </article>
         </section>
       </div>
-      {error && <p className="form-error">{error}</p>}
-      {archiveActionNotice && <p className="form-success archive-action-notice" role="status">{archiveActionNotice}</p>}
       {archivePath && (
         <div className="approval-archive-location">
           <span><b>{form.status === "approved" ? "Onaylı PDF" : "Onay bekleyen PDF"}</b><small title={archivePath}>{archivePath}</small></span>
@@ -14105,62 +14292,6 @@ function ApprovalFormEditor({
           </span>
         </div>
       )}
-      <div className="modal-actions">
-        <button className="secondary mobile-hide-print" onClick={() => void print()}>
-          {labels.print}
-        </button>
-        {canEdit && !editing && (
-          <button className="secondary" disabled={busy} onClick={beginApprovalEditing}>
-            {isProforma ? `${exportDocumentTitle} düzenle` : "Düzenle"}
-          </button>
-        )}
-        {canEdit && (
-          <button
-            className="secondary"
-            disabled={busy || !rateReady}
-            onClick={() => void save("draft", undefined, false)}
-            title="Değişiklikleri taslak olarak kaydeder, onay bildirimi göndermez."
-          >
-            {labels.saveDraft}
-          </button>
-        )}
-        {canEdit && form.status !== "approved" && (
-          <button
-            className={canApprove ? "secondary" : "primary"}
-            disabled={busy || !rateReady}
-            onClick={() => void save("draft", undefined, true)}
-            title="Formu tamamlayıp satış temsilcisinin ve yönetimin onayına gönderir."
-          >
-            {labels.submit}
-          </button>
-        )}
-        {!isHistoricalMerge && canWithdrawApproval(form, session, workflowRole(session.role) === "owner") && (
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy}
-            onClick={() => void withdrawForm()}
-            title="Bu formu onay bekleyenler listesinden geri çekip tekrar taslağa alır."
-          >
-            Onayı geri çek
-          </button>
-        )}
-        {canReject && (
-          <button className="danger-button" disabled={busy} onClick={() => void rejectForm()}>
-            Reddet
-          </button>
-        )}
-        {canApprove && (
-          <button
-            className="primary"
-            disabled={busy || !rateReady || (form.status === "approved" && !hasFormChanges)}
-            onClick={() => void save("approved")}
-            title={form.status === "approved" && !hasFormChanges ? "Bu form zaten onaylandı. Yeniden onaylamak için önce bir değişiklik yapın." : undefined}
-          >
-            {labels.approve}
-          </button>
-        )}
-      </div>
     </Modal>
     {proxyApprovalDialogOpen && (
       <Modal
