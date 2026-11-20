@@ -5045,9 +5045,9 @@ function DailyArchive({
       const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       return {
         iso,
-        shortWeekday: d.toLocaleDateString(language, { weekday: "short" }).toLocaleUpperCase(language),
-        dayMonth: d.toLocaleDateString(language, { day: "numeric", month: "short" }),
-        weekday: d.toLocaleDateString(language, { weekday: "short" }),
+        shortWeekday: d.toLocaleDateString("tr-TR", { weekday: "short" }).toLocaleUpperCase("tr-TR"),
+        dayMonth: d.toLocaleDateString("tr-TR", { day: "numeric", month: "short" }),
+        weekday: d.toLocaleDateString("tr-TR", { weekday: "short" }),
         count: countsByDay.get(iso) ?? 0,
       };
     });
@@ -5474,7 +5474,7 @@ function DailyArchive({
               {currentDay?.closed ? ui.dayClosed : ui.dayOpen}
             </span>
             {currentDay?.date && (
-              <b>{new Date(`${currentDay.date}T12:00:00`).toLocaleDateString(language, { day: "2-digit", month: "long", year: "numeric" })}</b>
+              <b>{new Date(`${currentDay.date}T12:00:00`).toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" })}</b>
             )}
             {currentDay?.closed && currentDay.automatic && <small>Sistem tarafından otomatik kapatıldı</small>}
             {currentDay?.closed && !currentDay.automatic && currentDay.closedBy && (
@@ -5514,7 +5514,7 @@ function DailyArchive({
         {!groups.length && <div className="daily-empty">{ui.dailyEmpty}</div>}
         {!!groups.length && !visibleGroups.length && (
           <div className="daily-empty">
-            {new Date(`${stripCenterDay}T12:00:00`).toLocaleDateString(language, { day: "2-digit", month: "long", year: "numeric" })} için kayıtlı sipariş yok.
+            {new Date(`${stripCenterDay}T12:00:00`).toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" })} için kayıtlı sipariş yok.
           </div>
         )}
 
@@ -5663,7 +5663,7 @@ function DailyArchive({
                               <span>·</span>
                               <time>
                                 {new Date(order.deliveredAt || order.updatedAt || order.createdAt).toLocaleTimeString(
-                                  language,
+                                  "tr-TR",
                                   { hour: "2-digit", minute: "2-digit" },
                                 )}
                               </time>
@@ -5672,7 +5672,7 @@ function DailyArchive({
                               <div className="daily-order-card-badges">
                                 {order.reportRolloverTo && (
                                   <span className="daily-mini-badge">
-                                    Devir: {new Date(`${order.reportRolloverTo}T12:00:00`).toLocaleDateString(language)}
+                                    Devir: {new Date(`${order.reportRolloverTo}T12:00:00`).toLocaleDateString("tr-TR")}
                                   </span>
                                 )}
                                 {order.isLoanReturn && <span className="daily-mini-badge warn">Borç iadesi</span>}
