@@ -11940,15 +11940,16 @@ textarea {
     width: 100% !important;
   }
   .modal > header {
-    flex-wrap: wrap !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
   }
   .modal > .modal-body {
     padding: 10px 14px max(22px, env(safe-area-inset-bottom)) !important;
   }
   .modal-header-actions {
-    order: 3;
-    flex: 1 1 100%;
-    margin-left: 0;
+    flex: 0 1 auto;
+    max-width: 62%;
+    margin-left: auto;
     overflow-x: auto;
     scrollbar-width: none;
   }
@@ -11957,8 +11958,24 @@ textarea {
   }
   .order-detail-header-bar {
     flex-wrap: nowrap;
-    width: 100%;
+    width: auto;
     justify-content: flex-end;
+    gap: 4px !important;
+  }
+  .order-detail-header-bar button {
+    min-height: 32px !important;
+    padding: 0 9px !important;
+    font-size: 11.5px !important;
+  }
+  .order-detail-header-bar .arix-chat-icon-btn,
+  .order-detail-header-bar .order-detail-more-btn.icon-only {
+    width: 32px !important;
+    min-width: 32px !important;
+  }
+  .modal > header > button.close {
+    width: 32px !important;
+    height: 32px !important;
+    flex: 0 0 32px !important;
   }
   .modal-resize-handle {
     display: none !important;
