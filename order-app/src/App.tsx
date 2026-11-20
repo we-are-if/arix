@@ -2177,7 +2177,6 @@ export default function App() {
     try { return localStorage.getItem("arix-order-sidebar-collapsed") === "1"; } catch { return false; }
   });
   const [sidebarManageOpen, setSidebarManageOpen] = useState(true);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [orderDay, setOrderDay] = useState<OrderDay | null>(null);
   const dayToggleBusyRef = useRef(false);
   const hasLoadedRef = useRef(false);
@@ -2192,12 +2191,11 @@ export default function App() {
   const text = copy[language];
 
   useBrowserBackLayer(
-    languageMenuOpen || profileMenuOpen || notificationMenuOpen || mobileNavOpen,
+    languageMenuOpen || profileMenuOpen || notificationMenuOpen,
     () => {
       setLanguageMenuOpen(false);
       setProfileMenuOpen(false);
       setNotificationMenuOpen(false);
-      setMobileNavOpen(false);
     },
   );
 
@@ -2914,9 +2912,8 @@ export default function App() {
   const loanOutstandingCount = loanDocuments.filter((document) => ["loan_purchase", "loan_lend"].includes(document.type) && document.lines.some((line) => Number(line.loanOutstanding ?? 0) > 0 || Number(line.loanOutstandingRollCount ?? 0) > 0)).length;
   const currentTabTitle = pageTab === "board" ? text.workflowTab : pageTab === "forms" ? text.approvalFormsTab : pageTab === "days" ? text.daysTab : pageTab === "stock" ? "Stok" : text.title;
 
-  const renderSidebarNav = (inDrawer = false) => {
-    const collapsed = !inDrawer && sidebarCollapsed;
-    const closeIfDrawer = () => { if (inDrawer) setMobileNavOpen(false); };
+  const renderSidebarNav = () => {
+    const collapsed = sidebarCollapsed;
     return (
       <nav className="order-sidebar-nav" aria-label="Ana menü">
         {canSell && (
@@ -2924,7 +2921,7 @@ export default function App() {
             type="button"
             className="order-sidebar-create-btn primary"
             title={collapsed ? text.create : undefined}
-            onClick={() => { setCreateOpen(true); closeIfDrawer(); }}
+            onClick={() => setCreateOpen(true)}
           >
             <Plus size={18} aria-hidden="true" />
             {!collapsed && <span>{text.create}</span>}
@@ -2935,7 +2932,7 @@ export default function App() {
             type="button"
             className={`order-sidebar-item ${pageTab === "board" ? "active" : ""}`}
             title={collapsed ? text.workflowTab : undefined}
-            onClick={() => { setPageTab("board"); closeIfDrawer(); }}
+            onClick={() => setPageTab("board")}
           >
             <ListChecks aria-hidden="true" />
             {!collapsed && <span>{text.workflowTab}</span>}
@@ -2946,7 +2943,7 @@ export default function App() {
               type="button"
               className={`order-sidebar-item ${pageTab === "forms" ? "active" : ""}`}
               title={collapsed ? text.approvalFormsTab : undefined}
-              onClick={() => { setPageTab("forms"); closeIfDrawer(); }}
+              onClick={() => setPageTab("forms")}
             >
               <FileText aria-hidden="true" />
               {!collapsed && <span>{text.approvalFormsTab}</span>}
@@ -2957,7 +2954,7 @@ export default function App() {
               type="button"
               className={`order-sidebar-item ${pageTab === "days" ? "active" : ""}`}
               title={collapsed ? text.daysTab : undefined}
-              onClick={() => { setPageTab("days"); closeIfDrawer(); }}
+              onClick={() => setPageTab("days")}
             >
               <CalendarDays aria-hidden="true" />
               {!collapsed && <span>{text.daysTab}</span>}
@@ -2968,7 +2965,7 @@ export default function App() {
               type="button"
               className={`order-sidebar-item ${pageTab === "stock" ? "active" : ""}`}
               title={collapsed ? "Stok" : undefined}
-              onClick={() => { setPageTab("stock"); closeIfDrawer(); }}
+              onClick={() => setPageTab("stock")}
             >
               <Layers3 aria-hidden="true" />
               {!collapsed && <span>Stok</span>}
@@ -2995,7 +2992,7 @@ export default function App() {
                   type="button"
                   className="order-sidebar-item"
                   title={collapsed ? "Teslimat bekleyenler" : undefined}
-                  onClick={() => { setDeliveryWaitingOpen(true); closeIfDrawer(); }}
+                  onClick={() => setDeliveryWaitingOpen(true)}
                 >
                   <Truck aria-hidden="true" />
                   {!collapsed && <span>Teslimat bekleyenler</span>}
@@ -3007,7 +3004,7 @@ export default function App() {
                   type="button"
                   className="order-sidebar-item"
                   title={collapsed ? "Borç ürünler" : undefined}
-                  onClick={() => { setLoanProductsOpen(true); closeIfDrawer(); }}
+                  onClick={() => setLoanProductsOpen(true)}
                 >
                   <HandCoins aria-hidden="true" />
                   {!collapsed && <span>Borç ürünler</span>}
@@ -3018,7 +3015,7 @@ export default function App() {
                 type="button"
                 className="order-sidebar-item"
                 title={collapsed ? "Arşivlenen siparişler" : undefined}
-                onClick={() => { setArchiveOrdersOpen(true); closeIfDrawer(); }}
+                onClick={() => setArchiveOrdersOpen(true)}
               >
                 <Archive aria-hidden="true" />
                 {!collapsed && <span>Arşivlenenler</span>}
@@ -3028,7 +3025,7 @@ export default function App() {
                 type="button"
                 className="order-sidebar-item"
                 title={collapsed ? "Silinen ve iptal edilenler" : undefined}
-                onClick={() => { setInactiveOrdersOpen(true); closeIfDrawer(); }}
+                onClick={() => setInactiveOrdersOpen(true)}
               >
                 <Trash2 aria-hidden="true" />
                 {!collapsed && <span>Silinen / İptal</span>}
@@ -3042,7 +3039,6 @@ export default function App() {
                   onClick={() => {
                     setSettingsMode("settings");
                     setSettingsOpen(true);
-                    closeIfDrawer();
                   }}
                 >
                   <Settings2 aria-hidden="true" />
@@ -3052,19 +3048,17 @@ export default function App() {
             </div>
           )}
         </div>
-        {!inDrawer && (
-          <div className="order-sidebar-bottom">
-            <button
-              type="button"
-              className="order-sidebar-item order-sidebar-collapse-btn"
-              title={collapsed ? "Menüyü genişlet" : "Daralt"}
-              onClick={() => setSidebarCollapsed((value) => !value)}
-            >
-              {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
-              {!collapsed && <span>Daralt</span>}
-            </button>
-          </div>
-        )}
+        <div className="order-sidebar-bottom">
+          <button
+            type="button"
+            className="order-sidebar-item order-sidebar-collapse-btn"
+            title={collapsed ? "Menüyü genişlet" : "Daralt"}
+            onClick={() => setSidebarCollapsed((value) => !value)}
+          >
+            {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+            {!collapsed && <span>Daralt</span>}
+          </button>
+        </div>
       </nav>
     );
   };
@@ -3085,6 +3079,21 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-2.5">
+            {canOpenSettings && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsMode("settings");
+                  setSettingsOpen(true);
+                }}
+                className={`mobile-only-header-btn mobile-header-control inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`}
+                aria-label={text.settings}
+              >
+                <span className="arix-header-icon" aria-hidden="true">
+                  <Settings2 />
+                </span>
+              </button>
+            )}
             {canSell && (
               <button
                 type="button"
@@ -3319,20 +3328,8 @@ export default function App() {
 
       <div className="order-workspace-shell">
         <aside className={`order-sidebar ${sidebarCollapsed ? "is-collapsed" : ""}`}>
-          {renderSidebarNav(false)}
+          {renderSidebarNav()}
         </aside>
-        {mobileNavOpen && (
-          <div className="order-mobile-drawer-backdrop" onClick={() => setMobileNavOpen(false)}>
-            <aside className="order-mobile-drawer" onClick={(event) => event.stopPropagation()}>
-              <div className="order-mobile-drawer-head">
-                <AriXLogo className="h-9 w-9" />
-                <strong>AriX Order</strong>
-                <button type="button" className="close" onClick={() => setMobileNavOpen(false)} aria-label="Menüyü kapat">×</button>
-              </div>
-              {renderSidebarNav(true)}
-            </aside>
-          </div>
-        )}
         <div className="order-main-column">
       <div className="order-content">
         {syncWarning && (
@@ -3351,6 +3348,35 @@ export default function App() {
           <div className="notice" role="alert">
             {error}
             <button onClick={() => setError("")}>×</button>
+          </div>
+        )}
+        {pageTab === "board" && (
+          <div className="mobile-utility-strip">
+            <span className="mobile-utility-count">
+              <b>{initialDataLoading && !orders.length ? "—" : activeOrderCount}</b> {text.active}
+            </span>
+            <div className="mobile-utility-actions">
+              {canManageDeliveryWaiting && (
+                <button className="inactive-orders-trigger waiting-trigger" type="button" onClick={() => setDeliveryWaitingOpen(true)} aria-label="Teslimat bekleyenler">
+                  <Truck aria-hidden="true" />
+                  {waitingOpenCount > 0 && <span>{waitingOpenCount > 99 ? "99+" : waitingOpenCount}</span>}
+                </button>
+              )}
+              {canSell && (
+                <button className="inactive-orders-trigger loan-products-trigger" type="button" onClick={() => setLoanProductsOpen(true)} aria-label="Borç ürünler">
+                  <HandCoins aria-hidden="true" />
+                  {loanOutstandingCount > 0 && <span>{loanOutstandingCount}</span>}
+                </button>
+              )}
+              <button className="inactive-orders-trigger archive-trigger" type="button" onClick={() => setArchiveOrdersOpen(true)} aria-label="Arşivlenen siparişler">
+                <Archive aria-hidden="true" />
+                {archivedOrders.length > 0 && <span>{archivedOrders.length > 99 ? "99+" : archivedOrders.length}</span>}
+              </button>
+              <button className="inactive-orders-trigger trash-trigger" type="button" onClick={() => setInactiveOrdersOpen(true)} aria-label="Silinen ve iptal edilen siparişler">
+                <Trash2 aria-hidden="true" />
+                {deletedOrders.length > 0 && <span>{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</span>}
+              </button>
+            </div>
           </div>
         )}
         <div className="order-view-tabs mobile-only-view-tabs" role="tablist">
@@ -3384,13 +3410,6 @@ export default function App() {
               <Layers3 aria-hidden="true" /><span>Stok</span>
             </button>
           )}
-          <button
-            type="button"
-            className={mobileNavOpen ? "active" : ""}
-            onClick={() => setMobileNavOpen((value) => !value)}
-          >
-            <Menu aria-hidden="true" /><span>Diğer</span>
-          </button>
         </div>
         {initialDataLoading && !orders.length && (
           <div className="orders-loading-state">

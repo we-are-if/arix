@@ -9406,7 +9406,9 @@ textarea {
   border-left-color: rgba(148, 163, 184, 0.2);
 }
 
-.mobile-only-create {
+.mobile-only-create,
+.mobile-only-header-btn,
+.mobile-utility-strip {
   display: none !important;
 }
 
@@ -9600,8 +9602,43 @@ textarea {
   .order-sidebar-toggle-desktop {
     display: none !important;
   }
-  .mobile-only-create {
+  .mobile-only-create,
+  .mobile-only-header-btn {
     display: inline-flex !important;
+  }
+  .mobile-utility-strip {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 4px 2px;
+  }
+  .mobile-utility-count {
+    font-size: 13px;
+    font-weight: 650;
+    color: #475569;
+  }
+  .mobile-utility-count b {
+    font-size: 16px;
+    color: #1e293b;
+  }
+  .theme-dark .mobile-utility-count {
+    color: #94a3b8;
+  }
+  .theme-dark .mobile-utility-count b {
+    color: #f1f5f9;
+  }
+  .mobile-utility-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mobile-utility-actions .inactive-orders-trigger {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    border-radius: 10px;
   }
   .header-create-order-btn {
     width: 38px;
