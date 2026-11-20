@@ -2176,6 +2176,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem("arix-order-sidebar-collapsed") === "1"; } catch { return false; }
   });
+  const [sidebarManageOpen, setSidebarManageOpen] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [orderDay, setOrderDay] = useState<OrderDay | null>(null);
   const dayToggleBusyRef = useRef(false);
@@ -2918,8 +2919,18 @@ export default function App() {
     const closeIfDrawer = () => { if (inDrawer) setMobileNavOpen(false); };
     return (
       <nav className="order-sidebar-nav" aria-label="Ana menü">
+        {canSell && (
+          <button
+            type="button"
+            className="order-sidebar-create-btn primary"
+            title={collapsed ? text.create : undefined}
+            onClick={() => { setCreateOpen(true); closeIfDrawer(); }}
+          >
+            <Plus size={18} aria-hidden="true" />
+            {!collapsed && <span>{text.create}</span>}
+          </button>
+        )}
         <div className="order-sidebar-group">
-          {!collapsed && <span className="order-sidebar-group-label">Görünümler</span>}
           <button
             type="button"
             className={`order-sidebar-item ${pageTab === "board" ? "active" : ""}`}
@@ -2965,66 +2976,92 @@ export default function App() {
           )}
         </div>
         <div className="order-sidebar-group">
-          {!collapsed && <span className="order-sidebar-group-label">Takip & Kayıtlar</span>}
-          {canManageDeliveryWaiting && (
+          {!collapsed && (
             <button
               type="button"
-              className="order-sidebar-item"
-              title={collapsed ? "Teslimat bekleyenler" : undefined}
-              onClick={() => { setDeliveryWaitingOpen(true); closeIfDrawer(); }}
-            >
-              <Truck aria-hidden="true" />
-              {!collapsed && <span>Teslimat bekleyenler</span>}
-              {waitingOpenCount > 0 && <b className="order-sidebar-badge is-teal">{waitingOpenCount > 99 ? "99+" : waitingOpenCount}</b>}
-            </button>
-          )}
-          {canSell && (
-            <button
-              type="button"
-              className="order-sidebar-item"
-              title={collapsed ? "Borç ürünler" : undefined}
-              onClick={() => { setLoanProductsOpen(true); closeIfDrawer(); }}
-            >
-              <HandCoins aria-hidden="true" />
-              {!collapsed && <span>Borç ürünler</span>}
-              {loanOutstandingCount > 0 && <b className="order-sidebar-badge is-amber">{loanOutstandingCount}</b>}
-            </button>
-          )}
-          <button
-            type="button"
-            className="order-sidebar-item"
-            title={collapsed ? "Arşivlenen siparişler" : undefined}
-            onClick={() => { setArchiveOrdersOpen(true); closeIfDrawer(); }}
-          >
-            <Archive aria-hidden="true" />
-            {!collapsed && <span>Arşivlenenler</span>}
-            {archivedOrders.length > 0 && <b className="order-sidebar-badge">{archivedOrders.length > 99 ? "99+" : archivedOrders.length}</b>}
-          </button>
-          <button
-            type="button"
-            className="order-sidebar-item"
-            title={collapsed ? "Silinen ve iptal edilenler" : undefined}
-            onClick={() => { setInactiveOrdersOpen(true); closeIfDrawer(); }}
-          >
-            <Trash2 aria-hidden="true" />
-            {!collapsed && <span>Silinen / İptal</span>}
-            {deletedOrders.length > 0 && <b className="order-sidebar-badge is-rose">{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</b>}
-          </button>
-        </div>
-        {canOpenSettings && (
-          <div className="order-sidebar-group order-sidebar-bottom">
-            <button
-              type="button"
-              className="order-sidebar-item"
-              title={collapsed ? text.settings : undefined}
-              onClick={() => {
-                setSettingsMode("settings");
-                setSettingsOpen(true);
-                closeIfDrawer();
-              }}
+              className="order-sidebar-section-toggle"
+              onClick={() => setSidebarManageOpen((v) => !v)}
+              aria-expanded={sidebarManageOpen}
             >
               <Settings2 aria-hidden="true" />
-              {!collapsed && <span>{text.settings}</span>}
+              <span>Yönetim</span>
+              <HeaderIcon.ChevronDown className={`h-3.5 w-3.5 transition-transform ${sidebarManageOpen ? "rotate-180" : ""}`} />
+            </button>
+          )}
+          {(collapsed || sidebarManageOpen) && (
+            <div className={!collapsed ? "order-sidebar-sublist" : "order-sidebar-group"}>
+              {canManageDeliveryWaiting && (
+                <button
+                  type="button"
+                  className="order-sidebar-item"
+                  title={collapsed ? "Teslimat bekleyenler" : undefined}
+                  onClick={() => { setDeliveryWaitingOpen(true); closeIfDrawer(); }}
+                >
+                  <Truck aria-hidden="true" />
+                  {!collapsed && <span>Teslimat bekleyenler</span>}
+                  {waitingOpenCount > 0 && <b className="order-sidebar-badge is-teal">{waitingOpenCount > 99 ? "99+" : waitingOpenCount}</b>}
+                </button>
+              )}
+              {canSell && (
+                <button
+                  type="button"
+                  className="order-sidebar-item"
+                  title={collapsed ? "Borç ürünler" : undefined}
+                  onClick={() => { setLoanProductsOpen(true); closeIfDrawer(); }}
+                >
+                  <HandCoins aria-hidden="true" />
+                  {!collapsed && <span>Borç ürünler</span>}
+                  {loanOutstandingCount > 0 && <b className="order-sidebar-badge is-amber">{loanOutstandingCount}</b>}
+                </button>
+              )}
+              <button
+                type="button"
+                className="order-sidebar-item"
+                title={collapsed ? "Arşivlenen siparişler" : undefined}
+                onClick={() => { setArchiveOrdersOpen(true); closeIfDrawer(); }}
+              >
+                <Archive aria-hidden="true" />
+                {!collapsed && <span>Arşivlenenler</span>}
+                {archivedOrders.length > 0 && <b className="order-sidebar-badge">{archivedOrders.length > 99 ? "99+" : archivedOrders.length}</b>}
+              </button>
+              <button
+                type="button"
+                className="order-sidebar-item"
+                title={collapsed ? "Silinen ve iptal edilenler" : undefined}
+                onClick={() => { setInactiveOrdersOpen(true); closeIfDrawer(); }}
+              >
+                <Trash2 aria-hidden="true" />
+                {!collapsed && <span>Silinen / İptal</span>}
+                {deletedOrders.length > 0 && <b className="order-sidebar-badge is-rose">{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</b>}
+              </button>
+              {canOpenSettings && (
+                <button
+                  type="button"
+                  className="order-sidebar-item"
+                  title={collapsed ? text.settings : undefined}
+                  onClick={() => {
+                    setSettingsMode("settings");
+                    setSettingsOpen(true);
+                    closeIfDrawer();
+                  }}
+                >
+                  <Settings2 aria-hidden="true" />
+                  {!collapsed && <span>{text.settings}</span>}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        {!inDrawer && (
+          <div className="order-sidebar-bottom">
+            <button
+              type="button"
+              className="order-sidebar-item order-sidebar-collapse-btn"
+              title={collapsed ? "Menüyü genişlet" : "Daralt"}
+              onClick={() => setSidebarCollapsed((value) => !value)}
+            >
+              {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+              {!collapsed && <span>Daralt</span>}
             </button>
           </div>
         )}
@@ -3047,15 +3084,6 @@ export default function App() {
             >
               <Menu size={19} aria-hidden="true" />
             </button>
-            <button
-              type="button"
-              className={`order-sidebar-toggle-desktop inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`}
-              onClick={() => setSidebarCollapsed((value) => !value)}
-              aria-label={sidebarCollapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-              title={sidebarCollapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-            >
-              {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
-            </button>
             <AriXLogo className="glass-logo h-10 w-10" />
             <div className="hidden items-center gap-2 sm:flex">
               <span className="text-base font-semibold tracking-tight">AriX Order</span>
@@ -3068,12 +3096,11 @@ export default function App() {
             {canSell && (
               <button
                 type="button"
-                className="header-create-order-btn primary"
+                className="header-create-order-btn mobile-only-create primary"
                 onClick={() => setCreateOpen(true)}
                 aria-label={text.create}
               >
                 <span className="create-order-plus" aria-hidden="true">＋</span>
-                <span className="create-order-label">{text.create}</span>
               </button>
             )}
 
