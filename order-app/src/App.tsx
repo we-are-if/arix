@@ -10065,6 +10065,7 @@ function OrderDetail({
   const detailTouchTimerRef = useRef<any>(null);
   const detailTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [detailTab, setDetailTab] = useState<"prep" | "delivery" | "history">("prep");
 
   const handleProductContextMenu = (e: React.MouseEvent, item: OrderItem) => {
     e.preventDefault();
@@ -11001,7 +11002,7 @@ function OrderDetail({
   return (
     <>
       <Modal
-        className={`order-detail-modal status-${order.status}${contextOnlyView ? ` context-${contextOnlyView}-only` : ""}${isWarehousePrepMode ? " warehouse-prep-mode" : ""}`}
+        className={`order-detail-modal status-${order.status}${contextOnlyView ? ` context-${contextOnlyView}-only` : ` detail-tab-${detailTab}`}${isWarehousePrepMode ? " warehouse-prep-mode" : ""}`}
         title={contextOnlyView === "delivery" ? "Teslimatı yönet" : contextOnlyView === "history" ? "İşlem geçmişi" : editing ? ui.editOrder : order.customerName}
         subtitle={contextOnlyView ? `${order.number} · ${order.customerName}` : `${order.number} · ${order.isLoanReturn ? "Borç iadesi · " : ""}${statusMeta[order.status].label}`}
         onClose={onClose}
@@ -11148,6 +11149,41 @@ function OrderDetail({
           )}
           {!isWarehousePrepMode && canLockOrder && <button className="order-lock-top-action" type="button" disabled={busy} onClick={() => void toggleOrderLock()}>{order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}<span>{order.lockedAt ? "Kilidi aç" : "Kilitle"}</span></button>}
         </div>
+        {!contextOnlyView && (
+          <div className="daily-filter-tabs order-detail-tabs" role="tablist" aria-label="Sipariş detay menüsü">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={detailTab === "prep"}
+              className={detailTab === "prep" ? "active" : ""}
+              onClick={() => setDetailTab("prep")}
+            >
+              Hazırlama <b>{items.length}</b>
+            </button>
+            {((order.status === "ready" || order.status === "delivered") || (order.attachments || []).some((a) => !a.deletedAt)) && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === "delivery"}
+                className={detailTab === "delivery" ? "active" : ""}
+                onClick={() => setDetailTab("delivery")}
+              >
+                Belgeler & Teslimat
+              </button>
+            )}
+            {canViewAudit && order.status === "delivered" && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailTab === "history"}
+                className={detailTab === "history" ? "active" : ""}
+                onClick={() => setDetailTab("history")}
+              >
+                Geçmiş
+              </button>
+            )}
+          </div>
+        )}
         {isOwner && order.isTest && <div className="order-test-mode-banner active">
           <div>
             <b>TEST MODU AÇIK</b>
