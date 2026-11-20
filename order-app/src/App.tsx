@@ -2900,7 +2900,7 @@ export default function App() {
   };
 
   return (
-    <main className={`app-shell ${isDark ? "theme-dark" : ""}`}>
+    <main className={`app-shell ${isDark ? "theme-dark" : ""} ${pageTab === "board" ? "is-board-view" : ""}`}>
       <header
         className={`sticky top-0 z-40 border-b backdrop-blur ${isDark ? "glass-header-dark border-white/10" : "glass-header border-white/70"}`}
       >
@@ -3169,89 +3169,85 @@ export default function App() {
             <button onClick={() => setError("")}>×</button>
           </div>
         )}
-        {pageTab === "board" && <section className="page-head">
-          <div>
-            <p className="eyebrow">{text.flow}</p>
-            <h1>{text.title}</h1>
-            <p>{text.subtitle}</p>
-          </div>
-          <div className="page-actions">
-            <div className="summary">
-              <b>
-                {initialDataLoading && !orders.length
-                  ? "—"
-                  :
-                  orders.filter(
-                    (o) =>
-                      !["delivered", "cancelled", "fulfilled"].includes(
-                        o.status,
-                      ),
-                  ).length}
-              </b>
-              <span>{text.active}</span>
-            </div>
-            <button className="inactive-orders-trigger archive-trigger" type="button" onClick={() => setArchiveOrdersOpen(true)} aria-label="Arşivlenen siparişler" title="Arşivlenen siparişler">
-              <Archive aria-hidden="true" />
-              {archivedOrders.length > 0 && <span>{archivedOrders.length > 99 ? "99+" : archivedOrders.length}</span>}
+        <div className="order-top-nav">
+          <div className="order-view-tabs" role="tablist">
+            <button
+              className={pageTab === "board" ? "active" : ""}
+              onClick={() => setPageTab("board")}
+            >
+              <ListChecks aria-hidden="true" /><span>{text.workflowTab}</span>
             </button>
-            {canManageDeliveryWaiting && (
-              <button className="inactive-orders-trigger waiting-trigger" type="button" onClick={() => setDeliveryWaitingOpen(true)} aria-label="Teslimat bekleyenler" title="Teslimat bekleyenler">
-                <Truck aria-hidden="true" />
-                {deliveryWaiting.filter((record) => record.status !== "completed").length > 0 && <span>{deliveryWaiting.filter((record) => record.status !== "completed").length > 99 ? "99+" : deliveryWaiting.filter((record) => record.status !== "completed").length}</span>}
-              </button>
-            )}
-            {canSell && (
-              <button className="inactive-orders-trigger loan-products-trigger" type="button" onClick={() => setLoanProductsOpen(true)} aria-label="Borç ürünler" title="Borç ürünler">
-                <HandCoins aria-hidden="true" />
-                {loanDocuments.some((document) => ["loan_purchase", "loan_lend"].includes(document.type) && document.lines.some((line) => Number(line.loanOutstanding ?? 0) > 0 || Number(line.loanOutstandingRollCount ?? 0) > 0)) && <span>{loanDocuments.filter((document) => ["loan_purchase", "loan_lend"].includes(document.type) && document.lines.some((line) => Number(line.loanOutstanding ?? 0) > 0 || Number(line.loanOutstandingRollCount ?? 0) > 0)).length}</span>}
-              </button>
-            )}
-            <button className="inactive-orders-trigger trash-trigger" type="button" onClick={() => setInactiveOrdersOpen(true)} aria-label="Silinen ve iptal edilen siparişler" title="Silinen ve iptal edilen siparişler">
-              <Trash2 aria-hidden="true" />
-              {deletedOrders.length > 0 && <span>{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</span>}
-            </button>
-            {canSell && (
+            {canViewApprovalForms && (
               <button
-                className="primary"
-                onClick={() => setCreateOpen(true)}
-                aria-label={text.create}
+                className={pageTab === "forms" ? "active" : ""}
+                onClick={() => setPageTab("forms")}
               >
-                <span className="create-order-plus" aria-hidden="true">＋</span>
-                <span className="create-order-label">{text.create}</span>
+                <FileText aria-hidden="true" /><span>{text.approvalFormsTab}</span>
+              </button>
+            )}
+            {canViewDays && (
+              <button
+                className={pageTab === "days" ? "active" : ""}
+                onClick={() => setPageTab("days")}
+              >
+                <CalendarDays aria-hidden="true" /><span>{text.daysTab}</span>
+              </button>
+            )}
+            {canViewStock && (
+              <button
+                className={pageTab === "stock" ? "active" : ""}
+                onClick={() => setPageTab("stock")}
+              >
+                <Layers3 aria-hidden="true" /><span>Stok</span>
               </button>
             )}
           </div>
-        </section>}
-        <div className="order-view-tabs" role="tablist">
-          <button
-            className={pageTab === "board" ? "active" : ""}
-            onClick={() => setPageTab("board")}
-          >
-            <ListChecks aria-hidden="true" /><span>{text.workflowTab}</span>
-          </button>
-          {canViewApprovalForms && (
-            <button
-              className={pageTab === "forms" ? "active" : ""}
-              onClick={() => setPageTab("forms")}
-            >
-              <FileText aria-hidden="true" /><span>{text.approvalFormsTab}</span>
-            </button>
-          )}
-          {canViewDays && (
-            <button
-              className={pageTab === "days" ? "active" : ""}
-              onClick={() => setPageTab("days")}
-            >
-              <CalendarDays aria-hidden="true" /><span>{text.daysTab}</span>
-            </button>
-          )}
-          {canViewStock && (
-            <button
-              className={pageTab === "stock" ? "active" : ""}
-              onClick={() => setPageTab("stock")}
-            >
-              <Layers3 aria-hidden="true" /><span>Stok</span>
-            </button>
+          {pageTab === "board" && (
+            <div className="page-actions">
+              <div className="summary">
+                <b>
+                  {initialDataLoading && !orders.length
+                    ? "—"
+                    : orders.filter(
+                        (o) =>
+                          !["delivered", "cancelled", "fulfilled"].includes(
+                            o.status,
+                          ),
+                      ).length}
+                </b>
+                <span>{text.active}</span>
+              </div>
+              <button className="inactive-orders-trigger archive-trigger" type="button" onClick={() => setArchiveOrdersOpen(true)} aria-label="Arşivlenen siparişler" title="Arşivlenen siparişler">
+                <Archive aria-hidden="true" />
+                {archivedOrders.length > 0 && <span>{archivedOrders.length > 99 ? "99+" : archivedOrders.length}</span>}
+              </button>
+              {canManageDeliveryWaiting && (
+                <button className="inactive-orders-trigger waiting-trigger" type="button" onClick={() => setDeliveryWaitingOpen(true)} aria-label="Teslimat bekleyenler" title="Teslimat bekleyenler">
+                  <Truck aria-hidden="true" />
+                  {deliveryWaiting.filter((record) => record.status !== "completed").length > 0 && <span>{deliveryWaiting.filter((record) => record.status !== "completed").length > 99 ? "99+" : deliveryWaiting.filter((record) => record.status !== "completed").length}</span>}
+                </button>
+              )}
+              {canSell && (
+                <button className="inactive-orders-trigger loan-products-trigger" type="button" onClick={() => setLoanProductsOpen(true)} aria-label="Borç ürünler" title="Borç ürünler">
+                  <HandCoins aria-hidden="true" />
+                  {loanDocuments.some((document) => ["loan_purchase", "loan_lend"].includes(document.type) && document.lines.some((line) => Number(line.loanOutstanding ?? 0) > 0 || Number(line.loanOutstandingRollCount ?? 0) > 0)) && <span>{loanDocuments.filter((document) => ["loan_purchase", "loan_lend"].includes(document.type) && document.lines.some((line) => Number(line.loanOutstanding ?? 0) > 0 || Number(line.loanOutstandingRollCount ?? 0) > 0)).length}</span>}
+                </button>
+              )}
+              <button className="inactive-orders-trigger trash-trigger" type="button" onClick={() => setInactiveOrdersOpen(true)} aria-label="Silinen ve iptal edilen siparişler" title="Silinen ve iptal edilen siparişler">
+                <Trash2 aria-hidden="true" />
+                {deletedOrders.length > 0 && <span>{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</span>}
+              </button>
+              {canSell && (
+                <button
+                  className="primary"
+                  onClick={() => setCreateOpen(true)}
+                  aria-label={text.create}
+                >
+                  <span className="create-order-plus" aria-hidden="true">＋</span>
+                  <span className="create-order-label">{text.create}</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
         {initialDataLoading && !orders.length && (

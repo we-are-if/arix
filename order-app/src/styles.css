@@ -9187,3 +9187,120 @@ textarea {
     justify-content: space-between;
   }
 }
+
+/* =========================================================
+   UNIFIED TOP NAV & FULL-VIEWPORT BOARD FIT
+   ========================================================= */
+@media (min-width: 601px) {
+  .order-top-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .theme-dark .order-top-nav {
+    border-bottom-color: rgba(148, 163, 184, 0.2);
+  }
+  .order-top-nav .order-view-tabs {
+    margin: 0;
+    border-bottom: 0;
+    padding: 0;
+    height: auto;
+    min-height: 0;
+  }
+  .order-top-nav .page-actions {
+    gap: 10px;
+    margin-left: auto;
+    padding-right: 42px;
+  }
+  .order-top-nav .summary {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 5px;
+    padding: 6px 11px;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #ffffff;
+  }
+  .order-top-nav .summary b {
+    font-size: 15px;
+    line-height: 1;
+  }
+  .order-top-nav .summary span {
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .theme-dark .order-top-nav .summary {
+    border-color: rgba(148, 163, 184, 0.22);
+    background: #1e293b;
+  }
+  .order-top-nav .page-actions .primary {
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 1121px) {
+  .app-shell.is-board-view {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .app-shell.is-board-view > header {
+    flex: 0 0 auto;
+  }
+  .app-shell.is-board-view .order-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 12px 24px 10px;
+  }
+  .app-shell.is-board-view .order-top-nav {
+    flex: 0 0 auto;
+  }
+  .app-shell.is-board-view .board-view {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .app-shell.is-board-view .board-toolbar {
+    flex: 0 0 auto;
+  }
+  .app-shell.is-board-view .board {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+  }
+  .app-shell.is-board-view .app-page-footer {
+    flex: 0 0 auto;
+    margin-top: 8px;
+    padding-top: 8px;
+    min-height: 26px;
+  }
+}
+
+@media (max-width: 600px) {
+  .order-top-nav .page-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .order-top-nav .summary {
+    margin-right: auto;
+    align-items: flex-start;
+  }
+  .board {
+    height: calc(100dvh - 252px - env(safe-area-inset-bottom));
+  }
+}
