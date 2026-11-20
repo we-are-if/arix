@@ -6658,30 +6658,94 @@ async function handleOrderBoard(req, res, url, parts) {
       const businessDate = activeOrderDayKey(db);
       const selectedSourceGroupId = String(summary.items.find((item) => String(item.id) === String(selectedItems[0]?.waitingItemId))?.sourceGroupId || "invoice");
       const externalDocument = waiting.externalDocuments?.[selectedSourceGroupId] || null;
-      const firstOrderId = (waiting.releases || []).find((release) => release.orderId)?.orderId;
+      const firstOrderId = (waiting.releases || []).find((release) => release.orderId && !release.cancelledAt)?.orderId;
       const sourceOrders = (waiting.sourceOrderIds || [])
         .map((sourceOrderId) => db.orderBoard.find((sourceOrder) => String(sourceOrder.id) === String(sourceOrderId)))
         .filter(Boolean);
       const sourceOrderId = selectedSourceGroupId.startsWith("order:") ? selectedSourceGroupId.slice("order:".length) : "";
-      const sourceOrder = sourceOrderId
+      const sourceOrder = (sourceOrderId
         ? db.orderBoard.find((candidate) => String(candidate.id) === sourceOrderId)
-        : null;
+        : null) || (sourceOrders.length === 1 ? sourceOrders[0] : null);
       // Hazır durumundayken teslimatı ertelenen sipariş yeniden aktife
       // alındığında tekrar hazırlama kuyruğuna dönmez. Diğer kaynaklar yeni
       // sipariş olarak devam eder.
       const releaseStatus = sourceOrder?.status === "ready" ? "ready" : "new";
-      const releaseItems = selectedItems.map((item) => releaseStatus === "ready" ? {
-        ...item,
-        preparedQuantity: item.quantity,
-        preparedRollCount: item.orderedRollCount ?? 0,
-      } : item);
+      const usedSourceItemIndexes = new Set();
+      const findMatchingSourceItem = (item) => {
+        if (!sourceOrder || !Array.isArray(sourceOrder.items)) return null;
+        const waitingItem = (waiting.items || []).find((w) => String(w.id) === String(item.waitingItemId));
+        if (waitingItem && Number.isInteger(waitingItem.lineIndex) && sourceOrder.items[waitingItem.lineIndex] && !usedSourceItemIndexes.has(waitingItem.lineIndex)) {
+          usedSourceItemIndexes.add(waitingItem.lineIndex);
+          return sourceOrder.items[waitingItem.lineIndex];
+        }
+        const idx = sourceOrder.items.findIndex((candidate, i) => !usedSourceItemIndexes.has(i) && (
+          (candidate.productId != null && item.productId != null && Number(candidate.productId) === Number(item.productId)) ||
+          (candidate.productCode && item.productCode && String(candidate.productCode).trim().toLocaleLowerCase("tr") === String(item.productCode).trim().toLocaleLowerCase("tr"))
+        ));
+        if (idx >= 0) {
+          usedSourceItemIndexes.add(idx);
+          return sourceOrder.items[idx];
+        }
+        return null;
+      };
+      const releaseItems = selectedItems.map((item) => {
+        if (releaseStatus !== "ready") return item;
+        const srcItem = findMatchingSourceItem(item);
+        const srcPrepQty = Number(srcItem?.preparedQuantity ?? srcItem?.quantity) || 0;
+        const srcPrepRolls = Number(srcItem?.preparedRollCount ?? srcItem?.orderedRollCount) || 0;
+        const reqQty = Number(item.quantity) || 0;
+        const reqRolls = Number(item.orderedRollCount) || 0;
+        let preparedQuantity = reqQty > 0 ? reqQty : (srcPrepQty > 0 ? srcPrepQty : null);
+        if (reqQty <= 0 && reqRolls > 0 && srcPrepQty > 0 && srcPrepRolls > 0 && reqRolls !== srcPrepRolls) {
+          preparedQuantity = Number(((srcPrepQty / srcPrepRolls) * reqRolls).toFixed(2));
+        }
+        let preparedRollCount = reqRolls > 0 ? reqRolls : (srcPrepRolls > 0 ? srcPrepRolls : 0);
+        if (reqRolls <= 0 && reqQty > 0 && srcPrepRolls > 0 && srcPrepQty > 0 && Math.abs(reqQty - srcPrepQty) > 0.001) {
+          preparedRollCount = Math.max(1, Math.round((srcPrepRolls / srcPrepQty) * reqQty));
+        }
+        const cutAllowanceMeters = Number(srcItem?.cutAllowanceMeters) || 0;
+        const stockConsumptionQuantity = (Number(preparedQuantity) || 0) + cutAllowanceMeters;
+        return {
+          ...item,
+          ...(srcItem?.unit ? { unit: srcItem.unit } : {}),
+          ...(srcItem?.source ? { source: srcItem.source } : {}),
+          ...(srcItem?.query ? { query: srcItem.query } : {}),
+          ...(srcItem?.lineNote ? { lineNote: srcItem.lineNote } : {}),
+          preparedQuantity,
+          preparedRollCount,
+          cutAllowanceApplied: Boolean(srcItem?.cutAllowanceApplied),
+          cutPieceCount: Number(srcItem?.cutPieceCount) || 0,
+          cutAllowancePerPiece: Number(srcItem?.cutAllowancePerPiece) || 0,
+          cutAllowanceMeters,
+          stockConsumptionQuantity,
+          ...(srcItem?.preparedBy || sourceOrder?.preparedBy ? { preparedBy: srcItem?.preparedBy || sourceOrder?.preparedBy } : {}),
+          ...(srcItem?.preparedByUserId ? { preparedByUserId: srcItem.preparedByUserId } : {}),
+          ...(srcItem?.preparedAt || sourceOrder?.readyAt ? { preparedAt: srcItem?.preparedAt || sourceOrder?.readyAt } : {}),
+        };
+      });
       const sourceWithApprovalForm = sourceOrders.find((sourceOrder) => sourceOrder.approvalForm);
       const sourceWithDespatch = sourceOrders.find((sourceOrder) => sourceOrder.despatchReady === true);
+      const sourcePreparedBy = sourceOrder?.preparedBy || sourceOrder?.items?.find((i) => i.preparedBy)?.preparedBy || actor;
+      const sourcePreparedAt = sourceOrder?.preparedAt || sourceOrder?.items?.find((i) => i.preparedAt)?.preparedAt || sourceOrder?.readyAt || now;
+      const sourceReadyAt = sourceOrder?.readyAt || now;
+      const sourceReadyBy = sourceOrder?.readyBy || sourcePreparedBy;
+      const inheritedHistory = releaseStatus === "ready" && Array.isArray(sourceOrder?.history) && sourceOrder.history.length
+        ? [
+            ...sourceOrder.history.map((entry) => structuredClone(entry)),
+            { status: "ready", at: now, by: actor, reason: "Hazır sipariş bekleyen teslimattan geri aktarıldı." },
+          ]
+        : [{ status: releaseStatus, at: now, by: actor, ...(releaseStatus === "ready" ? { reason: "Hazır sipariş bekleyen teslimattan geri aktarıldı." } : {}) }];
+      const inheritedAudit = releaseStatus === "ready" && Array.isArray(sourceOrder?.audit) && sourceOrder.audit.length
+        ? [
+            ...sourceOrder.audit.map((entry) => ({ ...structuredClone(entry), id: randomUUID() })),
+            { id: randomUUID(), action: "deliveryWaitingReleased", newValue: waiting.number, by: actor, userId: req.authUser?.id, at: now },
+          ]
+        : [{ id: randomUUID(), action: "deliveryWaitingReleased", newValue: waiting.number, by: actor, userId: req.authUser?.id, at: now }];
       const order = {
         id: randomUUID(), number: nextOrderNumber(db, businessDate), customerName: waiting.customerName,
         note: String(body.note || waiting.note || "").trim(), originalText: "Teslimat bekleyen satıştan aktarıldı",
         businessDate, status: releaseStatus, isTest: waiting.isTest === true, isLoanReturn: waiting.isLoanReturn === true,
-        ...(releaseStatus === "ready" ? { readyAt: now, readyBy: actor, preparedAt: now, preparedBy: actor } : {}),
+        ...(releaseStatus === "ready" ? { readyAt: sourceReadyAt, readyBy: sourceReadyBy, preparedAt: sourcePreparedAt, preparedBy: sourcePreparedBy } : {}),
         isDeferredDelivery: true, deliveryWaitingSourceId: waiting.id, deliveryWaitingNumber: waiting.number, deliveryReleaseId: releaseId,
         ...(sourceWithApprovalForm ? {
           inheritedApprovalForm: {
@@ -6729,8 +6793,8 @@ async function handleOrderBoard(req, res, url, parts) {
         items: structuredClone(releaseItems),
         originalItems: (waiting.items || []).map((item) => ({ ...item, preparedQuantity: null, preparedRollCount: null })),
         createdBy: actor, createdByUserId: req.authUser?.id || null, createdAt: now, updatedAt: now,
-        history: [{ status: releaseStatus, at: now, by: actor, ...(releaseStatus === "ready" ? { reason: "Hazır sipariş bekleyen teslimattan geri aktarıldı." } : {}) }],
-        audit: [{ id: randomUUID(), action: "deliveryWaitingReleased", newValue: waiting.number, by: actor, userId: req.authUser?.id, at: now }],
+        history: inheritedHistory,
+        audit: inheritedAudit,
       };
       waiting.releases ??= [];
       waiting.releases.push({ id: releaseId, orderId: order.id, orderNumber: order.number, items: structuredClone(releaseItems), createdAt: now, createdBy: actor, note: order.note });
@@ -7245,6 +7309,7 @@ async function handleOrderBoard(req, res, url, parts) {
     if (createFromOrder) {
       const sourceGroupLabel = order.approvalForm?.invoiceNumber || order.approvalForm?.number || order.number;
       const sourceGroupId = `order:${order.id}`;
+      const isReadySource = order.status === "ready";
       const items = (order.items || []).map((item, index) => ({
         id: randomUUID(),
         productId: item.productId ?? null,
@@ -7252,8 +7317,13 @@ async function handleOrderBoard(req, res, url, parts) {
         productName: item.productName || "Ürün",
         // A new order has not been prepared yet. The deferred balance must
         // therefore always retain the ordered amount, not an empty prepared amount.
-        quantity: Math.max(0, numberValue(item.quantity)),
-        orderedRollCount: Math.max(0, Math.trunc(numberValue(item.orderedRollCount))),
+        // For an already-ready order, preserve the prepared meters and rolls.
+        quantity: Math.max(0, numberValue(isReadySource ? (item.preparedQuantity ?? item.quantity) : item.quantity)),
+        orderedRollCount: Math.max(0, Math.trunc(numberValue(isReadySource ? (item.preparedRollCount || item.orderedRollCount) : item.orderedRollCount))),
+        ...(isReadySource ? {
+          preparedQuantity: item.preparedQuantity ?? item.quantity ?? null,
+          preparedRollCount: item.preparedRollCount ?? item.orderedRollCount ?? null,
+        } : {}),
         lineIndex: index,
         sourceGroupId,
         sourceGroupLabel,
