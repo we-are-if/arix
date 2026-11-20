@@ -2084,6 +2084,10 @@ export default function App() {
   const [contextMenuTarget, setContextMenuTarget] = useState<ContextMenuTarget | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [orderContextAction, setOrderContextAction] = useState<"edit" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete" | null>(null);
+  const [quickNoteOrder, setQuickNoteOrder] = useState<Order | null>(null);
+  const [quickNoteText, setQuickNoteText] = useState("");
+  const [quickNoteBusy, setQuickNoteBusy] = useState(false);
+  const [quickNoteError, setQuickNoteError] = useState("");
   const colTouchTimerRef = useRef<any>(null);
   const colTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -2119,11 +2123,36 @@ export default function App() {
       setIsChatOpenExternal(true);
     }
   };
-  const handleContextOrderAction = (target: Extract<ContextMenuTarget, { type: "order" }>, action: "open" | "edit" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete") => {
+  const handleContextOrderAction = (target: Extract<ContextMenuTarget, { type: "order" }>, action: "open" | "edit" | "note" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete") => {
     const order = orders.find((candidate) => candidate.id === target.order.id);
     if (!order) return;
+    if (action === "note") {
+      setQuickNoteOrder(order);
+      setQuickNoteText(order.note || "");
+      setQuickNoteError("");
+      return;
+    }
     setOrderContextAction(action === "open" ? null : action);
     setActiveOrder(order);
+  };
+  const saveQuickNote = async () => {
+    if (!quickNoteOrder || quickNoteBusy) return;
+    setQuickNoteBusy(true);
+    setQuickNoteError("");
+    try {
+      const next = await api<Order>(`/api/orders/${quickNoteOrder.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ note: quickNoteText.trim(), editReason: "Hızlı not güncellemesi" }),
+      });
+      setOrders((current) => current.map((order) => order.id === next.id ? next : order));
+      setApprovalOrders((current) => current.map((order) => order.id === next.id ? next : order));
+      setActiveOrder((current) => current?.id === next.id ? next : current);
+      setQuickNoteOrder(null);
+    } catch (cause) {
+      setQuickNoteError(cause instanceof Error ? cause.message : "Sipariş notu kaydedilemedi.");
+    } finally {
+      setQuickNoteBusy(false);
+    }
   };
   const [notificationPreferencesOpen, setNotificationPreferencesOpen] = useState(false);
   const [myNotificationSettings, setMyNotificationSettings] = useState<{ preferences: { inApp: boolean; push: boolean; events: Record<string, boolean> }; permissions: { events: Record<string, boolean> } } | null>(null);
@@ -3702,6 +3731,32 @@ export default function App() {
           }}
         />
       )}
+      {quickNoteOrder && (
+        <Modal
+          title="Sipariş notu"
+          subtitle={`${quickNoteOrder.number} · ${quickNoteOrder.customerName}`}
+          onClose={() => !quickNoteBusy && setQuickNoteOrder(null)}
+          className="quick-order-note-modal"
+        >
+          <div className="form-stack">
+            <label className="field">
+              <span>Not</span>
+              <textarea
+                value={quickNoteText}
+                onChange={(event) => setQuickNoteText(event.target.value)}
+                placeholder="Siparişe not ekleyin"
+                rows={6}
+                autoFocus
+              />
+            </label>
+            {quickNoteError && <p className="form-error">{quickNoteError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="secondary" disabled={quickNoteBusy} onClick={() => setQuickNoteOrder(null)}>Vazgeç</button>
+              <button type="button" className="primary" disabled={quickNoteBusy} onClick={() => void saveQuickNote()}>{quickNoteBusy ? "Kaydediliyor…" : "Notu kaydet"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {session && (
         <TeamChatWidget
           currentUser={session}
@@ -4444,6 +4499,7 @@ function BoardColumn({
                     customerName: order.customerName,
                     status: order.status,
                     itemsCount: order.items?.length,
+                    hasNote: Boolean(order.note?.trim()),
                   },
                 }, { x: e.clientX, y: e.clientY });
               }}
@@ -4461,6 +4517,7 @@ function BoardColumn({
                       customerName: order.customerName,
                       status: order.status,
                       itemsCount: order.items?.length,
+                    hasNote: Boolean(order.note?.trim()),
                     },
                   }, { x: colTouchPosRef.current.x, y: colTouchPosRef.current.y });
                 }, 450);
@@ -9154,6 +9211,7 @@ function OrderDetail({
   const draftRequests = useRef<Promise<unknown>>(Promise.resolve());
   const [busy, setBusy] = useState(false);
   const [attachmentUploadStatus, setAttachmentUploadStatus] = useState("");
+  const [contextOnlyView, setContextOnlyView] = useState<"delivery" | "history" | null>(null);
   const deliveryFormRef = useRef<HTMLElement | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -9762,17 +9820,15 @@ function OrderDetail({
       return;
     }
     if (action === "history" && canViewAudit) {
+      setContextOnlyView("history");
       window.setTimeout(() => {
-        const history = document.querySelector(".order-detail .order-history") as HTMLDetailsElement | null;
-        if (history) { history.open = true; history.scrollIntoView({ behavior: "smooth", block: "center" }); }
+        const history = document.querySelector(".order-detail-modal.context-history-only .order-history") as HTMLDetailsElement | null;
+        if (history) history.open = true;
       }, 60);
       return;
     }
     if (action === "delivery") {
-      window.setTimeout(() => {
-        const delivery = document.querySelector(".order-detail .delivery-form, .order-detail .delivery-section");
-        delivery?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 60);
+      setContextOnlyView("delivery");
       return;
     }
     if (action === "delete" && canDeleteOrder) void deleteOrder();
@@ -9974,9 +10030,9 @@ function OrderDetail({
   return (
     <>
       <Modal
-        className={`order-detail-modal status-${order.status}`}
-        title={editing ? ui.editOrder : order.customerName}
-        subtitle={`${order.number} · ${order.isLoanReturn ? "Borç iadesi · " : ""}${statusMeta[order.status].label}`}
+        className={`order-detail-modal status-${order.status}${contextOnlyView ? ` context-${contextOnlyView}-only` : ""}`}
+        title={contextOnlyView === "delivery" ? "Teslimatı yönet" : contextOnlyView === "history" ? "İşlem geçmişi" : editing ? ui.editOrder : order.customerName}
+        subtitle={contextOnlyView ? `${order.number} · ${order.customerName}` : `${order.number} · ${order.isLoanReturn ? "Borç iadesi · " : ""}${statusMeta[order.status].label}`}
         onClose={onClose}
       >
         <div className="order-audit">

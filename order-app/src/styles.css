@@ -5360,6 +5360,10 @@ textarea {
   overflow-y: auto;
   background: #fff;
 }
+.order-detail-modal.context-delivery-only .modal-body > :not(.delivery-form):not(.form-error):not(.form-notice) { display:none; }
+.order-detail-modal.context-history-only .modal-body > :not(.order-history):not(.form-error):not(.form-notice) { display:none; }
+.order-detail-modal.context-delivery-only .delivery-form,
+.order-detail-modal.context-history-only .order-history { margin-top:0; }
 .order-detail-modal .order-audit {
   display: flex;
   width: 100%;

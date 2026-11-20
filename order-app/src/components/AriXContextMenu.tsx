@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, Copy, Check, Package, FileText, Eye, Pencil, Play, Truck, History, Trash2, ClipboardList } from "lucide-react";
+import { MessageSquare, Copy, Check, Package, FileText, Eye, Pencil, Play, Truck, History, Trash2, ClipboardList, NotepadText } from "lucide-react";
 
 export type ContextMenuTarget =
   | {
@@ -28,6 +28,7 @@ export type ContextMenuTarget =
         customerName?: string;
         status?: string;
         itemsCount?: number;
+        hasNote?: boolean;
       };
     };
 
@@ -36,7 +37,7 @@ export interface AriXContextMenuProps {
   position: { x: number; y: number } | null;
   onClose: () => void;
   onShareInChat: (target: ContextMenuTarget) => void;
-  onOrderAction?: (target: Extract<ContextMenuTarget, { type: "order" }>, action: "open" | "edit" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete") => void;
+  onOrderAction?: (target: Extract<ContextMenuTarget, { type: "order" }>, action: "open" | "edit" | "note" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete") => void;
   permissions?: { edit?: boolean; prepare?: boolean; deliver?: boolean; documents?: boolean; defer?: boolean; delete?: boolean; audit?: boolean };
   onCopySuccess?: (msg: string) => void;
 }
@@ -83,7 +84,7 @@ export function AriXContextMenu({
 
   // Calculate safe clamping so menu never overflows screen bounds
   const menuWidth = 250;
-  const menuHeight = target.type === "order" ? 520 : 220;
+  const menuHeight = target.type === "order" ? 600 : 220;
   const padding = 12;
 
   let left = position.x;
@@ -135,7 +136,7 @@ export function AriXContextMenu({
     }
   };
 
-  const runOrderAction = (action: "open" | "edit" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete") => {
+  const runOrderAction = (action: "open" | "edit" | "note" | "prepare" | "delivery" | "documents" | "defer" | "history" | "delete") => {
     if (target.type !== "order") return;
     onOrderAction?.(target, action);
     onClose();
@@ -197,6 +198,7 @@ export function AriXContextMenu({
             <div className="arix-cm-status"><span className={`arix-cm-status-dot ${orderStatus}`} /><b>{orderStatusLabel[orderStatus] || "Sipariş"}</b>{target.order.itemsCount != null && <small>{target.order.itemsCount} ürün</small>}</div>
             <button type="button" className="arix-cm-action primary" onClick={() => runOrderAction("open")}><span className="arix-cm-action-icon open"><Eye size={16} /></span><div className="arix-cm-action-label"><b>Siparişi aç</b><small>Tüm detayları ve akışı görüntüle</small></div></button>
             {permissions.edit && ["new", "preparing", "ready"].includes(orderStatus) && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("edit")}><span className="arix-cm-action-icon"><Pencil size={16} /></span><div className="arix-cm-action-label"><b>Siparişi düzenle</b><small>Müşteri, ürün ve notları değiştir</small></div></button>}
+            {permissions.edit && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("note")}><span className="arix-cm-action-icon"><NotepadText size={16} /></span><div className="arix-cm-action-label"><b>{target.order.hasNote ? "Notu düzenle" : "Not ekle"}</b><small>Detay ekranına girmeden kaydet</small></div></button>}
             {permissions.prepare && orderStatus === "new" && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("prepare")}><span className="arix-cm-action-icon prepare"><Play size={16} /></span><div className="arix-cm-action-label"><b>Hazırlamaya başla</b><small>Siparişi hazırlama panosuna al</small></div></button>}
             {permissions.prepare && orderStatus === "preparing" && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("prepare")}><span className="arix-cm-action-icon prepare"><Play size={16} /></span><div className="arix-cm-action-label"><b>Hazırlamaya devam et</b><small>Hazırlanan metre ve ruloları aç</small></div></button>}
             {permissions.deliver && ["ready", "delivered"].includes(orderStatus) && <button type="button" className="arix-cm-action" onClick={() => runOrderAction("delivery")}><span className="arix-cm-action-icon delivery"><Truck size={16} /></span><div className="arix-cm-action-label"><b>{orderStatus === "ready" ? "Teslimatı yönet" : "Teslim bilgilerini aç"}</b><small>İrsaliye, teslim notu ve kanıtlar</small></div></button>}
