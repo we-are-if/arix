@@ -6337,11 +6337,21 @@ function ApprovalFormsPage({
     finally { setOfferBusyId(""); }
   };
   const searchKey = search.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
+  // Teklif, sipariş formu oluşana kadar Tümü görünümünde bağımsız bir belge
+  // olarak durur. Dönüşümden sonra ise teklif numarası SOF'un ilk geçmiş
+  // sürümüdür; aynı belgeyi listede ikinci kez göstermeyiz.
+  const standaloneOffers = offers.filter((offer) => !offer.convertedOrderId);
+  const formListDate = (order: Order) => {
+    const readyDate = String(order.readyAt || "").slice(0, 10);
+    return ["ready", "delivered", "fulfilled"].includes(order.status) && readyDate
+      ? readyDate
+      : order.approvalForm?.date || "Tarihsiz";
+  };
   const formListEntries = formsView === "all"
-    ? [...orders, ...offers.map(offerAsOrder)].sort((left, right) => String(right.approvalForm?.date || right.createdAt || "").localeCompare(String(left.approvalForm?.date || left.createdAt || "")))
+    ? [...orders, ...standaloneOffers.map(offerAsOrder)].sort((left, right) => formListDate(right).localeCompare(formListDate(left)))
     : orders;
   const filteredOrders = formListEntries.filter((order) => {
-    if (selectedFormDate && order.approvalForm?.date !== selectedFormDate) return false;
+    if (selectedFormDate && formListDate(order) !== selectedFormDate) return false;
     if (!searchKey) return true;
     const form = order.approvalForm;
     const status = form?.status === "approved" ? "onaylandı" : form?.status === "rejected" ? "reddedildi" : "onay bekliyor";
@@ -6354,7 +6364,7 @@ function ApprovalFormsPage({
     ? filteredOrders.filter((order) => Boolean(order.approvalForm?.submittedForApproval) && order.approvalForm?.status !== "approved" && order.approvalForm?.status !== "rejected")
     : filteredOrders;
   const groups = visibleOrders.reduce<Array<{ date: string; orders: Order[] }>>((result, order) => {
-    const key = order.approvalForm?.date || "Tarihsiz";
+    const key = formListDate(order);
     const current = result.find((group) => group.date === key);
     if (current) current.orders.push(order);
     else result.push({ date: key, orders: [order] });
@@ -6366,7 +6376,7 @@ function ApprovalFormsPage({
         <div className="approval-forms-heading">
           <div className="approval-forms-title">
             <b>Sipariş formları</b>
-            <span>{searchKey || selectedFormDate ? `${filteredOrders.length} / ${orders.length}` : orders.length} form · {offers.length} teklif</span>
+            <span>{searchKey || selectedFormDate ? `${filteredOrders.length} / ${orders.length + standaloneOffers.length}` : orders.length + standaloneOffers.length} form · {offers.length} teklif</span>
           </div>
         </div>
         <div className="approval-forms-controls">
@@ -6388,7 +6398,7 @@ function ApprovalFormsPage({
         </div>
       </header>
       <nav className="approval-forms-tabs" aria-label="Sipariş formu görünümü">
-        <button type="button" className={formsView === "all" ? "active" : ""} onClick={() => setFormsView("all")}>Tümü <b>{orders.length + offers.length}</b></button>
+        <button type="button" className={formsView === "all" ? "active" : ""} onClick={() => setFormsView("all")}>Tümü <b>{orders.length + standaloneOffers.length}</b></button>
         <button type="button" className={formsView === "pending" ? "active" : ""} onClick={() => setFormsView("pending")}>Onay bekleyenler <b>{orders.filter((order) => Boolean(order.approvalForm?.submittedForApproval) && order.approvalForm?.status !== "approved" && order.approvalForm?.status !== "rejected").length}</b></button>
         <button type="button" className={formsView === "offers" ? "active" : ""} onClick={() => setFormsView("offers")}>Teklifler <b>{offers.length}</b></button>
       </nav>
@@ -6469,7 +6479,7 @@ function ApprovalFormsPage({
                                 <span className={`approval-version-state ${revision.status} ${revision.isMissing ? "missing" : ""}`}>
                                   {revision.isMissing ? <FileText aria-hidden="true" /> : revision.status === "approved" ? <Check aria-hidden="true" /> : revision.status === "rejected" ? <X aria-hidden="true" /> : <span />}
                                 </span>
-                                <span><b>{documentNumber}</b><small>{revision.sourceOrderId ? `Birleştirme öncesi · ${revision.sourceOrderNumber}` : `${documentName}${revision.isCurrent ? " · Güncel" : " · Geçmiş sürüm"}`} · {new Date(revision.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</small></span>
+                                <span><b>{documentNumber}</b><small>{revision.reason?.startsWith("Teklif formu") ? revision.reason : revision.sourceOrderId ? `Birleştirme öncesi · ${revision.sourceOrderNumber}` : `${documentName}${revision.isCurrent ? " · Güncel" : " · Geçmiş sürüm"}`} · {new Date(revision.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</small></span>
                                 <em className={revision.isMissing ? "missing" : revision.status}>{revision.isMissing ? "Hazırlanmadı" : revision.status === "approved" ? (revision.isCurrent ? "Onaylı" : "Eski onay") : revision.status === "rejected" ? "Ret" : "Bekliyor"}</em>
                               </button>
                               {canDeleteRevisions && !revision.isCurrent && !revision.isMissing && !revision.sourceOrderId && <button
@@ -6502,7 +6512,7 @@ function ApprovalFormsPage({
                     <span><b>{form.salesRepresentative || "Atanmadı"}</b><small>{form.updatedBy ? `Son işlem: ${form.updatedBy}` : ""}</small></span>
                     <span className="approval-approver-cell"><b>{form.approvedBy || (form.status === "approved" ? form.updatedBy : "") || "—"}</b><small>{form.approvedAt ? new Date(form.approvedAt).toLocaleString("tr-TR") : ""}</small></span>
                     {isUlkuPrintView && <span className="approval-despatch-cell"><b>{order.withoutDespatch ? "İrsaliyesiz" : order.despatchNumber || "Bekleniyor"}</b><small>{order.despatchReadyAt ? new Date(order.despatchReadyAt).toLocaleString("tr-TR") : ""}</small></span>}
-                    <span><b>{new Date(`${form.date}T00:00:00`).toLocaleDateString("tr-TR")}</b><small>{form.updatedAt ? new Date(form.updatedAt).toLocaleString("tr-TR") : ""}</small></span>
+                    <span><b>{new Date(`${formListDate(order)}T00:00:00`).toLocaleDateString("tr-TR")}</b><small>{formListDate(order) !== form.date ? `İlk form: ${new Date(`${form.date}T00:00:00`).toLocaleDateString("tr-TR")}` : form.updatedAt ? new Date(form.updatedAt).toLocaleString("tr-TR") : ""}</small></span>
                   </button>
                 </div>
               );
