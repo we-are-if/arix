@@ -11385,13 +11385,25 @@ textarea {
 .order-detail-modal.detail-tab-prep .order-documents,
 .order-detail-modal.detail-tab-prep .delivery-form,
 .order-detail-modal.detail-tab-prep .order-history,
-.order-detail-modal.detail-tab-prep .attached-document-summary {
+.order-detail-modal.detail-tab-prep .attached-document-summary,
+.order-detail-modal.detail-tab-prep .approval-entry,
+.order-detail-modal.detail-tab-prep .delivery-release-history {
+  display: none !important;
+}
+.order-detail-modal.detail-tab-documents .prep-list,
+.order-detail-modal.detail-tab-documents .customer-note,
+.order-detail-modal.detail-tab-documents .order-history,
+.order-detail-modal.detail-tab-documents .delivery-form:not(.arix-despatch-card),
+.order-detail-modal.detail-tab-documents .delivery-release-history {
   display: none !important;
 }
 .order-detail-modal.detail-tab-delivery .prep-list,
 .order-detail-modal.detail-tab-delivery .customer-note,
 .order-detail-modal.detail-tab-delivery .order-history,
-.order-detail-modal.detail-tab-delivery .order-test-mode-banner {
+.order-detail-modal.detail-tab-delivery .order-documents,
+.order-detail-modal.detail-tab-delivery .attached-document-summary,
+.order-detail-modal.detail-tab-delivery .approval-entry,
+.order-detail-modal.detail-tab-delivery .arix-despatch-card {
   display: none !important;
 }
 .order-detail-modal.detail-tab-history .prep-list,
@@ -11399,8 +11411,19 @@ textarea {
 .order-detail-modal.detail-tab-history .order-documents,
 .order-detail-modal.detail-tab-history .delivery-form,
 .order-detail-modal.detail-tab-history .attached-document-summary,
-.order-detail-modal.detail-tab-history .order-test-mode-banner {
+.order-detail-modal.detail-tab-history .approval-entry,
+.order-detail-modal.detail-tab-history .delivery-release-history {
   display: none !important;
+}
+.delivery-scope-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.delivery-scope-header h3 {
+  margin: 0 !important;
 }
 .order-detail-modal .prep-row > .prep-inputs,
 .order-detail-modal .prep-row > .prepared-quantity-fields {
@@ -11934,6 +11957,8 @@ textarea {
   }
   .order-detail-header-bar {
     flex-wrap: nowrap;
+    width: 100%;
+    justify-content: flex-end;
   }
   .modal-resize-handle {
     display: none !important;
@@ -12149,6 +12174,86 @@ textarea {
     font-size: 14px !important;
     padding: 0 14px !important;
   }
+}
+
+.delivery-scope-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.delivery-scope-header h3 {
+  margin: 0 !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+}
+.delivery-scope-header .despatch-scope {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  gap: 3px;
+}
+.delivery-scope-header .despatch-scope button {
+  min-height: 28px !important;
+  padding: 0 10px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  white-space: nowrap;
+}
+.delivery-photo-input.camera,
+.delivery-photo-input.camera span {
+  color: #ffffff !important;
+}
+.order-detail-modal .partial-delivery-picker {
+  gap: 6px !important;
+  margin-top: 2px;
+}
+.order-detail-modal .partial-delivery-picker > header {
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+}
+.order-detail-modal .partial-delivery-picker article {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  padding: 9px 10px !important;
+  border-radius: 12px !important;
+}
+.order-detail-modal .partial-delivery-picker .partial-delivery-check {
+  grid-column: 1 / -1 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  text-align: left !important;
+}
+.order-detail-modal .partial-delivery-picker .partial-delivery-check > span {
+  display: grid !important;
+  gap: 1px !important;
+  text-align: left !important;
+}
+.order-detail-modal .partial-delivery-picker article > label:not(.partial-delivery-check) {
+  display: grid !important;
+  gap: 3px !important;
+}
+.order-detail-modal .partial-delivery-picker article > label:not(.partial-delivery-check) span {
+  font-size: 11px !important;
+}
+.order-detail-modal .partial-delivery-picker article > label:not(.partial-delivery-check) input {
+  height: 36px !important;
+  min-height: 36px !important;
+  border-radius: 9px !important;
+  font-size: 14px !important;
+}
+.theme-dark .delivery-scope-header .despatch-scope {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.2);
 }
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {

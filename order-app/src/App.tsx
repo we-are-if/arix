@@ -10066,7 +10066,8 @@ function OrderDetail({
   const detailTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const moreBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [detailTab, setDetailTab] = useState<"prep" | "delivery" | "history">("prep");
+  const [detailTab, setDetailTab] = useState<"prep" | "documents" | "delivery" | "history">("prep");
+  const [partialDeliveryOpen, setPartialDeliveryOpen] = useState(false);
 
   const handleProductContextMenu = (e: React.MouseEvent, item: OrderItem) => {
     e.preventDefault();
@@ -11213,11 +11214,22 @@ function OrderDetail({
                 <button
                   type="button"
                   role="tab"
+                  aria-selected={detailTab === "documents"}
+                  className={detailTab === "documents" ? "active" : ""}
+                  onClick={() => setDetailTab("documents")}
+                >
+                  {ui.documents}
+                </button>
+              )}
+              {(order.status === "ready" || order.status === "delivered") && (
+                <button
+                  type="button"
+                  role="tab"
                   aria-selected={detailTab === "delivery"}
                   className={detailTab === "delivery" ? "active" : ""}
                   onClick={() => setDetailTab("delivery")}
                 >
-                  Belgeler & Teslimat
+                  Teslimat
                 </button>
               )}
               <button
@@ -12277,7 +12289,35 @@ function OrderDetail({
         )}
         {order.status === "ready" && canDeliver && order.despatchReady && (
           <section className="delivery-form" ref={deliveryFormRef}>
-            <h3>{ui.deliveryProof}</h3>
+            <div className="delivery-scope-header">
+              <h3>{ui.deliveryProof}</h3>
+              <div className="despatch-scope" role="group" aria-label="Teslimat kapsamı">
+                <button
+                  type="button"
+                  className={!partialDeliveryOpen ? "active" : ""}
+                  onClick={() => {
+                    setPartialDeliveryOpen(false);
+                    setDeliverySelection(
+                      order.items.map((item) => ({
+                        selected: true,
+                        quantity: Number(item.preparedQuantity ?? item.quantity) || 0,
+                        rollCount: Math.max(0, Math.trunc(Number(item.preparedRollCount ?? item.orderedRollCount) || 0)),
+                      })),
+                    );
+                  }}
+                >
+                  Tam teslimat
+                </button>
+                <button
+                  type="button"
+                  className={partialDeliveryOpen ? "active" : ""}
+                  onClick={() => setPartialDeliveryOpen(true)}
+                >
+                  Kısmi teslimat
+                </button>
+              </div>
+            </div>
+            {partialDeliveryOpen && (
             <div className="partial-delivery-picker">
               <header><div><b>Teslim edilecek ürünler</b><small>Ürünün tamamını veya bir kısmını seçebilirsiniz.</small></div><span>{deliverySelection.filter((entry) => entry.selected).length}/{order.items.length}</span></header>
               {order.items.map((item, index) => {
@@ -12291,6 +12331,7 @@ function OrderDetail({
                 </article>;
               })}
             </div>
+            )}
             {order.businessDate && order.businessDate < new Date().toLocaleDateString("en-CA") && (
               <label className="actual delivery-date-picker">
                 <span>Gerçek teslim tarihi (eski günden devreden sipariş)</span>
