@@ -6636,19 +6636,16 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
   onWithdraw?: () => void;
   onPrinted?: (printedAt: string) => void;
 }) {
-  const [pdfUrl, setPdfUrl] = useState("");
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(previewPdfBlob ?? null);
   const [error, setError] = useState("");
   const [pdfRendered, setPdfRendered] = useState(false);
   const [zoom, setZoom] = useState(1);
   const pagesRef = useRef<HTMLDivElement | null>(null);
-  const nativePdfRef = useRef<HTMLIFrameElement | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const fallbackTriggeredRef = useRef(false);
   const filename = previewFilename || order.approvalForm?.archive?.filename || `${order.approvalForm?.number || order.number}.pdf`;
   const nativeShare = Reflect.get(navigator, "share") as ((data: ShareData) => Promise<void>) | undefined;
   const nativeCanShare = Reflect.get(navigator, "canShare") as ((data: ShareData) => boolean) | undefined;
-  const useNativeWindowsViewer = /Windows NT/i.test(navigator.userAgent);
   const representativeName = representativeIdentity(order.approvalForm?.salesRepresentative);
   const sessionName = representativeIdentity(session.name);
   const isOwner = workflowRole(session.role) === "owner";
@@ -6669,7 +6666,6 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
   const isUlkuPrintTracking = session.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim() === "ulku altun";
 
   useEffect(() => {
-    let objectUrl = "";
     let cancelled = false;
     const cacheKey = getOrderPdfCacheKey(order);
     const immediateBlob = previewPdfBlob ?? (cacheKey ? clientPdfPreviewCache.get(cacheKey) : undefined);
@@ -6677,9 +6673,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
       if (cacheKey) rememberClientPdfPreview(cacheKey, immediateBlob);
       setError("");
       setPdfBlob(immediateBlob);
-      objectUrl = URL.createObjectURL(immediateBlob);
-      setPdfUrl(objectUrl);
-      return () => URL.revokeObjectURL(objectUrl);
+      return undefined;
     }
     if (waitingForPreviewBlob) {
       return undefined;
@@ -6700,19 +6694,16 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
       .then((blob) => {
         if (cancelled || !blob) return;
         if (cacheKey) rememberClientPdfPreview(cacheKey, blob);
-        objectUrl = URL.createObjectURL(blob);
         setPdfBlob(blob);
-        setPdfUrl(objectUrl);
       })
       .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "PDF açılamadı."); });
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [order, order.id, previewPdfBlob, waitingForPreviewBlob, onFallbackPreviewNeeded]);
 
   useEffect(() => {
-    if (useNativeWindowsViewer || !pdfBlob || !pagesRef.current) return;
+    if (!pdfBlob || !pagesRef.current) return;
     let cancelled = false;
     const pages = pagesRef.current;
     pages.replaceChildren();
@@ -6749,7 +6740,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
       cancelled = true;
       pages.replaceChildren();
     };
-  }, [pdfBlob, useNativeWindowsViewer]);
+  }, [pdfBlob]);
 
   const touchDistance = (touches: { readonly [index: number]: { clientX: number; clientY: number } }) => {
     const x = touches[0].clientX - touches[1].clientX;
@@ -6760,11 +6751,13 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
   const downloadPdf = () => {
     if (!pdfBlob) return;
     const link = document.createElement("a");
-    link.href = pdfUrl;
+    const objectUrl = URL.createObjectURL(pdfBlob);
+    link.href = objectUrl;
     link.download = filename;
     document.body.appendChild(link);
     link.click();
     link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
   };
 
   const share = async (): Promise<boolean> => {
@@ -6804,12 +6797,6 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
         setError(cause instanceof Error ? `Yazdırma kaydı tutulamadı: ${cause.message}` : "Yazdırma kaydı tutulamadı.");
       }
     };
-    if (useNativeWindowsViewer && nativePdfRef.current?.contentWindow) {
-      nativePdfRef.current.contentWindow.focus();
-      nativePdfRef.current.contentWindow.print();
-      await markAsPrinted();
-      return;
-    }
     const isAppleMobile = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     if (isAppleMobile && nativeShare) {
@@ -6878,8 +6865,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
       >
         {error && <p className="form-error">{error}</p>}
         {!error && !pdfRendered && <div className="orders-loading-state"><span />Belge açılıyor…</div>}
-        {!error && useNativeWindowsViewer && pdfUrl && <iframe ref={nativePdfRef} className="approval-native-pdf" src={pdfUrl} title={filename} onLoad={() => setPdfRendered(true)} />}
-        {!useNativeWindowsViewer && <div className={`approval-pdf-canvas-stage ${pdfRendered ? "is-ready" : ""}`} style={{ width: `${zoom * 100}%` }} ref={pagesRef} aria-label={filename} />}
+        <div className={`approval-pdf-canvas-stage ${pdfRendered ? "is-ready" : ""}`} style={{ width: `${zoom * 100}%` }} ref={pagesRef} aria-label={filename} />
       </main>
     </section>
   );
