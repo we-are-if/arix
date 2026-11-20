@@ -11228,3 +11228,117 @@ textarea {
 .theme-dark .stock-reserve-item strong {
   color: #fcd34d;
 }
+
+/* =========================================================
+   FAZ 2: CLEAN ARIX ORDER DETAIL & PREP SCREEN
+   ========================================================= */
+.order-detail-top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.order-detail-primary-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+.order-detail-more-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.order-detail-more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 0 11px;
+  border-radius: 10px;
+}
+.order-detail-more-btn svg {
+  width: 15px;
+  height: 15px;
+}
+.order-detail-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+  display: grid;
+  gap: 3px;
+  z-index: 60;
+}
+.order-detail-more-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.order-detail-more-menu button:hover {
+  background: #f1f5f9;
+}
+.order-detail-more-menu button.danger {
+  color: #dc2626;
+}
+.order-detail-more-menu button.danger:hover {
+  background: #fef2f2;
+}
+.order-detail-more-menu button svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+}
+
+.order-detail-modal .order-audit {
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+.order-detail-modal .prep-list {
+  display: grid;
+  gap: 8px;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+.order-detail-modal .prep-row {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  padding: 12px 14px !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+.theme-dark .order-detail-more-menu {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: #1e293b;
+}
+.theme-dark .order-detail-more-menu button {
+  color: #e2e8f0;
+}
+.theme-dark .order-detail-more-menu button:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+.theme-dark .order-detail-more-menu button.danger {
+  color: #f87171;
+}
+.theme-dark .order-detail-modal .prep-row {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  background: #171e2d !important;
+}

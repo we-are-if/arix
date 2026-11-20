@@ -10064,6 +10064,7 @@ function OrderDetail({
 }) {
   const detailTouchTimerRef = useRef<any>(null);
   const detailTouchPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
 
   const handleProductContextMenu = (e: React.MouseEvent, item: OrderItem) => {
     e.preventDefault();
@@ -11005,103 +11006,116 @@ function OrderDetail({
         subtitle={contextOnlyView ? `${order.number} · ${order.customerName}` : `${order.number} · ${order.isLoanReturn ? "Borç iadesi · " : ""}${statusMeta[order.status].label}`}
         onClose={onClose}
       >
-        <div className="modal-top-actions">
-          {canEditOrder && !editing && !correctingPrepared && (
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => {
-                if (order.status === "delivered" && workflowRole === "owner") {
-                  setItems(order.items.map((item) => ({ ...item })));
-                  setCorrectingPrepared(true);
-                  setPreparedCorrectionReason("");
-                  setNotice("");
-                  setError("");
-                  return;
-                }
-                beginActivity("order_editing_started");
-                setEditing(true);
-              }}
-            >
-              {ui.editOrder}
-            </button>
-          )}
-          {canEditOrder && editing && (
-            <button
-              className="primary"
-              disabled={busy}
-              onClick={saveChanges}
-            >
-              {ui.saveChanges}
-            </button>
-          )}
-          {!isWarehousePrepMode && ["new", "preparing", "ready"].includes(order.status) && canDeferDelivery && !order.deliveryWaitingSourceId && (
-            <button
-              className="secondary defer-delivery-action"
-              disabled={busy}
-              onClick={() => void openDeferDelivery()}
-            >
-              <Truck aria-hidden="true" />Teslimatı ertele
-            </button>
-          )}
-          {!isWarehousePrepMode && canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
-            <button
-              className="secondary archive-order-action"
-              disabled={busy}
-              onClick={() => void archiveOrder()}
-            >
-              <Archive aria-hidden="true" />Arşivle
-            </button>
-          )}
-          {!isWarehousePrepMode && canDeleteOrder && (
-            <button
-              className="danger-button"
-              disabled={busy}
-              onClick={deleteOrder}
-            >
-              {ui.deleteOrder}
-            </button>
-          )}
-          {!isWarehousePrepMode && canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
-            <button className="secondary cancel-order-action" disabled={busy} onClick={() => void cancelOrder()}>
-              İptal et
-            </button>
-          )}
-          {order.status === "new" && canPrepare && (
-            <button
-              className="primary"
-              disabled={busy}
-              onClick={() => changeStatus("preparing")}
-            >
-              {ui.start}
-            </button>
-          )}
-          {order.status === "preparing" && !order.exportPackingRequired && (canPrepare || canRollback) && (
-            <>
-              {canRollback && <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("new"); }}>{ui.back}</button>}
-              {canPrepare && !preparationEditing && <button className="primary" disabled={busy} onClick={() => setPreparationEditing(true)}>Hazırlamaya devam et</button>}
-              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={() => { setItems(prepareItems(order)); setPreparationEditing(false); }}>Vazgeç</button>}
-              {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={saveDraft}>Taslağı kaydet · Ara ver</button>}
-              {canPrepare && preparationEditing && <button className="primary" disabled={busy || items.every((item) => !(Number(item.preparedQuantity) > 0))} onClick={() => changeStatus("ready")}>{ui.done}</button>}
-            </>
-          )}
-          {order.status === "ready" && canRollback && !order.parentOrderId && (
-            <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("preparing"); }}>{ui.back}</button>
-          )}
-          {["ready", "delivered"].includes(order.status) && workflowRole === "owner" && correctingPrepared && (
-            <>
-              <button className="secondary" disabled={busy} onClick={() => { setItems(order.items.map((item) => ({ ...item }))); setPreparedCorrectionReason(""); setCorrectingPrepared(false); }}>Vazgeç</button>
-              <button className="primary" disabled={busy} onClick={savePreparedCorrection}>Düzeltmeyi kaydet</button>
-            </>
-          )}
-          {order.status === "ready" && canDeliver && order.despatchReady && (
-            <button
-              className="primary"
-              disabled={busy || (!canDeliverWithoutProof && (!deliveryNote.trim() || !hasDeliveryProof))}
-              onClick={() => void deliverSelected()}
-            >
-              {deliverySelection.every((entry) => entry.selected) ? ui.delivered : "Seçilenleri teslim et"}
-            </button>
+        <div className="modal-top-actions order-detail-top-actions">
+          <div className="order-detail-primary-actions">
+            {order.status === "new" && canPrepare && (
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={() => changeStatus("preparing")}
+              >
+                {ui.start}
+              </button>
+            )}
+            {order.status === "preparing" && !order.exportPackingRequired && (canPrepare || canRollback) && (
+              <>
+                {canRollback && <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("new"); }}>{ui.back}</button>}
+                {canPrepare && !preparationEditing && <button className="primary" disabled={busy} onClick={() => setPreparationEditing(true)}>Hazırlamaya devam et</button>}
+                {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={() => { setItems(prepareItems(order)); setPreparationEditing(false); }}>Vazgeç</button>}
+                {canPrepare && preparationEditing && <button className="secondary" disabled={busy} onClick={saveDraft}>Taslağı kaydet · Ara ver</button>}
+                {canPrepare && preparationEditing && <button className="primary" disabled={busy || items.every((item) => !(Number(item.preparedQuantity) > 0))} onClick={() => changeStatus("ready")}>{ui.done}</button>}
+              </>
+            )}
+            {order.status === "ready" && canRollback && !order.parentOrderId && (
+              <button className="secondary" disabled={busy} onClick={() => { setRollbackReason(""); setRollbackTarget("preparing"); }}>{ui.back}</button>
+            )}
+            {order.status === "ready" && canDeliver && order.despatchReady && (
+              <button
+                className="primary"
+                disabled={busy || (!canDeliverWithoutProof && (!deliveryNote.trim() || !hasDeliveryProof))}
+                onClick={() => void deliverSelected()}
+              >
+                {deliverySelection.every((entry) => entry.selected) ? ui.delivered : "Seçilenleri teslim et"}
+              </button>
+            )}
+            {canEditOrder && !editing && !correctingPrepared && (
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => {
+                  if (order.status === "delivered" && workflowRole === "owner") {
+                    setItems(order.items.map((item) => ({ ...item })));
+                    setCorrectingPrepared(true);
+                    setPreparedCorrectionReason("");
+                    setNotice("");
+                    setError("");
+                    return;
+                  }
+                  beginActivity("order_editing_started");
+                  setEditing(true);
+                }}
+              >
+                {ui.editOrder}
+              </button>
+            )}
+            {canEditOrder && editing && (
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={saveChanges}
+              >
+                {ui.saveChanges}
+              </button>
+            )}
+            {["ready", "delivered"].includes(order.status) && workflowRole === "owner" && correctingPrepared && (
+              <>
+                <button className="secondary" disabled={busy} onClick={() => { setItems(order.items.map((item) => ({ ...item }))); setPreparedCorrectionReason(""); setCorrectingPrepared(false); }}>Vazgeç</button>
+                <button className="primary" disabled={busy} onClick={savePreparedCorrection}>Düzeltmeyi kaydet</button>
+              </>
+            )}
+          </div>
+
+          {!isWarehousePrepMode && (canDeferDelivery || canDeleteOrder || isOwner) && (
+            <div className="order-detail-more-wrap">
+              <button
+                type="button"
+                className="secondary order-detail-more-btn"
+                aria-expanded={moreActionsOpen}
+                onClick={() => setMoreActionsOpen((prev) => !prev)}
+              >
+                <MoreVertical aria-hidden="true" />
+                <span>İşlemler</span>
+              </button>
+              {moreActionsOpen && (
+                <div className="order-detail-more-menu" role="menu">
+                  {["new", "preparing", "ready"].includes(order.status) && canDeferDelivery && !order.deliveryWaitingSourceId && (
+                    <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void openDeferDelivery(); }}>
+                      <Truck aria-hidden="true" /> Teslimatı ertele
+                    </button>
+                  )}
+                  {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
+                    <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void archiveOrder(); }}>
+                      <Archive aria-hidden="true" /> Arşivle
+                    </button>
+                  )}
+                  {canDeleteOrder && ["new", "preparing", "ready"].includes(order.status) && (
+                    <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void cancelOrder(); }}>
+                      <X aria-hidden="true" /> İptal et
+                    </button>
+                  )}
+                  {isOwner && (
+                    <button type="button" role="menuitem" disabled={busy} onClick={() => { setMoreActionsOpen(false); void setOrderTestMode(!order.isTest); }}>
+                      <Settings2 aria-hidden="true" /> {order.isTest ? "Test modunu kapat" : "Test moduna al"}
+                    </button>
+                  )}
+                  {canDeleteOrder && (
+                    <button type="button" role="menuitem" className="danger" disabled={busy} onClick={() => { setMoreActionsOpen(false); deleteOrder(); }}>
+                      <Trash2 aria-hidden="true" /> {ui.deleteOrder}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
         {notice && <p className="form-success">{notice}</p>}
@@ -11134,12 +11148,12 @@ function OrderDetail({
           )}
           {!isWarehousePrepMode && canLockOrder && <button className="order-lock-top-action" type="button" disabled={busy} onClick={() => void toggleOrderLock()}>{order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}<span>{order.lockedAt ? "Kilidi aç" : "Kilitle"}</span></button>}
         </div>
-        {isOwner && <div className={`order-test-mode-banner ${order.isTest ? "active" : ""}`}>
+        {isOwner && order.isTest && <div className="order-test-mode-banner active">
           <div>
-            <b>{order.isTest ? "TEST MODU AÇIK" : "Test modu"}</b>
-            <span>{order.isTest ? "Bildirim gönderilmez, stok düşmez ve gerçek günlük satışa dahil edilmez." : "Bu siparişi kullanıcıları rahatsız etmeden denemek için test moduna alın."}</span>
+            <b>TEST MODU AÇIK</b>
+            <span>Bildirim gönderilmez, stok düşmez ve gerçek günlük satışa dahil edilmez.</span>
           </div>
-          <button type="button" className={order.isTest ? "secondary" : "primary"} disabled={busy} onClick={() => void setOrderTestMode(!order.isTest)}>{order.isTest ? "Test modunu kapat" : "Test moduna al"}</button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => void setOrderTestMode(false)}>Test modunu kapat</button>
         </div>}
         {order.isLoanReturn && <div className="order-test-mode-banner active">
           <div>
@@ -11274,7 +11288,7 @@ function OrderDetail({
                       {item.preparedBy} ·{" "}
                       {item.preparedAt
                         ? new Date(item.preparedAt).toLocaleTimeString(
-                            language,
+                            "tr-TR",
                             { hour: "2-digit", minute: "2-digit" },
                           )
                         : ""}
