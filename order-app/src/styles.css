@@ -9600,7 +9600,6 @@ textarea {
   .order-sidebar-toggle-desktop {
     display: none !important;
   }
-  .order-sidebar-toggle-mobile,
   .mobile-only-create {
     display: inline-flex !important;
   }
@@ -9622,5 +9621,42 @@ textarea {
 @media (max-width: 600px) {
   .mobile-only-view-tabs {
     display: flex !important;
+  }
+  .app-shell.is-board-view {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .app-shell.is-board-view .order-workspace-shell,
+  .app-shell.is-board-view .order-main-column {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .app-shell.is-board-view .order-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 10px 10px calc(88px + env(safe-area-inset-bottom));
+  }
+  .app-shell.is-board-view .board-view {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .app-shell.is-board-view .board {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto !important;
+  }
+  .app-shell.is-board-view .app-page-footer {
+    display: none;
   }
 }

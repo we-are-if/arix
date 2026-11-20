@@ -3076,14 +3076,6 @@ export default function App() {
       >
         <div className="flex w-full items-center justify-between px-3 py-2.5 sm:px-5">
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              className={`order-sidebar-toggle-mobile mobile-header-control inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`}
-              onClick={() => setMobileNavOpen((value) => !value)}
-              aria-label="Menüyü aç"
-            >
-              <Menu size={19} aria-hidden="true" />
-            </button>
             <AriXLogo className="glass-logo h-10 w-10" />
             <div className="hidden items-center gap-2 sm:flex">
               <span className="text-base font-semibold tracking-tight">AriX Order</span>
@@ -3392,6 +3384,13 @@ export default function App() {
               <Layers3 aria-hidden="true" /><span>Stok</span>
             </button>
           )}
+          <button
+            type="button"
+            className={mobileNavOpen ? "active" : ""}
+            onClick={() => setMobileNavOpen((value) => !value)}
+          >
+            <Menu aria-hidden="true" /><span>Diğer</span>
+          </button>
         </div>
         {initialDataLoading && !orders.length && (
           <div className="orders-loading-state">
