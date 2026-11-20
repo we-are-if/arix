@@ -12669,111 +12669,56 @@ function OrderDetail({
                 {[...(order.audit ?? [])].reverse().map((entry) => {
                   const statusLabel = (val?: string | number | null) =>
                     val ? statusMeta[String(val) as Status]?.label || String(val) : "-";
-                  const actionInfo: { title: string; detail?: string } =
-                    entry.action === "preparedQuantity"
-                      ? {
-                          title: `${entry.productName || "Ürün"} · Hazırlanan metre güncellendi`,
-                          detail: `${entry.oldValue ?? "-"} → ${entry.newValue} mt`,
-                        }
-                      : entry.action === "preparedRollCount"
-                        ? {
-                            title: `${entry.productName || "Ürün"} · Hazırlanan rulo güncellendi`,
-                            detail: `${entry.oldValue ?? "-"} → ${entry.newValue} rulo`,
-                          }
-                        : entry.action === "preparedCorrection"
-                          ? {
-                              title: "Hazır ürün bilgisi düzeltildi",
-                              detail: entry.newValue ? String(entry.newValue) : undefined,
-                            }
-                          : entry.action === "created"
-                            ? {
-                                title: "Sipariş oluşturuldu",
-                                detail: "Müşteri için yeni sipariş kaydı açıldı.",
-                              }
-                            : entry.action === "status"
-                              ? {
-                                  title: `Durum değişti: ${statusLabel(entry.oldValue)} → ${statusLabel(entry.newValue)}`,
-                                  detail: "Sipariş aşaması güncellendi.",
-                                }
-                              : entry.action === "draftSaved"
-                                ? {
-                                    title: "Hazırlama taslağı kaydedildi",
-                                    detail: "Girilen miktarlar ara verilmek üzere kaydedildi.",
-                                  }
-                                : entry.action === "orderEdited"
-                                  ? {
-                                      title: "Sipariş bilgileri düzenlendi",
-                                      detail: "Müşteri, not veya ürün satırları güncellendi.",
-                                    }
-                                  : entry.action === "partialReady"
-                                    ? {
-                                        title: "Kısmi hazırlık tamamlandı",
-                                        detail: entry.newValue ? `Hazırlanan parti: ${entry.newValue}` : undefined,
-                                      }
-                                    : entry.action === "partialReadyCreated"
-                                      ? {
-                                          title: "Kısmi sipariş oluşturuldu",
-                                          detail: "Ana siparişten yeni teslimat parçası ayrıldı.",
-                                        }
-                                      : entry.action === "testModeEnabled"
-                                        ? {
-                                            title: "Test modu açıldı",
-                                            detail: "Bildirim gönderilmez, stoktan düşülmez ve günlük satışa dahil edilmez.",
-                                          }
-                                        : entry.action === "testModeDisabled"
-                                          ? {
-                                              title: "Test modu kapatıldı",
-                                              detail: "Sipariş normal çalışma akışına geri alındı.",
-                                            }
-                                          : entry.action === "orderLocked"
-                                            ? {
-                                                title: "Sipariş kilitlendi",
-                                                detail: "Sipariş üzerinde düzenleme yetkisi geçici olarak sınırlandı.",
-                                              }
-                                            : entry.action === "orderUnlocked"
-                                              ? {
-                                                  title: "Sipariş kilidi açıldı",
-                                                  detail: "Sipariş tekrar düzenlenebilir hale getirildi.",
-                                                }
-                                              : entry.action === "cutAllowance"
-                                                ? {
-                                                    title: `${entry.productName ? `${entry.productName} · ` : ""}Kesim payı güncellendi`,
-                                                    detail: entry.newValue ? String(entry.newValue) : "Kesim payı ayarı değiştirildi.",
-                                                  }
-                                                : entry.action === "despatchReady"
-                                                  ? {
-                                                      title: "İrsaliye onaylandı",
-                                                      detail: entry.newValue ? String(entry.newValue) : "Sipariş sevk için hazırlandı.",
-                                                    }
-                                                  : entry.action === "despatchRevoked"
-                                                    ? {
-                                                        title: "İrsaliye onayı geri alındı",
-                                                        detail: "İrsaliye bilgisi tekrar düzenlemeye açıldı.",
-                                                      }
-                                                    : entry.action === "deliveryNote"
-                                                      ? {
-                                                          title: "Teslim notu güncellendi",
-                                                          detail: entry.newValue ? String(entry.newValue) : "Teslimat açıklaması kaydedildi.",
-                                                        }
-                                                      : entry.action === "deliveryPhoto"
-                                                        ? {
-                                                            title: "Teslimat fotoğrafı eklendi",
-                                                            detail: "Teslimat kanıtı görseli güncellendi.",
-                                                          }
-                                                        : entry.action === "attachmentAdded"
-                                                          ? {
-                                                              title: "Belge eklendi",
-                                                              detail: entry.newValue ? String(entry.newValue) : "Siparişe dosya yüklendi.",
-                                                            }
-                                                          : entry.action === "attachmentDeleted"
-                                                            ? {
-                                                                title: "Belge silindi",
-                                                                detail: entry.newValue ? String(entry.newValue) : "Siparişten dosya kaldırıldı.",
-                                                              }
-                                                            : {
-                                                                title: "Sipariş işlemi kaydedildi",
-                                                                detail: entry.newValue ? String(entry.newValue) : undefined,
-                                                              };
+                  const cleanArchiveName = (val?: string | number | null) => {
+                    const text = val ? String(val) : "";
+                    if (!text) return undefined;
+                    return text.includes("/archive/") ? text.split("/").pop() || text : text;
+                  };
+                  const actionMap: Record<string, { title: string; detail?: string }> = {
+                    created: { title: "Sipariş oluşturuldu", detail: "Müşteri için yeni sipariş kaydı açıldı." },
+                    restored: { title: "Sipariş geri yüklendi", detail: "Çöp kutusundan aktif siparişlere alındı." },
+                    status: { title: `Durum değişti: ${statusLabel(entry.oldValue)} → ${statusLabel(entry.newValue)}`, detail: "Sipariş aşaması güncellendi." },
+                    preparedQuantity: { title: `${entry.productName || "Ürün"} · Hazırlanan metre güncellendi`, detail: `${entry.oldValue ?? "-"} → ${entry.newValue} mt` },
+                    preparedRollCount: { title: `${entry.productName || "Ürün"} · Hazırlanan rulo güncellendi`, detail: `${entry.oldValue ?? "-"} → ${entry.newValue} rulo` },
+                    preparedCorrection: { title: "Hazır ürün bilgisi düzeltildi", detail: entry.newValue ? String(entry.newValue) : undefined },
+                    draftSaved: { title: "Hazırlama taslağı kaydedildi", detail: "Girilen miktarlar ara verilmek üzere kaydedildi." },
+                    orderEdited: { title: "Sipariş bilgileri düzenlendi", detail: "Müşteri, not veya ürün satırları güncellendi." },
+                    partialReady: { title: "Kısmi hazırlık tamamlandı", detail: entry.newValue ? `Hazırlanan parti: ${entry.newValue}` : undefined },
+                    partialReadyCreated: { title: "Kısmi sipariş oluşturuldu", detail: "Ana siparişten yeni teslimat parçası ayrıldı." },
+                    testModeEnabled: { title: "Test modu açıldı", detail: "Bildirim gönderilmez, stoktan düşülmez ve günlük satışa dahil edilmez." },
+                    testModeDisabled: { title: "Test modu kapatıldı", detail: "Sipariş normal çalışma akışına geri alındı." },
+                    orderLocked: { title: "Sipariş kilitlendi", detail: entry.newValue ? String(entry.newValue) : "Düzenleme yetkisi geçici olarak sınırlandı." },
+                    orderUnlocked: { title: "Sipariş kilidi açıldı", detail: "Sipariş tekrar düzenlenebilir hale getirildi." },
+                    cutAllowance: { title: `${entry.productName ? `${entry.productName} · ` : ""}Kesim payı güncellendi`, detail: entry.newValue ? `${entry.newValue} mt` : "Kesim payı ayarı değiştirildi." },
+                    despatchReady: { title: "İrsaliye onaylandı", detail: entry.newValue ? String(entry.newValue) : "Sipariş sevk için hazırlandı." },
+                    despatchRevoked: { title: "İrsaliye onayı geri alındı", detail: "İrsaliye bilgisi tekrar düzenlemeye açıldı." },
+                    deliveryNote: { title: "Teslim notu güncellendi", detail: entry.newValue ? String(entry.newValue) : "Teslimat açıklaması kaydedildi." },
+                    deliveryPhoto: { title: "Teslimat fotoğrafı eklendi", detail: "Teslimat kanıtı görseli güncellendi." },
+                    deliveryPhotoUploaded: { title: "Teslimat fotoğrafı yüklendi", detail: "Teslimat kanıtı görseli kaydedildi." },
+                    deliveryPhotoReplaced: { title: "Teslimat fotoğrafı değiştirildi", detail: "Yeni teslimat kanıtı görseli yüklendi." },
+                    deliveryPhotoDeleted: { title: "Teslimat fotoğrafı silindi", detail: entry.oldValue ? String(entry.oldValue) : undefined },
+                    attachmentAdded: { title: "Belge eklendi", detail: entry.newValue ? String(entry.newValue) : "Siparişe dosya yüklendi." },
+                    attachmentUploaded: { title: "Belge yüklendi", detail: entry.newValue ? String(entry.newValue) : "Siparişe yeni dosya yüklendi." },
+                    attachmentDeleted: { title: "Belge silindi", detail: entry.newValue ? String(entry.newValue) : "Siparişten dosya kaldırıldı." },
+                    approvalFormApproved: { title: "Sipariş formu onaylandı", detail: entry.newValue ? String(entry.newValue) : undefined },
+                    approvalFormSubmitted: { title: "Sipariş formu onaya gönderildi", detail: entry.newValue ? String(entry.newValue) : undefined },
+                    approvalFormDraftSaved: { title: "Sipariş formu taslağı kaydedildi", detail: entry.newValue ? String(entry.newValue) : undefined },
+                    approvalFormRejected: { title: "Sipariş formu reddedildi", detail: entry.newValue ? String(entry.newValue) : undefined },
+                    approvalFormWithdrawn: { title: "Sipariş formu onayı geri çekildi", detail: entry.newValue ? String(entry.newValue) : undefined },
+                    approvalFormRevisionDeleted: { title: "Sipariş formu sürümü silindi", detail: entry.oldValue ? String(entry.oldValue) : undefined },
+                    approvalFormArchived: { title: "Onaylı form arşive kaydedildi", detail: cleanArchiveName(entry.newValue) },
+                    approvalFormRejectedArchived: { title: "Reddedilen form arşive kaydedildi", detail: cleanArchiveName(entry.newValue) },
+                    approvalFormDraftArchived: { title: "Form taslağı arşive kaydedildi", detail: cleanArchiveName(entry.newValue) },
+                    orderArchived: { title: "Sipariş arşivlendi", detail: "Sipariş arşive taşındı." },
+                    orderUnarchived: { title: "Sipariş arşivden çıkarıldı", detail: entry.oldValue ? String(entry.oldValue) : undefined },
+                    orderDeliveryDeferred: { title: "Teslimat ertelendi", detail: entry.newValue ? String(entry.newValue) : undefined },
+                    readyMergeUndone: { title: "Birleştirilmiş sipariş ayrıldı", detail: "Siparişler tekrar ayrı hale getirildi." },
+                    loanReturnRemoved: { title: "Borç iadesi işareti kaldırıldı", detail: "Sipariş normal akışa döndürüldü." },
+                  };
+                  const actionInfo = actionMap[entry.action] || {
+                    title: "Sipariş işlemi kaydedildi",
+                    detail: cleanArchiveName(entry.newValue),
+                  };
                   return (
                   <p key={entry.id}>
                     <b>{actionInfo.title}</b>

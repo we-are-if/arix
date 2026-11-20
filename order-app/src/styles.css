@@ -12518,6 +12518,32 @@ textarea {
 .theme-dark .arix-original-text-card pre {
   color: #f1f5f9;
 }
+.order-detail-modal .order-history > div > p {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 3px !important;
+  padding: 10px 12px !important;
+}
+.order-detail-modal .order-history > div > p > b {
+  font-size: 13px !important;
+  color: #0f172a !important;
+}
+.order-detail-modal .order-history > div > p > span {
+  font-size: 12px !important;
+  color: #475569 !important;
+  word-break: break-word;
+}
+.order-detail-modal .order-history > div > p > small {
+  font-size: 11px !important;
+  color: #94a3b8 !important;
+}
+.theme-dark .order-detail-modal .order-history > div > p > b {
+  color: #f1f5f9 !important;
+}
+.theme-dark .order-detail-modal .order-history > div > p > span {
+  color: #cbd5e1 !important;
+}
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
   padding: 3px 8px !important;
