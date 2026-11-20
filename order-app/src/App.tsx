@@ -7438,7 +7438,6 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
 
 function StockPage({
   products,
-  language,
   session,
   canManage,
   onManage,
@@ -7453,18 +7452,24 @@ function StockPage({
 }) {
   const [search, setSearch] = useState("");
   const [stockFilter, setStockFilter] = useState<"all" | "low" | "out">("all");
-  const [mobileStockTab, setMobileStockTab] = useState<"products" | "movements" | "documents">("products");
+  const [stockTab, setStockTab] = useState<"products" | "movements" | "documents">("products");
   const [movements, setMovements] = useState<OrderStockMovement[]>([]);
   const [documents, setDocuments] = useState<StockDocument[]>([]);
   const [createDocumentOpen, setCreateDocumentOpen] = useState(false);
   const [activeDocument, setActiveDocument] = useState<StockDocument | null>(null);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
-  useEffect(() => {
+
+  const reloadStockExtras = useCallback(() => {
     void Promise.allSettled([
       api<OrderStockMovement[]>("/api/orders/stock-movements").then(setMovements),
       api<StockDocument[]>("/api/orders/stock-documents").then(setDocuments),
     ]);
   }, []);
+
+  useEffect(() => {
+    reloadStockExtras();
+  }, [reloadStockExtras]);
+
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("tr");
     return products.filter((product) => {
@@ -7479,6 +7484,23 @@ function StockPage({
       return true;
     });
   }, [products, search, stockFilter]);
+
+  const filteredMovements = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("tr");
+    if (!query) return movements;
+    return movements.filter((m) =>
+      `${m.productCode || ""} ${m.productName} ${m.customerName} ${m.orderNumber}`.toLocaleLowerCase("tr").includes(query),
+    );
+  }, [movements, search]);
+
+  const filteredDocuments = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("tr");
+    if (!query) return documents;
+    return documents.filter((d) =>
+      `${d.documentNumber} ${d.counterparty || ""} ${d.note || ""}`.toLocaleLowerCase("tr").includes(query),
+    );
+  }, [documents, search]);
+
   const summary = useMemo(() => {
     const available = products.map((product) =>
       Number(product.availableQuantity ?? (Number(product.physicalQuantity ?? 0) - Number(product.reservedQuantity ?? 0))),
@@ -7492,91 +7514,276 @@ function StockPage({
     };
   }, [products]);
 
+  const docTypeLabel: Record<StockTransaction["type"], string> = {
+    purchase: "Normal alış",
+    loan_purchase: "Borç alış",
+    writeoff: "Stoktan silme",
+    transfer: "Yer değiştirme",
+    adjustment: "Stok düzeltme",
+    loan_lend: "Borç veriş",
+  };
+
   return (
-    <section className="stock-page">
-      <header className="stock-page-header">
-        <div><span>STOK MERKEZİ</span><h2>Stok durumu</h2><p>Fiziki stok, rezervler ve sipariş hareketleri</p></div>
-        {canManage && <button type="button" className="primary" onClick={onManage}><Pencil aria-hidden="true" /> Stoku yönet</button>}
-      </header>
-      <div className="stock-page-summary" aria-label="Stok özeti">
-        <article><span>Ürün çeşidi</span><strong>{summary.products.toLocaleString(language)}</strong><small>Aktif katalog</small></article>
-        <article><span>Kullanılabilir</span><strong>{summary.meters.toLocaleString(language, { maximumFractionDigits: 2 })} mt</strong><small>Rezerv sonrası</small></article>
-        <article><span>Toplam rulo</span><strong>{summary.rolls.toLocaleString(language)}</strong><small>Fiziki stok</small></article>
-        <article className={summary.low || summary.out ? "attention" : ""}><span>Stok uyarısı</span><strong>{summary.low + summary.out}</strong><small>{summary.out} tükenen · {summary.low} kritik</small></article>
-      </div>
-      <div className="stock-page-toolbar">
-        <label><ScanText aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ürün kodu veya adıyla ara" /></label>
-        <div className="stock-filter-chips" role="group" aria-label="Stok durumu filtresi">
-          {[
-            { id: "all", label: "Tümü" },
-            { id: "low", label: `Kritik (${summary.low})` },
-            { id: "out", label: `Tükendi (${summary.out})` },
-          ].map((chip) => (
-            <button
-              key={chip.id}
-              type="button"
-              className={`board-filter-chip ${stockFilter === chip.id ? "active" : ""}`}
-              onClick={() => setStockFilter(chip.id as typeof stockFilter)}
-            >
-              {chip.label}
+    <section className="stock-page stock-modern-page">
+      <header className="stock-modern-head">
+        <div>
+          <span>STOK MERKEZİ</span>
+          <h2>Stok durumu</h2>
+        </div>
+        <div className="stock-modern-head-actions">
+          <button type="button" className="daily-action-btn" onClick={() => setCreateDocumentOpen(true)}>
+            <Plus aria-hidden="true" />
+            <span>Evrak</span>
+          </button>
+          {canManage && (
+            <button type="button" className="daily-action-btn primary" onClick={onManage}>
+              <Pencil aria-hidden="true" />
+              <span>Yönet</span>
             </button>
-          ))}
+          )}
         </div>
-        <span>{filtered.length} ürün</span>
-      </div>
-      <div className="mobile-stock-tabs" role="tablist" aria-label="Stok görünümleri">
-        <button type="button" role="tab" aria-selected={mobileStockTab === "products"} className={mobileStockTab === "products" ? "active" : ""} onClick={() => setMobileStockTab("products")}>
-          Ürünler <b>{filtered.length}</b>
-        </button>
-        <button type="button" role="tab" aria-selected={mobileStockTab === "movements"} className={mobileStockTab === "movements" ? "active" : ""} onClick={() => setMobileStockTab("movements")}>
-          Hareketler <b>{movements.length}</b>
-        </button>
-        <button type="button" role="tab" aria-selected={mobileStockTab === "documents"} className={mobileStockTab === "documents" ? "active" : ""} onClick={() => setMobileStockTab("documents")}>
-          Evraklar <b>{documents.length}</b>
-        </button>
-      </div>
-      <div className={`stock-page-content mobile-tab-${mobileStockTab}`}>
-        <div className="stock-overview-table stock-page-table">
-          <div className="stock-overview-head"><span>Ürün</span><span>Fiziki</span><span>Rezerv</span><span>Kullanılabilir</span><span>Rulo</span><span>Durum</span></div>
-          <div className="stock-overview-body">
+      </header>
+
+      <div className="stock-modern-body">
+        <div className="stock-kpi-strip" aria-label="Stok özeti">
+          <article className="daily-kpi-card">
+            <span>Ürün Çeşidi</span>
+            <strong>{summary.products.toLocaleString("tr-TR")}</strong>
+            <small>Aktif katalog</small>
+          </article>
+          <article className="daily-kpi-card">
+            <span>Kullanılabilir</span>
+            <strong>{summary.meters.toLocaleString("tr-TR", { maximumFractionDigits: 1 })} mt</strong>
+            <small>Rezerv sonrası</small>
+          </article>
+          <article className="daily-kpi-card">
+            <span>Toplam Rulo</span>
+            <strong>{summary.rolls.toLocaleString("tr-TR")}</strong>
+            <small>Fiziki stok</small>
+          </article>
+          <button
+            type="button"
+            className={`daily-kpi-card clickable ${summary.low || summary.out ? "attention" : ""}`}
+            onClick={() => {
+              setStockTab("products");
+              setStockFilter((prev) => (prev === "low" ? "out" : prev === "out" ? "all" : "low"));
+            }}
+          >
+            <span>Stok Uyarısı</span>
+            <strong>{summary.low + summary.out}</strong>
+            <small>{summary.out} tükendi · {summary.low} kritik</small>
+          </button>
+        </div>
+
+        <div className="stock-modern-controls">
+          <label className="stock-modern-search">
+            <Search aria-hidden="true" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={
+                stockTab === "products"
+                  ? "Ürün kodu veya adıyla ara…"
+                  : stockTab === "movements"
+                    ? "Müşteri, sipariş veya ürün ara…"
+                    : "Evrak no, firma veya açıklama ara…"
+              }
+            />
+            {search && (
+              <button type="button" className="stock-search-clear" onClick={() => setSearch("")} aria-label="Aramayı temizle">
+                <X aria-hidden="true" />
+              </button>
+            )}
+          </label>
+
+          <div className="stock-tabs-row">
+            <div className="daily-filter-tabs" role="tablist" aria-label="Stok görünümleri">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={stockTab === "products"}
+                className={stockTab === "products" ? "active" : ""}
+                onClick={() => setStockTab("products")}
+              >
+                Ürünler <b>{filtered.length}</b>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={stockTab === "movements"}
+                className={stockTab === "movements" ? "active" : ""}
+                onClick={() => setStockTab("movements")}
+              >
+                Hareketler <b>{filteredMovements.length}</b>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={stockTab === "documents"}
+                className={stockTab === "documents" ? "active" : ""}
+                onClick={() => setStockTab("documents")}
+              >
+                Evraklar <b>{filteredDocuments.length}</b>
+              </button>
+            </div>
+
+            {stockTab === "products" && (
+              <div className="stock-subfilter-pills" role="group" aria-label="Stok durumu filtresi">
+                {[
+                  { id: "all", label: "Tümü" },
+                  { id: "low", label: `Kritik (${summary.low})` },
+                  { id: "out", label: `Tükendi (${summary.out})` },
+                ].map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className={stockFilter === chip.id ? "active" : ""}
+                    onClick={() => setStockFilter(chip.id as typeof stockFilter)}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {stockTab === "products" && (
+          <div className="stock-modern-list">
             {filtered.map((product) => {
-              const available = Number(product.availableQuantity ?? (Number(product.physicalQuantity ?? 0) - Number(product.reservedQuantity ?? 0)));
+              const physical = Number(product.physicalQuantity ?? 0);
+              const reserved = Number(product.reservedQuantity ?? 0);
+              const available = Number(product.availableQuantity ?? physical - reserved);
+              const rolls = Number(product.rollCount ?? 0);
               const state = available <= 0 ? "out" : available <= 100 ? "low" : "ok";
-              return <button type="button" className="stock-overview-row stock-product-row" key={product.id} onClick={() => setActiveProduct(product)}>
-                <span><b>{product.code || product.sku || "-"}</b><small>{product.name}</small></span>
-                <strong>{Number(product.physicalQuantity ?? 0).toLocaleString(language)} mt</strong>
-                <span>{Number(product.reservedQuantity ?? 0).toLocaleString(language)} mt</span>
-                <strong>{available.toLocaleString(language)} mt</strong>
-                <span>{Number(product.rollCount ?? 0).toLocaleString(language)}</span>
-                <span className={`stock-state ${state}`}>{state === "out" ? "Tükendi" : state === "low" ? "Kritik" : "Yeterli"}</span>
-              </button>;
+              const productMovementCount = movements.filter(
+                (m) => (m.productCode && m.productCode === (product.code || product.sku)) || m.productName === product.name,
+              ).length;
+              return (
+                <button
+                  type="button"
+                  key={product.id}
+                  className={`stock-item-card state-${state}`}
+                  onClick={() => setActiveProduct(product)}
+                >
+                  <div className="stock-item-top">
+                    <div className="stock-item-title">
+                      <span className="stock-item-code">{product.code || product.sku || "-"}</span>
+                      <strong>{product.name}</strong>
+                    </div>
+                    <span className={`stock-state ${state}`}>
+                      {state === "out" ? "Tükendi" : state === "low" ? "Kritik" : "Yeterli"}
+                    </span>
+                  </div>
+                  <div className="stock-item-metrics">
+                    <div>
+                      <small>Kullanılabilir</small>
+                      <b>{available.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</b>
+                    </div>
+                    <div>
+                      <small>Fiziki</small>
+                      <span>{physical.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</span>
+                    </div>
+                    <div>
+                      <small>Rezerv</small>
+                      <span>{reserved.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</span>
+                    </div>
+                    <div>
+                      <small>Rulo</small>
+                      <span>{rolls.toLocaleString("tr-TR")}</span>
+                    </div>
+                    <span className="stock-item-history-link">
+                      Geçmiş{productMovementCount > 0 ? ` (${productMovementCount})` : ""} <ChevronRight aria-hidden="true" />
+                    </span>
+                  </div>
+                </button>
+              );
             })}
+            {!filtered.length && <div className="daily-empty">Aramaya uygun ürün bulunamadı.</div>}
           </div>
-        </div>
-        <aside className="stock-page-movements">
-          <header><b>Son hareketler</b><span>{movements.length} kayıt</span></header>
-          <div>
-            {movements.slice(0, 12).map((movement) => <article key={movement.id}>
-              <span><b>{movement.productCode || "-"}</b><small>{movement.productName}</small></span>
-              <strong>-{movement.stockQuantity.toLocaleString(language)} mt</strong>
-              <p>{movement.customerName} · {movement.orderNumber}</p>
-              <time>{new Date(movement.createdAt).toLocaleString(language)}</time>
-            </article>)}
-            {!movements.length && <p className="stock-overview-empty">Henüz stok hareketi yok.</p>}
+        )}
+
+        {stockTab === "movements" && (
+          <div className="stock-modern-list">
+            {filteredMovements.slice(0, 60).map((movement) => (
+              <article key={movement.id} className="stock-movement-card">
+                <div className="stock-item-top">
+                  <div className="stock-item-title">
+                    <span className="stock-item-code">{movement.productCode || "-"}</span>
+                    <strong>{movement.productName}</strong>
+                  </div>
+                  <strong className="stock-delta-out">-{movement.stockQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
+                </div>
+                <div className="stock-movement-meta">
+                  <span>{movement.customerName} · <b>{movement.orderNumber}</b></span>
+                  <time>{new Date(movement.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</time>
+                </div>
+              </article>
+            ))}
+            {!filteredMovements.length && <div className="daily-empty">Henüz stok hareketi yok.</div>}
           </div>
-        </aside>
-        <aside className="stock-page-movements stock-documents-panel">
-          <header><b>Stok evrakları</b><button type="button" onClick={() => setCreateDocumentOpen(true)}>＋ Evrak oluştur</button></header>
-          <div>{documents.map((document) => <article key={document.id} className="stock-document-row">
-            <span><b>{document.documentNumber}</b><small>{document.type === "purchase" ? "Normal alış" : document.type === "loan_purchase" ? "Borç alış" : document.type === "writeoff" ? "Stoktan silme" : document.type === "transfer" ? "Yer değiştirme" : "Stok düzeltme"}</small></span>
-            <strong>{document.type === "loan_purchase" ? `${document.lines.reduce((sum, line) => sum + Number(line.loanOutstandingRollCount ?? line.rollCount ?? 0), 0).toLocaleString(language)} rulo · ${document.lines.reduce((sum, line) => sum + Number(line.loanOutstanding ?? line.quantity ?? 0), 0).toLocaleString(language)} mt kalan` : `${document.lines.length} ürün`}</strong><p>{document.counterparty || document.note}</p><time>{new Date(document.createdAt).toLocaleString(language)}</time>
-            <button type="button" className="stock-document-detail-button" onClick={() => setActiveDocument(document)}>İçeriği gör</button>
-          </article>)}{!documents.length && <p className="stock-overview-empty">Henüz stok evrakı oluşturulmadı.</p>}</div>
-        </aside>
+        )}
+
+        {stockTab === "documents" && (
+          <div className="stock-modern-list">
+            {filteredDocuments.map((document) => (
+              <article key={document.id} className="stock-document-card">
+                <div className="stock-item-top">
+                  <div className="stock-item-title">
+                    <span className="stock-item-code">{document.documentNumber}</span>
+                    <strong>{docTypeLabel[document.type]}</strong>
+                  </div>
+                  <button type="button" className="daily-open-order-btn" onClick={() => setActiveDocument(document)}>
+                    <Eye aria-hidden="true" />
+                    <span>İçerik</span>
+                  </button>
+                </div>
+                <div className="stock-movement-meta">
+                  <span>
+                    {document.type === "loan_purchase"
+                      ? `${document.lines.reduce((sum, line) => sum + Number(line.loanOutstandingRollCount ?? line.rollCount ?? 0), 0).toLocaleString("tr-TR")} rulo · ${document.lines.reduce((sum, line) => sum + Number(line.loanOutstanding ?? line.quantity ?? 0), 0).toLocaleString("tr-TR")} mt kalan`
+                      : `${document.lines.length} ürün`}
+                    {document.counterparty || document.note ? ` · ${document.counterparty || document.note}` : ""}
+                  </span>
+                  <time>{new Date(document.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</time>
+                </div>
+              </article>
+            ))}
+            {!filteredDocuments.length && <div className="daily-empty">Henüz stok evrakı oluşturulmadı.</div>}
+          </div>
+        )}
       </div>
-      {activeProduct && <StockProductModal product={activeProduct} session={session} language={language} onClose={() => setActiveProduct(null)} onChanged={() => { onChanged(); setActiveProduct(null); }} />}
-      {activeDocument && <StockDocumentDetailModal document={activeDocument} language={language} onClose={() => setActiveDocument(null)} />}
-      {createDocumentOpen && <StockDocumentModal products={products} session={session} onClose={() => setCreateDocumentOpen(false)} onCreated={() => { setCreateDocumentOpen(false); onChanged(); void api<StockDocument[]>("/api/orders/stock-documents").then(setDocuments); }} />}
+
+      {activeProduct && (
+        <StockProductModal
+          product={activeProduct}
+          orderMovements={movements.filter(
+            (m) => (m.productCode && m.productCode === (activeProduct.code || activeProduct.sku)) || m.productName === activeProduct.name,
+          )}
+          session={session}
+          onClose={() => setActiveProduct(null)}
+          onChanged={() => {
+            onChanged();
+            reloadStockExtras();
+            setActiveProduct(null);
+          }}
+        />
+      )}
+      {activeDocument && (
+        <StockDocumentDetailModal document={activeDocument} language="tr" onClose={() => setActiveDocument(null)} />
+      )}
+      {createDocumentOpen && (
+        <StockDocumentModal
+          products={products}
+          session={session}
+          onClose={() => setCreateDocumentOpen(false)}
+          onCreated={() => {
+            setCreateDocumentOpen(false);
+            onChanged();
+            reloadStockExtras();
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -7610,65 +7817,152 @@ function StockDocumentDetailModal({ document, language, onClose }: { document: S
   </Modal>;
 }
 
-function StockProductModal({ product, session, language, onClose, onChanged }: {
-  product: Product; session: Session; language: Language; onClose: () => void; onChanged: () => void;
+function StockProductModal({
+  product,
+  orderMovements = [],
+  onClose,
+}: {
+  product: Product;
+  orderMovements?: OrderStockMovement[];
+  session: Session;
+  onClose: () => void;
+  onChanged: () => void;
 }) {
   const [history, setHistory] = useState<StockTransaction[]>([]);
-  const [type, setType] = useState<StockTransaction["type"]>("purchase");
-  const [quantity, setQuantity] = useState("");
-  const [rollCount, setRollCount] = useState("");
-  const [fromLocation, setFromLocation] = useState("");
-  const [toLocation, setToLocation] = useState("");
-  const [counterparty, setCounterparty] = useState("");
-  const [note, setNote] = useState("");
-  const [attachment, setAttachment] = useState<{ name: string; data: string } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [historyTab, setHistoryTab] = useState<"all" | "orders" | "documents">("all");
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState("");
-  const owner = workflowRole(session.role) === "owner";
-  const permissionFor: Record<StockTransaction["type"], string> = {
-    adjustment: "stock.adjust", writeoff: "stock.writeoff", transfer: "stock.transfer", purchase: "stock.purchase", loan_purchase: "stock.loan_purchase", loan_lend: "stock.loan_purchase",
-  };
-  const allowedTypes = (Object.keys(permissionFor) as StockTransaction["type"][]).filter((item) => owner || session.permissions?.includes(permissionFor[item]));
+
   useEffect(() => {
+    setLoadingHistory(true);
     void api<StockTransaction[]>(`/api/orders/catalog/${product.id}/stock-history`)
       .then((items) => setHistory((Array.isArray(items) ? items : []).filter((item) => Boolean(item?.type && item?.documentNumber))))
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "Stok geçmişi yüklenemedi."));
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "Stok geçmişi yüklenemedi."))
+      .finally(() => setLoadingHistory(false));
   }, [product.id]);
-  useEffect(() => { if (!allowedTypes.includes(type) && allowedTypes[0]) setType(allowedTypes[0]); }, [allowedTypes, type]);
-  const labels: Record<StockTransaction["type"], string> = { adjustment: "Stok düzeltme", writeoff: "Stoktan silme", transfer: "Yer değiştirme", purchase: "Normal alış", loan_purchase: "Borç alış", loan_lend: "Borç veriş" };
-  const submit = async () => {
-    setBusy(true); setError("");
-    try {
-      await api(`/api/orders/catalog/${product.id}/stock-transaction`, { method: "POST", body: JSON.stringify({ type, quantity: Number(quantity), rollCount: Number(rollCount || 0), fromLocation, toLocation, counterparty, note, attachmentName: attachment?.name, attachmentData: attachment?.data }) });
-      onChanged();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Stok işlemi kaydedilemedi."); }
-    finally { setBusy(false); }
+
+  const labels: Record<StockTransaction["type"], string> = {
+    adjustment: "Stok düzeltme",
+    writeoff: "Stoktan silme",
+    transfer: "Yer değiştirme",
+    purchase: "Normal alış",
+    loan_purchase: "Borç alış",
+    loan_lend: "Borç veriş",
   };
-  return <Modal title={`${product.code || product.sku || "-"} · ${product.name}`} subtitle="Stok kartı ve evraklı hareket geçmişi" onClose={onClose} wide className="stock-product-modal">
-    <div className="stock-product-balances">
-      <article><span>Fiziki stok</span><strong>{Number(product.physicalQuantity || 0).toLocaleString(language)} mt</strong></article>
-      <article><span>Rezerv</span><strong>{Number(product.reservedQuantity || 0).toLocaleString(language)} mt</strong></article>
-      <article><span>Kullanılabilir</span><strong>{Number(product.availableQuantity || 0).toLocaleString(language)} mt</strong></article>
-      <article><span>Rulo</span><strong>{Number(product.rollCount || 0).toLocaleString(language)}</strong></article>
-    </div>
-    {false && allowedTypes.length > 0 && <section className="stock-operation-form">
-      <header><b>Yeni stok işlemi</b><span>Her kayıt için otomatik stok evrakı oluşur</span></header>
-      <div className="stock-operation-types">{allowedTypes.map((item) => <button type="button" className={type === item ? "active" : ""} onClick={() => setType(item)} key={item}>{labels[item]}</button>)}</div>
-      <div className="stock-operation-fields">
-        {type !== "transfer" && <label>Metre<input type="number" min="0" step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>}
-        {type !== "transfer" && <label>Rulo<input type="number" min="0" step="1" value={rollCount} onChange={(event) => setRollCount(event.target.value)} /></label>}
-        {type === "transfer" && <><label>Çıkış konumu<input value={fromLocation} onChange={(event) => setFromLocation(event.target.value)} /></label><label>Hedef konum<input value={toLocation} onChange={(event) => setToLocation(event.target.value)} /></label></>}
-        {(type === "purchase" || type === "loan_purchase") && <label className="wide">Tedarikçi / firma<input value={counterparty} onChange={(event) => setCounterparty(event.target.value)} /></label>}
-        <label className="wide">Açıklama<textarea rows={2} required value={note} onChange={(event) => setNote(event.target.value)} /></label>
-        <label className="stock-document-upload">Evrak ekle<input type="file" accept="image/*,.pdf" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => setAttachment({ name: file.name, data: String(reader.result || "") }); reader.readAsDataURL(file); }} /><span>{attachment?.name || "PDF veya görsel"}</span></label>
+
+  const combinedEntries = useMemo(() => {
+    const docItems = history.map((item) => ({
+      kind: "document" as const,
+      id: `doc-${item.id}`,
+      createdAt: item.createdAt,
+      badge: labels[item.type],
+      badgeClass: item.type,
+      title: item.documentNumber,
+      subtitle: [item.counterparty, item.note].filter(Boolean).join(" · ") || "-",
+      delta: `${item.signedQuantity > 0 ? "+" : ""}${item.signedQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt`,
+      deltaPositive: item.signedQuantity >= 0,
+      balanceNote: `${Number(item.beforeQuantity ?? 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} → ${Number(item.afterQuantity ?? 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt`,
+      actor: item.createdBy,
+      attachmentName: item.attachment?.name,
+    }));
+    const orderItems = orderMovements.map((m) => ({
+      kind: "order" as const,
+      id: `ord-${m.id}`,
+      createdAt: m.createdAt,
+      badge: "Sipariş çıkışı",
+      badgeClass: "order_out",
+      title: `${m.orderNumber} · ${m.customerName}`,
+      subtitle: m.cutAllowanceQuantity > 0
+        ? `Müşteri: ${m.customerQuantity.toLocaleString("tr-TR")} mt · Kesim payı: +${m.cutAllowanceQuantity.toLocaleString("tr-TR")} mt`
+        : `Müşteri talebi: ${m.customerQuantity.toLocaleString("tr-TR")} mt`,
+      delta: `-${m.stockQuantity.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt`,
+      deltaPositive: false,
+      balanceNote: m.cutPieceCount > 0 ? `${m.cutPieceCount} parça` : "",
+      actor: m.createdBy,
+      attachmentName: undefined,
+    }));
+    const list =
+      historyTab === "documents"
+        ? docItems
+        : historyTab === "orders"
+          ? orderItems
+          : [...docItems, ...orderItems];
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [history, orderMovements, historyTab]);
+
+  return (
+    <Modal
+      title={`${product.code || product.sku || "-"} · ${product.name}`}
+      subtitle="Stok bakiyesi ve tüm ürün hareket geçmişi"
+      onClose={onClose}
+      wide
+      className="stock-product-modal"
+    >
+      <div className="stock-product-balances">
+        <article>
+          <span>Fiziki stok</span>
+          <strong>{Number(product.physicalQuantity || 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
+        </article>
+        <article>
+          <span>Rezerv</span>
+          <strong>{Number(product.reservedQuantity || 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
+        </article>
+        <article>
+          <span>Kullanılabilir</span>
+          <strong>{Number(product.availableQuantity ?? (Number(product.physicalQuantity || 0) - Number(product.reservedQuantity || 0))).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
+        </article>
+        <article>
+          <span>Rulo</span>
+          <strong>{Number(product.rollCount || 0).toLocaleString("tr-TR")}</strong>
+        </article>
       </div>
-      {error && <p className="form-error">{error}</p>}
-      <button type="button" className="primary" disabled={busy || !note.trim() || (type !== "transfer" && !(Number(quantity) > 0))} onClick={() => void submit()}>{busy ? "Kaydediliyor…" : "İşlemi ve evrakı kaydet"}</button>
-    </section>}
-    <section className="stock-product-history"><header><b>Hareket geçmişi</b><span>{history.length} evrak</span></header>{history.map((item) => <article key={item.id}>
-      <span className={`stock-history-type ${item.type}`}>{labels[item.type]}</span><div><b>{item.documentNumber}</b><small>{item.note}</small></div><strong>{item.signedQuantity > 0 ? "+" : ""}{item.signedQuantity.toLocaleString(language)} mt</strong><span><b>{item.createdBy}</b><small>{new Date(item.createdAt).toLocaleString(language)}</small></span>{item.attachment && <span className="stock-history-document"><FileText aria-hidden="true" /> {item.attachment.name}</span>}
-    </article>)}{!history.length && <p className="stock-overview-empty">Bu ürün için kayıtlı stok evrakı yok.</p>}</section>
-  </Modal>;
+
+      <section className="stock-product-history">
+        <header>
+          <b>Ürün geçmişi</b>
+          <div className="daily-filter-tabs" role="tablist" aria-label="Ürün geçmişi filtresi">
+            <button type="button" role="tab" aria-selected={historyTab === "all"} className={historyTab === "all" ? "active" : ""} onClick={() => setHistoryTab("all")}>
+              Tümü <b>{history.length + orderMovements.length}</b>
+            </button>
+            <button type="button" role="tab" aria-selected={historyTab === "orders"} className={historyTab === "orders" ? "active" : ""} onClick={() => setHistoryTab("orders")}>
+              Siparişler <b>{orderMovements.length}</b>
+            </button>
+            <button type="button" role="tab" aria-selected={historyTab === "documents"} className={historyTab === "documents" ? "active" : ""} onClick={() => setHistoryTab("documents")}>
+              Evraklar <b>{history.length}</b>
+            </button>
+          </div>
+        </header>
+        {error && <p className="form-error">{error}</p>}
+        {loadingHistory ? (
+          <p className="stock-overview-empty">Hareket geçmişi yükleniyor…</p>
+        ) : combinedEntries.length === 0 ? (
+          <p className="stock-overview-empty">Bu ürün için kayıtlı hareket geçmişi yok.</p>
+        ) : (
+          <div className="stock-history-timeline">
+            {combinedEntries.map((entry) => (
+              <article key={entry.id} className="stock-history-entry">
+                <div className="stock-history-entry-top">
+                  <span className={`stock-history-type ${entry.badgeClass}`}>{entry.badge}</span>
+                  <strong className={entry.deltaPositive ? "stock-delta-in" : "stock-delta-out"}>{entry.delta}</strong>
+                </div>
+                <div className="stock-history-entry-main">
+                  <b>{entry.title}</b>
+                  <small>{entry.subtitle}</small>
+                </div>
+                <div className="stock-history-entry-meta">
+                  <span>{entry.actor}{entry.balanceNote ? ` · ${entry.balanceNote}` : ""}</span>
+                  <time>{new Date(entry.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
+                </div>
+                {entry.attachmentName && (
+                  <span className="stock-history-document"><FileText aria-hidden="true" /> {entry.attachmentName}</span>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </Modal>
+  );
 }
 
 function StockDocumentModal({ products, session, onClose, onCreated }: { products: Product[]; session: Session; onClose: () => void; onCreated: () => void }) {
