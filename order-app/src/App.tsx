@@ -14015,7 +14015,8 @@ function Login({
 }) {
   const googleButton = useRef<HTMLDivElement | null>(null);
   const [config, setConfig] = useState<AuthConfig | null>(null);
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const resetToken = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset") || "" : "";
+  const [mode, setMode] = useState<"login" | "register" | "reset-request" | "reset-confirm">(resetToken ? "reset-confirm" : "login");
   const [login, setLogin] = useState({ email: "", password: "" });
   const [registration, setRegistration] = useState({
     name: "",
@@ -14023,11 +14024,13 @@ function Login({
     password: "",
     companyCode: "",
   });
+  const [reset, setReset] = useState({ email: "", password: "", confirm: "" });
   const [googleCredential, setGoogleCredential] = useState("");
   const [companyCode, setCompanyCode] = useState("");
   const [pending, setPending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [remember, setRemember] = useState(true);
 
   const googleLogin = useCallback(
@@ -14165,6 +14168,36 @@ function Login({
     }
   };
 
+  const requestPasswordReset = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await request<{ message?: string }>("/api/auth/password-reset-request", {
+        method: "POST", body: JSON.stringify({ email: reset.email }),
+      });
+      setNotice(payload.message || "Bu e-poçt qeydiyyatlıdırsa, şifrə yeniləmə bağlantısı göndərildi.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Şifrə yeniləmə bağlantısı göndərilmədi.");
+    } finally { setBusy(false); }
+  };
+
+  const confirmPasswordReset = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (reset.password !== reset.confirm) { setError("Şifrələr eyni deyil."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      await request("/api/auth/password-reset-confirm", { method: "POST", body: JSON.stringify({ token: resetToken, password: reset.password }) });
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setMode("login");
+      setReset({ email: "", password: "", confirm: "" });
+      setNotice("Şifrəniz yeniləndi. Yeni şifrənizlə daxil ola bilərsiniz.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Şifrə yenilənmədi.");
+    } finally { setBusy(false); }
+  };
+
   return (
     <main className={`login ${isDark ? "theme-dark" : ""}`}>
       <div className="login-wrap">
@@ -14201,7 +14234,7 @@ function Login({
           </div>
           <div className="login-heading">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-            <span><b>Hesabınıza daxil olun</b><small>Sifariş məlumatları yalnız icazəli istifadəçilər üçün açıqdır.</small></span>
+            <span><b>{mode === "reset-request" ? "Şifrəni yenilə" : mode === "reset-confirm" ? "Yeni şifrə qurun" : mode === "register" ? "Qeydiyyat müraciəti" : "Hesabınıza daxil olun"}</b><small>{mode === "reset-request" ? "E-poçtunuza təhlükəsiz, tək istifadəlik bağlantı göndərəcəyik." : mode === "reset-confirm" ? "Yeni şifrəniz ən az 8 simvol olmalıdır." : mode === "register" ? "Şirkət sahibinin təsdiqindən sonra girişiniz açılacaq." : "Sifariş məlumatları yalnız icazəli istifadəçilər üçün açıqdır."}</small></span>
           </div>
           {pending ? (
             <div className="pending-box">
@@ -14210,6 +14243,20 @@ function Login({
                 Şirkət sahibi təsdiqlədikdən sonra daxil ola bilərsiniz.
               </span>
             </div>
+          ) : mode === "reset-request" ? (
+            <form onSubmit={requestPasswordReset}>
+              <button type="button" className="text-button back-link" onClick={() => { setMode("login"); setError(""); setNotice(""); }}>← Girişe dön</button>
+              <label><span>E-poçt</span><input type="email" autoComplete="email" required value={reset.email} onChange={(event) => setReset((current) => ({ ...current, email: event.target.value }))} /></label>
+              <p className="reset-help">Bağlantı 30 dəqiqə qüvvədə qalır və yalnız bir dəfə istifadə oluna bilər.</p>
+              <button disabled={busy} className="primary full">{busy ? "Göndərilir..." : "Bağlantı göndər"}</button>
+            </form>
+          ) : mode === "reset-confirm" ? (
+            <form onSubmit={confirmPasswordReset}>
+              <label><span>Yeni şifrə</span><input type="password" autoComplete="new-password" minLength={8} required value={reset.password} onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))} /></label>
+              <label><span>Yeni şifrəni təkrar edin</span><input type="password" autoComplete="new-password" minLength={8} required value={reset.confirm} onChange={(event) => setReset((current) => ({ ...current, confirm: event.target.value }))} /></label>
+              <p className="reset-help">Bu bağlantı bir dəfə istifadə olunur.</p>
+              <button disabled={busy} className="primary full">{busy ? "Yenilənir..." : "Şifrəni yenilə"}</button>
+            </form>
           ) : mode === "login" ? (
             <>
               <form onSubmit={passwordLogin}>
@@ -14249,6 +14296,7 @@ function Login({
                   Daxil ol
                 </button>
               </form>
+              <button type="button" className="text-button forgot-password-link" onClick={() => { setMode("reset-request"); setError(""); setNotice(""); }}>Şifrəni unutmusunuz?</button>
               {config?.enabled && (
                 <>
                   <div className="separator">
@@ -14362,6 +14410,7 @@ function Login({
             </form>
           )}
           {error && <p className="form-error">{error}</p>}
+          {notice && <p className="form-notice">{notice}</p>}
           <div className="login-notice">
             Yalnız şirket tarafından yetkilendirilmiş Google hesapları giriş yapabilir.
           </div>

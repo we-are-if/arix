@@ -4294,6 +4294,10 @@ body { background: var(--arix-page); color: var(--arix-text); }
   font: inherit;
   outline: none;
 }
+.daily-auth-notice { border: 1px solid #a7e6cb; border-radius: 9px; background: #eefbf5; color: #087a55; padding: 10px 12px; font-size: 12px; line-height: 1.45; }
+.daily-auth-help { margin: -2px 0 0; color: var(--muted, #71809a); font-size: 12px; line-height: 1.45; }
+.daily-auth-forgot { justify-self: start; border: 0; background: transparent; color: var(--arix-primary, #4f46e5); padding: 0; font-size: 12px; font-weight: 700; cursor: pointer; }
+.daily-auth-forgot:hover { text-decoration: underline; }
 .daily-auth-card input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgb(37 99 235 / 11%); }
 .daily-auth-remember { display: flex !important; grid-template-columns: none; align-items: center; gap: 8px !important; font-weight: 500 !important; color: var(--muted, #71809a); }
 .daily-auth-remember input { width: 17px; height: 17px; accent-color: #2563eb; }
@@ -6346,6 +6350,11 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .management-section-head h2 { margin: 0; font-size: 14px; font-weight: 650; }
 .management-section-head small { color: var(--arix-muted); font-size: 9px; }
 .management-section-head > button { display: inline-flex; height: 34px; align-items: center; gap: 5px; border: 1px solid var(--arix-line); border-radius: 7px; background: var(--arix-panel); padding: 0 9px; color: var(--arix-text); font-size: 10px; font-weight: 650; cursor: pointer; }
+.management-user-search { display: flex; height: 36px; align-items: center; gap: 7px; margin: 10px 12px; border: 1px solid var(--arix-line); border-radius: 7px; background: var(--arix-panel); padding: 0 9px; color: var(--arix-muted); }
+.management-user-search:focus-within { border-color: var(--arix-primary); box-shadow: 0 0 0 3px rgba(79,70,229,.11); }
+.management-user-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--arix-text); font-size: 10px; }
+.management-user-search button { display: grid; width: 22px; height: 22px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--arix-muted); cursor: pointer; }
+.management-user-search button:hover { background: var(--arix-nav-active); color: var(--arix-primary); }
 .management-user-rows { display: grid; max-height: 650px; overflow-y: auto; }
 .management-user-rows > button { display: grid; min-width: 0; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 0; border-bottom: 1px solid var(--arix-line); background: transparent; padding: 10px 12px; text-align: left; cursor: pointer; }
 .management-user-rows > button:hover,
@@ -6356,6 +6365,7 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .management-user-rows small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .management-user-rows b { color: var(--arix-text); font-size: 11px; }
 .management-user-rows small { color: var(--arix-muted); font-size: 8px; }
+.management-user-rows i { overflow: hidden; color: var(--arix-muted); font-size: 8px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .management-user-rows em { border-radius: 999px; padding: 3px 7px; font-size: 8px; font-style: normal; font-weight: 700; }
 .management-user-rows em.active { background: #eaf9f2; color: #087a55; }
 .management-user-rows em.inactive { background: #f2f4f7; color: #6b7280; }
@@ -6373,6 +6383,12 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .management-form-grid input,
 .management-form-grid select,
 .notification-composer input { height: 38px; }
+.management-password-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 14px 12px; border: 1px solid color-mix(in srgb, var(--arix-primary) 28%, var(--arix-line)); border-radius: 8px; background: color-mix(in srgb, var(--arix-primary) 5%, var(--arix-panel)); padding: 10px; }
+.management-password-tools > div { display: flex; min-width: 0; align-items: center; gap: 9px; color: var(--arix-primary); }
+.management-password-tools span { display: grid; min-width: 0; gap: 2px; }
+.management-password-tools b { color: var(--arix-text); font-size: 10px; }
+.management-password-tools small { color: var(--arix-muted); font-size: 8px; }
+.management-password-tools .secondary-button { flex: 0 0 auto; white-space: nowrap; }
 .notification-composer textarea { min-height: 110px; resize: vertical; padding: 9px 10px; }
 .management-form-grid input:focus,
 .management-form-grid select:focus,
@@ -6755,6 +6771,8 @@ body { background: var(--arix-page); color: var(--arix-text); }
   .notification-composer,
   .notification-history,
   .management-audit { border-radius: 7px; }
+  .management-password-tools { align-items: stretch; flex-direction: column; }
+  .management-password-tools .secondary-button { justify-content: center; }
   .management-audit > .management-section-head { align-items: stretch; flex-direction: column; }
   .management-audit-search { width: 100%; box-sizing: border-box; }
   .management-audit-list { max-height: none; }

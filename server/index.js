@@ -341,6 +341,10 @@ const mailTransport = SMTP_HOST && SMTP_USER && SMTP_PASS && SMTP_FROM
   ? nodemailer.createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_SECURE, auth: { user: SMTP_USER, pass: SMTP_PASS } })
   : null;
 const mailRateLimits = new Map();
+const dailyPasswordResetRateLimits = new Map();
+const orderPasswordResetRateLimits = new Map();
+const DAILY_PUBLIC_URL = String(process.env.ARIX_DAILY_PUBLIC_URL || "https://daily.arix.az").trim().replace(/\/+$/, "");
+const ORDER_PUBLIC_URL = String(process.env.ARIX_ORDER_PUBLIC_URL || "https://order.arix.az").trim().replace(/\/+$/, "");
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
@@ -453,6 +457,7 @@ const normalizeDailyDb = (value) => ({
   updatedBy: value?.updatedBy || null,
   authUsers: migrateDailyAuthUsers(value),
   authSessions: Array.isArray(value?.authSessions) ? value.authSessions : [],
+  passwordResetTokens: Array.isArray(value?.passwordResetTokens) ? value.passwordResetTokens.slice(-200) : [],
   notifications: Array.isArray(value?.notifications) ? value.notifications.slice(-500) : [],
   pushSubscriptions: Array.isArray(value?.pushSubscriptions) ? value.pushSubscriptions : [],
   entryChangeRequests: Array.isArray(value?.entryChangeRequests) ? value.entryChangeRequests.slice(-1000) : [],
@@ -647,6 +652,7 @@ const seedDb = {
   trash: [],
   authUsers: structuredClone(defaultAuthUsers),
   authSessions: [],
+  passwordResetTokens: [],
   companySettings: defaultCompanySettings,
   stockContainers: [],
   stockPallets: [],
@@ -851,6 +857,7 @@ function normalizeDb(db) {
   db.authUsers = Array.isArray(db.authUsers) && db.authUsers.length
     ? db.authUsers.map((user) => ({ ...user, active: user.inviteCodeHash ? user.active === true : user.active !== false, companyId: user.companyId || "ersa-folyo", googleSubject: user.googleSubject || null }))
     : structuredClone(defaultAuthUsers);
+  db.passwordResetTokens = Array.isArray(db.passwordResetTokens) ? db.passwordResetTokens.slice(-200) : [];
   for (const order of db.orderBoard) {
     const creatorName = normalizeSalesRepresentativeName(order.createdBy || "");
     const matchingUsers = db.authUsers.filter((user) => normalizeSalesRepresentativeName(user.name || "") === creatorName);
@@ -1291,16 +1298,34 @@ async function handleDaily(req, res, parts = []) {
       if (!name || !email) return send(res, 400, { error: "Ad və e-poçt məcburidir." });
       if (!Object.hasOwn(DAILY_ROLE_PERMISSIONS, dailyRoleKey(role))) return send(res, 400, { error: "Daily rolu düzgün deyil." });
       if (current.authUsers.some((user) => String(user.email || "").toLocaleLowerCase("en-US") === email)) return send(res, 409, { error: "Bu e-poçt artıq istifadə olunur." });
+      const suppliedPassword = String(body.password || "").trim();
+      if (suppliedPassword && suppliedPassword.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+      if (!suppliedPassword && !mailTransport) return send(res, 503, { error: "Şifrə bağlantısı üçün e-poçt xidməti hazır deyil. Şifrəni əl ilə daxil edin." });
       const user = { id: `daily-${randomUUID()}`, name, email, role, companyId: req.dailyCompanyId || "azartmembran", active: body.active !== false, createdAt: new Date().toISOString(), permissions: Array.isArray(body.permissions) ? body.permissions.filter((key) => DAILY_ALL_PERMISSIONS.includes(key)) : (DAILY_ROLE_PERMISSIONS[dailyRoleKey(role)] || DAILY_ROLE_PERMISSIONS["müşahidəçi"]) };
-      const temporaryPassword = String(body.password || "").trim() || createTemporaryPassword();
-      setPassword(user, temporaryPassword, !body.password);
+      if (suppliedPassword) setPassword(user, suppliedPassword, false);
       current.authUsers.push(user);
       current.audit.push({ id: randomUUID(), action: "user_created", at: new Date().toISOString(), by: actor.name, target: user.name });
       await store.write(normalizeDailyDb(current));
-      return send(res, 201, { data: dailyPublicUser(user), temporaryPassword });
+      let setupEmailSent = false;
+      if (!suppliedPassword && user.active !== false && !user.joinPending && mailTransport) {
+        try { setupEmailSent = await sendDailyPasswordReset(user.email, actor.name, req.dailyCompanyId); }
+        catch (error) { console.error("Daily setup mail failed", error); }
+      }
+      return send(res, 201, { data: dailyPublicUser(user), setupEmailSent });
     }
     const target = current.authUsers.find((user) => String(user.id) === String(targetId));
     if (!target) return notFound(res);
+    if (req.method === "POST" && parts[2] === "password-reset") {
+      if (target.active === false || target.joinPending === true) return send(res, 409, { error: "Bağlı və ya gözləyən hesaba şifrə bağlantısı göndərilə bilməz." });
+      try {
+        const sent = await sendDailyPasswordReset(target.email, actor.name, req.dailyCompanyId);
+        if (!sent) return send(res, 404, { error: "Bu istifadəçi üçün aktiv hesab tapılmadı." });
+      } catch (error) {
+        console.error("Managed Daily password reset mail failed", error);
+        return send(res, 502, { error: "Şifrə sıfırlama e-poçtu göndərilə bilmədi." });
+      }
+      return send(res, 200, { ok: true });
+    }
     if (req.method === "PATCH") {
       const body = await parseBody(req);
       const previousTarget = {
@@ -1331,7 +1356,11 @@ async function handleDaily(req, res, parts = []) {
       if (body.active !== undefined) target.active = body.active !== false;
       if (body.active === true) target.joinPending = false;
       if (Array.isArray(body.permissions)) target.permissions = [...new Set(body.permissions.filter((key) => DAILY_ALL_PERMISSIONS.includes(key)))];
-      if (String(body.password || "").trim()) setPassword(target, String(body.password).trim(), false);
+      if (String(body.password || "").trim()) {
+        const nextPassword = String(body.password).trim();
+        if (nextPassword.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+        setPassword(target, nextPassword, false);
+      }
       const nextTarget = {
         name: target.name,
         email: target.email,
@@ -3215,6 +3244,119 @@ function createTemporaryPassword() {
   return `Ax!${randomBytes(6).toString("base64url")}`;
 }
 
+function dailyPasswordResetTokenHash(token) {
+  return createHash("sha256").update(String(token)).digest("hex");
+}
+
+function pruneDailyPasswordResetTokens(db, now = Date.now()) {
+  db.passwordResetTokens = (Array.isArray(db.passwordResetTokens) ? db.passwordResetTokens : [])
+    .filter((item) => item?.tokenHash && Number.isFinite(new Date(item.expiresAt).getTime()) && new Date(item.expiresAt).getTime() > now)
+    .slice(-200);
+}
+
+async function sendDailyPasswordReset(email, requestedBy = "", requestedCompanyId = "") {
+  if (!mailTransport) throw new Error("Şifrə sıfırlama e-poçtu hələ hazır deyil.");
+  const normalizedEmail = String(email || "").trim().toLocaleLowerCase("en-US");
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+  const matches = [];
+  const companyIds = requestedCompanyId && DAILY_COMPANIES[requestedCompanyId]
+    ? [requestedCompanyId]
+    : Object.keys(DAILY_COMPANIES);
+
+  for (const companyId of companyIds) {
+    const store = getDailyStateStore(companyId);
+    const db = await store.read();
+    const user = db.authUsers.find((item) => item.active !== false && item.joinPending !== true && String(item.email || "").trim().toLocaleLowerCase("en-US") === normalizedEmail);
+    if (!user) continue;
+    const token = randomBytes(32).toString("base64url");
+    const tokenHash = dailyPasswordResetTokenHash(token);
+    pruneDailyPasswordResetTokens(db, now.getTime());
+    db.passwordResetTokens = db.passwordResetTokens.filter((item) => String(item.userId) !== String(user.id));
+    db.passwordResetTokens.push({ id: randomUUID(), userId: user.id, tokenHash, createdAt: now.toISOString(), expiresAt });
+    db.audit.push({ id: randomUUID(), action: "daily_password_reset_requested", at: now.toISOString(), by: requestedBy || user.name || "Sistem", target: user.email || user.name });
+    matches.push({ store, db, companyId, token });
+  }
+
+  if (!matches.length) return false;
+  await Promise.all(matches.map(({ store, db }) => store.write(normalizeDailyDb(db))));
+  await Promise.all(matches.map(({ companyId, token }) => {
+    const link = `${DAILY_PUBLIC_URL}/?reset=${encodeURIComponent(token)}&company=${encodeURIComponent(companyId)}`;
+    return mailTransport.sendMail({
+      from: SMTP_FROM,
+      to: normalizedEmail,
+      subject: "AriX Daily şifrə sıfırlama",
+      text: `AriX Daily şifrənizi yeniləmək üçün bu bağlantını açın:\n${link}\n\nBağlantı 30 dəqiqə qüvvədədir. Bu istəyi siz etməmisinizsə, e-poçtu nəzərə almayın.`,
+    });
+  }));
+  return true;
+}
+
+async function confirmDailyPasswordReset(token, password, companyId = "") {
+  if (!DAILY_COMPANIES[companyId]) return false;
+  const tokenHash = dailyPasswordResetTokenHash(token);
+  const now = Date.now();
+  const store = getDailyStateStore(companyId);
+  const db = await store.read();
+  pruneDailyPasswordResetTokens(db, now);
+  const reset = db.passwordResetTokens.find((item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > now);
+  if (!reset) return false;
+  const user = db.authUsers.find((item) => String(item.id) === String(reset.userId) && item.active !== false && item.joinPending !== true);
+  if (!user) return false;
+  setPassword(user, password, false);
+  user.passwordResetAt = new Date(now).toISOString();
+  db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== tokenHash && String(item.userId) !== String(user.id));
+  db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(user.id));
+  db.audit.push({ id: randomUUID(), action: "daily_password_reset_completed", at: new Date(now).toISOString(), by: user.name || "İstifadəçi", target: user.email || user.name });
+  await store.write(normalizeDailyDb(db));
+  return true;
+}
+
+function pruneOrderPasswordResetTokens(db, now = Date.now()) {
+  db.passwordResetTokens = (Array.isArray(db.passwordResetTokens) ? db.passwordResetTokens : [])
+    .filter((item) => item?.tokenHash && Number.isFinite(new Date(item.expiresAt).getTime()) && new Date(item.expiresAt).getTime() > now)
+    .slice(-200);
+}
+
+async function sendOrderPasswordReset(db, user, requestedBy = "") {
+  if (!mailTransport) throw new Error("Şifrə sıfırlama e-poçtu hələ hazır deyil.");
+  const email = String(user?.email || "").trim().toLocaleLowerCase("en-US");
+  if (!email || user?.active === false || user?.joinPending === true) return false;
+  const now = new Date();
+  const token = randomBytes(32).toString("base64url");
+  pruneOrderPasswordResetTokens(db, now.getTime());
+  db.passwordResetTokens = db.passwordResetTokens.filter((item) => String(item.userId) !== String(user.id));
+  db.passwordResetTokens.push({
+    id: randomUUID(), userId: user.id, companyId: user.companyId || "ersa-folyo",
+    tokenHash: dailyPasswordResetTokenHash(token), createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString(),
+  });
+  await writeDb(db);
+  const link = `${ORDER_PUBLIC_URL}/?reset=${encodeURIComponent(token)}`;
+  await mailTransport.sendMail({
+    from: SMTP_FROM,
+    to: email,
+    subject: "AriX Order şifrə sıfırlama",
+    text: `AriX Order şifrənizi yeniləmək üçün bu bağlantını açın:\n${link}\n\nBağlantı 30 dəqiqə qüvvədədir. Bu istəyi siz etməmisinizsə, e-poçtu nəzərə almayın.`,
+  });
+  return true;
+}
+
+async function confirmOrderPasswordReset(db, token, password) {
+  const now = Date.now();
+  pruneOrderPasswordResetTokens(db, now);
+  const tokenHash = dailyPasswordResetTokenHash(token);
+  const reset = db.passwordResetTokens.find((item) => item.tokenHash === tokenHash && new Date(item.expiresAt).getTime() > now);
+  if (!reset) return false;
+  const user = db.authUsers.find((item) => String(item.id) === String(reset.userId) && String(item.companyId || "ersa-folyo") === String(reset.companyId || "ersa-folyo") && item.active !== false && item.joinPending !== true);
+  if (!user) return false;
+  setPassword(user, password, false);
+  user.passwordResetAt = new Date(now).toISOString();
+  db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== tokenHash && String(item.userId) !== String(user.id));
+  db.authSessions = db.authSessions.filter((session) => String(session.userId) !== String(user.id));
+  await writeDb(db);
+  return true;
+}
+
 function inviteCodeHash(code) {
   return createHash("sha256").update(String(code).trim().toUpperCase()).digest("hex");
 }
@@ -3322,12 +3464,12 @@ async function getAvailableCompaniesForUser(email) {
   const list = [];
   for (const [id, comp] of Object.entries(DAILY_COMPANIES)) {
     const db = await getDailyStateStore(id).read({ clone: false });
+    // A person can work for more than one company, but each company must have
+    // independently created and activated that person's user record.
     const found = db.authUsers?.some(
       (u) => String(u.email || "").trim().toLocaleLowerCase("en-US") === cleanEmail && u.active !== false && u.joinPending !== true
     );
-    if (found) {
-      list.push({ id: comp.id, name: comp.name, features: comp.features });
-    }
+    if (found) list.push({ id: comp.id, name: comp.name, features: comp.features });
   }
   return list;
 }
@@ -3419,6 +3561,40 @@ async function handleDailyAuth(req, res, parts) {
     return send(res, 200, { data: { enabled: Boolean(GOOGLE_CLIENT_ID), required: true, googleClientId: GOOGLE_CLIENT_ID } });
   }
 
+  if (req.method === "POST" && action === "password-reset-request") {
+    const body = await parseBody(req);
+    const email = String(body.email || "").trim().toLocaleLowerCase("en-US");
+    // Return the same answer for every address, so this endpoint cannot be
+    // used to discover who has a Daily account.
+    const response = { ok: true, message: "Bu e-poçt qeydiyyatlıdırsa, şifrə yeniləmə bağlantısı göndərildi." };
+    if (!email.includes("@")) return send(res, 200, response);
+    if (!mailTransport) return send(res, 503, { error: "Şifrə sıfırlama e-poçtu hələ hazır deyil." });
+    const rateKey = `${String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim()}:${email}`;
+    const recent = (dailyPasswordResetRateLimits.get(rateKey) || []).filter((at) => Date.now() - at < 60 * 60 * 1000);
+    if (recent.length >= 3) return send(res, 200, response);
+    recent.push(Date.now());
+    dailyPasswordResetRateLimits.set(rateKey, recent);
+    try {
+      await sendDailyPasswordReset(email, "Şifrə sıfırlama");
+    } catch (error) {
+      console.error("Daily password reset mail failed", error);
+      return send(res, 502, { error: "Şifrə sıfırlama e-poçtu göndərilə bilmədi. Bir az sonra yenidən cəhd edin." });
+    }
+    return send(res, 200, response);
+  }
+
+  if (req.method === "POST" && action === "password-reset-confirm") {
+    const body = await parseBody(req);
+    const token = String(body.token || "").trim();
+    const password = String(body.password || "");
+    const companyId = String(body.companyId || "").trim();
+    if (token.length < 20) return send(res, 400, { error: "Şifrə yeniləmə bağlantısı düzgün deyil." });
+    if (password.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+    const changed = await confirmDailyPasswordReset(token, password, companyId);
+    if (!changed) return send(res, 400, { error: "Bu şifrə yeniləmə bağlantısının vaxtı bitib və ya artıq istifadə olunub." });
+    return send(res, 200, { ok: true });
+  }
+
   if (req.method === "GET" && action === "session") {
     const sessionInfo = await findDailySessionAndUser(req);
     if (!sessionInfo?.user) {
@@ -3438,7 +3614,7 @@ async function handleDailyAuth(req, res, parts) {
     const targetCompanyId = String(body.companyId || "").trim().toLocaleLowerCase("en-US");
     if (!DAILY_COMPANIES[targetCompanyId]) return send(res, 400, { error: "Şirkət düzgün deyil." });
     const available = sessionInfo.availableCompanies || [];
-    const allowed = available.some((c) => c.id === targetCompanyId);
+    const allowed = available.some((company) => company.id === targetCompanyId);
     if (!allowed) return send(res, 403, { error: "Bu şirkətə keçid icazəniz yoxdur." });
 
     const targetStore = getDailyStateStore(targetCompanyId);
@@ -3682,6 +3858,39 @@ async function handleAuth(req, res, parts) {
         demoAvailable: !AUTH_REQUIRED,
       },
     });
+  }
+
+  if (req.method === "POST" && action === "password-reset-request") {
+    const body = await parseBody(req);
+    const email = String(body.email || "").trim().toLocaleLowerCase("en-US");
+    // Do not reveal whether a user exists; this avoids account discovery.
+    const response = { ok: true, message: "Bu e-poçt qeydiyyatlıdırsa, şifrə yeniləmə bağlantısı göndərildi." };
+    if (!email.includes("@")) return send(res, 200, response);
+    if (!mailTransport) return send(res, 503, { error: "Şifrə sıfırlama e-poçtu hələ hazır deyil." });
+    const rateKey = `${String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim()}:${email}`;
+    const recent = (orderPasswordResetRateLimits.get(rateKey) || []).filter((at) => Date.now() - at < 60 * 60 * 1000);
+    if (recent.length >= 3) return send(res, 200, response);
+    recent.push(Date.now());
+    orderPasswordResetRateLimits.set(rateKey, recent);
+    const user = db.authUsers.find((item) => item.active !== false && item.joinPending !== true && String(item.email || "").trim().toLocaleLowerCase("en-US") === email);
+    try {
+      if (user) await sendOrderPasswordReset(db, user, "Şifrə sıfırlama");
+    } catch (error) {
+      console.error("Order password reset mail failed", error);
+      return send(res, 502, { error: "Şifrə sıfırlama e-poçtu göndərilə bilmədi. Bir az sonra yenidən cəhd edin." });
+    }
+    return send(res, 200, response);
+  }
+
+  if (req.method === "POST" && action === "password-reset-confirm") {
+    const body = await parseBody(req);
+    const token = String(body.token || "").trim();
+    const password = String(body.password || "");
+    if (token.length < 20) return send(res, 400, { error: "Şifrə yeniləmə bağlantısı düzgün deyil." });
+    if (password.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+    const changed = await confirmOrderPasswordReset(db, token, password);
+    if (!changed) return send(res, 400, { error: "Bu şifrə yeniləmə bağlantısının vaxtı bitib və ya artıq istifadə olunub." });
+    return send(res, 200, { ok: true });
   }
 
   if (req.method === "GET" && action === "session") {

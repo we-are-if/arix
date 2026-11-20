@@ -3206,8 +3206,22 @@ textarea {
   width: 100%;
   margin-top: 14px;
 }
+.forgot-password-link {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  color: #4f46e5;
+  font-size: 13px;
+  font-weight: 650;
+}
 .back-link {
   margin-bottom: 16px;
+}
+.reset-help {
+  margin: 2px 0 14px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
 }
 .code-input {
   text-align: center;
@@ -3239,6 +3253,16 @@ textarea {
   color: #64748b;
   text-align: center;
   font-size: 12px;
+}
+.form-notice {
+  margin: 14px 0 0;
+  border: 1px solid #bce7d2;
+  border-radius: 8px;
+  background: #f0fdf6;
+  padding: 10px 12px;
+  color: #087a55;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .theme-dark {

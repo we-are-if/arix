@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Bell, Check, Copy, KeyRound, Plus, RefreshCw, Save, Search, Send, ShieldCheck, Trash2, UserRound, Users, X } from "lucide-react";
+import { Bell, Check, Copy, KeyRound, Mail, Plus, RefreshCw, Save, Search, Send, ShieldCheck, Trash2, UserRound, Users, X } from "lucide-react";
 import type { DailySession } from "./App";
 
 type Permission = { key: string; group: string; label: string };
@@ -76,6 +76,8 @@ const auditActionLabels: Record<string, string> = {
   daily_join_code_changed: "Dəvət kodu dəyişdirildi",
   daily_access_approved: "Giriş müraciəti təsdiqləndi",
   daily_access_rejected: "Giriş müraciəti rədd edildi",
+  daily_password_reset_requested: "Şifrə yeniləmə bağlantısı göndərildi",
+  daily_password_reset_completed: "Şifrə yeniləndi",
 };
 
 const auditValue = (value: AuditValue) => {
@@ -107,6 +109,8 @@ export default function DailyManagementView({ session, showPermissionActions = f
   const [joinCodeDraft, setJoinCodeDraft] = useState("");
   const [accessRoles, setAccessRoles] = useState<Record<string, string>>({});
   const [auditSearch, setAuditSearch] = useState("");
+  const [userSearch, setUserSearch] = useState("");
+  const [resetSendingId, setResetSendingId] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
@@ -149,6 +153,13 @@ export default function DailyManagementView({ session, showPermissionActions = f
     ].some((value) => String(value || "").toLocaleLowerCase("az").includes(query)));
   }, [auditSearch, data]);
 
+  const visibleUsers = useMemo(() => {
+    const query = userSearch.trim().toLocaleLowerCase("az");
+    return (data?.users || []).filter((user) => !user.joinPending)
+      .filter((user) => !query || `${user.name} ${user.email} ${user.role}`.toLocaleLowerCase("az").includes(query))
+      .sort((left, right) => Number(right.active) - Number(left.active) || left.name.localeCompare(right.name, "az"));
+  }, [data, userSearch]);
+
   const selectUser = (user: ManagedUser) => {
     setSelectedId(user.id);
     setDraft({ ...user, permissions: [...user.permissions] });
@@ -167,12 +178,23 @@ export default function DailyManagementView({ session, showPermissionActions = f
     setMessage(null);
     try {
       const body = JSON.stringify({ name: draft.name, email: draft.email, role: draft.role, active: draft.active, permissions: draft.permissions, password: password || undefined });
-      const payload = await api<{ data: ManagedUser; temporaryPassword?: string }>(draft.id ? `/api/daily/users/${draft.id}` : "/api/daily/users", { method: draft.id ? "PATCH" : "POST", body });
-      setMessage({ tone: "ok", text: payload.temporaryPassword ? `İstifadəçi yaradıldı. Müvəqqəti şifrə: ${payload.temporaryPassword}` : "İstifadəçi məlumatları saxlanıldı." });
+      const payload = await api<{ data: ManagedUser; setupEmailSent?: boolean }>(draft.id ? `/api/daily/users/${draft.id}` : "/api/daily/users", { method: draft.id ? "PATCH" : "POST", body });
+      setMessage({ tone: "ok", text: payload.setupEmailSent ? "İstifadəçi yaradıldı. Şifrəsini qurması üçün e-poçt bağlantısı göndərildi." : "İstifadəçi məlumatları saxlanıldı." });
       setPassword("");
       await load();
     } catch (error) { setMessage({ tone: "error", text: error instanceof Error ? error.message : "İstifadəçi saxlanmadı." }); }
     finally { setBusy(false); }
+  };
+
+  const sendPasswordReset = async () => {
+    if (!draft.id || !draft.active) return;
+    setResetSendingId(draft.id);
+    setMessage(null);
+    try {
+      await api(`/api/daily/users/${draft.id}/password-reset`, { method: "POST", body: "{}" });
+      setMessage({ tone: "ok", text: `${draft.name} üçün şifrə yeniləmə bağlantısı e-poçta göndərildi.` });
+    } catch (error) { setMessage({ tone: "error", text: error instanceof Error ? error.message : "Şifrə bağlantısı göndərilmədi." }); }
+    finally { setResetSendingId(""); }
   };
 
   const deleteUser = async () => {
@@ -250,11 +272,12 @@ export default function DailyManagementView({ session, showPermissionActions = f
       </div>
       <div className="management-users-layout">
       <section className="management-user-list">
-        <div className="management-section-head"><div><h2>Komanda</h2><small>Daily-yə giriş hüququ olan hesablar</small></div><button type="button" onClick={() => { setSelectedId(""); setDraft(emptyUser()); setPassword(""); }}><Plus size={16} /> Yeni</button></div>
-        <div className="management-user-rows">{data?.users.filter((user) => !user.joinPending).map((user) => <button type="button" key={user.id} className={selectedId === user.id ? "active" : ""} onClick={() => selectUser(user)}>
+        <div className="management-section-head"><div><h2>Komanda</h2><small>{data?.users.filter((user) => user.active && !user.joinPending).length || 0} aktiv hesab · giriş və şifrə vəziyyəti</small></div><button type="button" onClick={() => { setSelectedId(""); setDraft(emptyUser()); setPassword(""); }}><Plus size={16} /> Yeni</button></div>
+        <label className="management-user-search"><Search size={16} /><input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Ad, e-poçt və ya rol axtar..." />{userSearch && <button type="button" onClick={() => setUserSearch("")} title="Axtarışı təmizlə"><X size={14} /></button>}</label>
+        <div className="management-user-rows">{visibleUsers.map((user) => <button type="button" key={user.id} className={selectedId === user.id ? "active" : ""} onClick={() => selectUser(user)}>
           <span className="management-avatar">{user.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2)}</span>
-          <span><b>{user.name}</b><small>{user.email}</small></span><em className={user.active ? "active" : "inactive"}>{user.active ? "Aktiv" : "Bağlı"}</em>
-        </button>)}</div>
+          <span><b>{user.name}</b><small>{user.email}</small><i>{user.role} · {user.passwordEnabled ? "Şifrə hazırdır" : "Şifrə qurulmayıb"}</i></span><em className={user.active ? "active" : "inactive"}>{user.active ? "Aktiv" : "Bağlı"}</em>
+        </button>)}{!visibleUsers.length && <div className="management-empty">Axtarışa uyğun istifadəçi tapılmadı.</div>}</div>
       </section>
       <form className="management-user-editor" onSubmit={saveUser}>
         <div className="management-section-head"><div><h2>{draft.id ? "İstifadəçi məlumatları" : "Yeni istifadəçi"}</h2><small>Rol şablonu seçin, sonra lazım olan icazələri dəqiqləşdirin.</small></div>{draft.id && <button type="button" className="icon-danger" onClick={() => void deleteUser()} title="İstifadəçini sil"><Trash2 size={16} /></button>}</div>
@@ -262,8 +285,9 @@ export default function DailyManagementView({ session, showPermissionActions = f
           <label><span>Ad və soyad</span><input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} required /></label>
           <label><span>E-poçt</span><input type="email" value={draft.email} onChange={(e) => setDraft((c) => ({ ...c, email: e.target.value }))} required /></label>
           <label><span>Rol</span><select value={draft.role} onChange={(e) => chooseRole(e.target.value)}>{["Sahib", "Rəhbər", "Mühasib", "Kassir", "Müşahidəçi"].map((role) => <option key={role}>{role}</option>)}</select></label>
-          <label><span>{draft.passwordEnabled ? "Yeni şifrə (dəyişmək üçün)" : "Şifrə"}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={draft.id ? "Dəyişmirsə boş saxlayın" : "Boş qalsa avtomatik yaranır"} /></label>
+          <label><span>{draft.passwordEnabled ? "Yeni şifrə (dəyişmək üçün)" : "Şifrə"}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={draft.id ? "Dəyişmirsə boş saxlayın" : "Boş qalsa e-poçt bağlantısı gedir"} /></label>
         </div>
+        {draft.id && <div className="management-password-tools"><div><KeyRound size={18} /><span><b>Şifrə və giriş bağlantısı</b><small>{draft.passwordEnabled ? "İstifadəçiyə 30 dəqiqəlik yeni şifrə bağlantısı göndərin." : "Şifrə hələ qurulmayıb; istifadəçiyə təhlükəsiz qurulum bağlantısı göndərin."}</small></span></div><button type="button" className="secondary-button" disabled={!draft.active || Boolean(resetSendingId)} onClick={() => void sendPasswordReset()}><Mail size={16} /> {resetSendingId ? "Göndərilir..." : "Şifrə bağlantısı göndər"}</button></div>}
         <label className="management-active-toggle"><input type="checkbox" checked={draft.active} onChange={(e) => setDraft((c) => ({ ...c, active: e.target.checked }))} /><span><b>Hesab aktivdir</b><small>Bağlandıqda istifadəçi dərhal giriş hüququnu itirir.</small></span></label>
         {showPermissionActions && <div className="management-section-head">
           <div><h2>İcazələr</h2><small>İcazələri seçin və dəyişiklikləri yadda saxlayın.</small></div>

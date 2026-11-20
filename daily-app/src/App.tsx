@@ -86,12 +86,16 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [form, setForm] = useState({ email: "", password: "" });
   const [registration, setRegistration] = useState({ name: "", email: "", password: "", companyCode: "" });
+  const resetToken = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset") || "" : "";
+  const resetCompanyId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("company") || "" : "";
+  const [reset, setReset] = useState({ email: "", password: "", confirm: "" });
   const [joinCode, setJoinCode] = useState("");
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "reset-request" | "reset-confirm">(resetToken ? "reset-confirm" : "login");
   const [pending, setPending] = useState(false);
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("arix-daily-theme");
     if (saved === "dark" || saved === "light") return saved;
@@ -183,6 +187,32 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
     }
   };
 
+  const requestPasswordReset = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await authRequest<{ message?: string }>("/api/daily-auth/password-reset-request", { method: "POST", body: JSON.stringify({ email: reset.email }) });
+      setNotice(payload.message || "Bu e-poçt qeydiyyatlıdırsa, şifrə yeniləmə bağlantısı göndərildi.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Şifrə yeniləmə bağlantısı göndərilmədi."); }
+    finally { setBusy(false); }
+  };
+
+  const confirmPasswordReset = async (event: FormEvent) => {
+    event.preventDefault();
+    if (reset.password !== reset.confirm) { setError("Şifrələr eyni deyil."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      await authRequest("/api/daily-auth/password-reset-confirm", { method: "POST", body: JSON.stringify({ token: resetToken, password: reset.password, companyId: resetCompanyId }) });
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setMode("login");
+      setReset({ email: "", password: "", confirm: "" });
+      setNotice("Şifrəniz yeniləndi. Yeni şifrənizlə daxil ola bilərsiniz.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Şifrə yenilənmədi."); }
+    finally { setBusy(false); }
+  };
+
   return <div className="daily-auth-screen">
     <button className="daily-auth-theme" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label="Mövzunu dəyiş">
       {theme === "dark" ? <Moon size={18} /> : <Sun size={18} />}
@@ -190,12 +220,25 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
     <main className="daily-auth-card">
       <div className="daily-auth-brand"><AriXLogo /><div><b>AriX Daily</b><span>Gündəlik maliyyə axını</span></div></div>
       <div className="daily-auth-heading">{mode === "login" ? <LockKeyhole size={22} /> : <UserPlus size={22} />}<div><h1>{mode === "login" ? "Hesabınıza daxil olun" : "Daily-yə qoşulma müraciəti"}</h1><p>{mode === "login" ? "Maliyyə məlumatları yalnız icazəli istifadəçilər üçün açıqdır." : "Dəvət kodu müraciət yaradır; giriş yalnız rəhbər təsdiqindən sonra açılır."}</p></div></div>
-      {pending ? <div className="daily-auth-pending"><LockKeyhole size={20} /><div><b>Müraciət göndərildi</b><span>Daily rəhbəri təsdiqlədikdən sonra hesabınızla daxil ola bilərsiniz.</span></div><button type="button" onClick={() => { setPending(false); setMode("login"); }}>Girişə qayıt</button></div> : mode === "login" ? <>
+      {pending ? <div className="daily-auth-pending"><LockKeyhole size={20} /><div><b>Müraciət göndərildi</b><span>Daily rəhbəri təsdiqlədikdən sonra hesabınızla daxil ola bilərsiniz.</span></div><button type="button" onClick={() => { setPending(false); setMode("login"); }}>Girişə qayıt</button></div> : mode === "reset-request" ? <form onSubmit={requestPasswordReset}>
+        <button type="button" className="daily-auth-back" onClick={() => { setMode("login"); setError(""); setNotice(""); }}><ArrowLeft size={15} /> Girişə qayıt</button>
+        <label>E-poçt<input type="email" autoComplete="email" value={reset.email} onChange={(event) => setReset((current) => ({ ...current, email: event.target.value }))} required /></label>
+        <p className="daily-auth-help">Qeydiyyatlı e-poçtunuza 30 dəqiqəlik, tək istifadəlik şifrə yeniləmə bağlantısı göndəriləcək.</p>
+        {error && <div className="daily-auth-error">{error}</div>}{notice && <div className="daily-auth-notice">{notice}</div>}
+        <button className="daily-auth-submit" type="submit" disabled={busy}>{busy ? "Göndərilir..." : "Bağlantı göndər"}</button>
+      </form> : mode === "reset-confirm" ? <form onSubmit={confirmPasswordReset}>
+        <label>Yeni şifrə<input type="password" autoComplete="new-password" minLength={8} value={reset.password} onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))} required /></label>
+        <label>Yeni şifrəni təkrar edin<input type="password" autoComplete="new-password" minLength={8} value={reset.confirm} onChange={(event) => setReset((current) => ({ ...current, confirm: event.target.value }))} required /></label>
+        <p className="daily-auth-help">Şifrəniz ən az 8 simvol olmalıdır. Bu bağlantı bir dəfə istifadə olunur.</p>
+        {error && <div className="daily-auth-error">{error}</div>}
+        <button className="daily-auth-submit" type="submit" disabled={busy}>{busy ? "Yenilənir..." : "Şifrəni yenilə"}</button>
+      </form> : mode === "login" ? <>
         <form onSubmit={submit}>
           <label>E-poçt<input type="email" autoComplete="username" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} required /></label>
           <label>Şifrə<input type="password" autoComplete="current-password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} required /></label>
           <label className="daily-auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Məni yadda saxla</label>
           {error && <div className="daily-auth-error">{error}</div>}
+          {notice && <div className="daily-auth-notice">{notice}</div>}
           <button className="daily-auth-submit" type="submit" disabled={busy}>{busy ? "Giriş edilir..." : "Daxil ol"}</button>
         </form>
         {config?.googleClientId && <><div className="daily-auth-divider"><span>və ya</span></div><label className="daily-auth-join-code">Dəvət kodu <small>Yalnız ilk qoşulma üçün</small><input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} maxLength={24} placeholder="XXXXXXXX" /></label><div className="daily-google-button" ref={googleButtonRef} /></>}
@@ -209,6 +252,7 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
             ⚡ Lokal İdarəçi Kimi Daxil Ol (Test)
           </button>
         )}
+        <button type="button" className="daily-auth-forgot" onClick={() => { setMode("reset-request"); setError(""); setNotice(""); }}>Şifrəni unutmusunuz?</button>
         <button type="button" className="daily-auth-mode" onClick={() => { setMode("register"); setError(""); }}><UserPlus size={15} /> Hesabınız yoxdur? Müraciət göndərin</button>
       </> : <form onSubmit={register}>
         <button type="button" className="daily-auth-back" onClick={() => { setMode("login"); setError(""); }}><ArrowLeft size={15} /> Girişə qayıt</button>
