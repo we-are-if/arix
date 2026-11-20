@@ -9247,7 +9247,12 @@ textarea {
 
 @media (min-width: 1121px) {
   .app-shell.is-board-view {
-    height: 100dvh;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    max-height: 100dvh !important;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -9609,14 +9614,17 @@ textarea {
   .app-shell > header .mobile-header-control {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+    filter: none !important;
   }
   .app-shell > header .mobile-header-control {
-    background: #f8fafc !important;
-    border-color: #e2e8f0 !important;
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
   }
   .theme-dark.app-shell > header .mobile-header-control {
     background: #1e293b !important;
-    border-color: rgba(148, 163, 184, 0.24) !important;
+    border: 1px solid #334155 !important;
+    box-shadow: none !important;
   }
   .mobile-utility-strip {
     display: flex !important;
@@ -9680,7 +9688,12 @@ textarea {
     stroke-width: 2.6;
   }
   .app-shell.is-board-view {
-    height: 100dvh;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    max-height: 100dvh !important;
     display: flex;
     flex-direction: column;
     overflow: hidden;
