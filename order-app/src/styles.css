@@ -11818,6 +11818,13 @@ textarea {
   border: 1px solid #d8d4ff !important;
   color: #4b3dde !important;
 }
+.order-detail-header-bar .arix-chat-icon-btn,
+.order-detail-header-bar .order-detail-more-btn.icon-only {
+  width: 34px !important;
+  min-width: 34px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+}
 .modal > .modal-body {
   display: flex;
   flex-direction: column;
