@@ -9277,14 +9277,14 @@ textarea {
     display: flex;
     flex-direction: column;
     gap: 10px;
-  }
-  .app-shell.is-board-view .board-toolbar {
-    flex: 0 0 auto;
+    overflow: hidden;
   }
   .app-shell.is-board-view .board {
     flex: 1 1 auto;
     min-height: 0;
     height: auto;
+    grid-template-rows: minmax(0, 1fr);
+    overflow-y: hidden;
   }
   .app-shell.is-board-view .app-page-footer {
     flex: 0 0 auto;
@@ -9720,11 +9720,14 @@ textarea {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    overflow: hidden;
   }
   .app-shell.is-board-view .board {
     flex: 1 1 auto;
     min-height: 0 !important;
-    height: auto !important;
+    height: 100% !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    overflow-y: hidden !important;
     margin-bottom: 0;
   }
   .app-shell.is-board-view .column {
