@@ -21,10 +21,12 @@
 :root[data-theme="dark"] .operation-row .operation-mobile-card .op-m-amount.expense { color: #fda4af !important; }
 :root[data-theme="dark"] .operation-row .operation-mobile-card .op-m-amount.transfer { color: #c7d2fe !important; }
 
-/* Installed iOS apps draw beneath the transparent status bar. Reserve that
-   space once; keep the sticky header below it and the bottom canvas themed. */
+/* Installed iOS apps draw beneath the transparent status bar. The old layout
+   reserved this space on both body and the sticky header, which made the
+   header drop too far on some Dynamic Island iPhones. Keep the inset inside
+   the header only, so it is always reserved exactly once. */
 html[data-ios-standalone="true"] body {
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: 0;
   box-sizing: border-box;
 }
 html[data-ios-standalone="true"] body::before {
@@ -36,11 +38,16 @@ html[data-ios-standalone="true"] body::before {
   pointer-events: none;
   z-index: 2147483646;
 }
-html[data-ios-standalone="true"] .topbar { top: env(safe-area-inset-top, 0px) !important; }
-html[data-ios-standalone="true"] .app-shell { min-height: calc(100dvh - env(safe-area-inset-top, 0px)); }
+html[data-ios-standalone="true"] .topbar {
+  top: 0 !important;
+  height: calc(69px + env(safe-area-inset-top, 0px)) !important;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px)) !important;
+  box-sizing: border-box;
+}
+html[data-ios-standalone="true"] .app-shell { min-height: 100dvh; }
 @media (max-width: 760px) {
   html[data-ios-standalone="true"] .workspace {
-    min-height: calc(100dvh - 58px - env(safe-area-inset-top, 0px)) !important;
+    min-height: calc(100dvh - 69px - env(safe-area-inset-top, 0px)) !important;
   }
 }
 @media (display-mode: standalone) {
