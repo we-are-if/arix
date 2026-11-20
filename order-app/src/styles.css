@@ -9886,15 +9886,16 @@ textarea {
     padding-bottom: 4px;
   }
   .daily-day-strip {
-    grid-template-columns: repeat(7, minmax(76px, 1fr)) !important;
-    overflow-x: auto;
-    scrollbar-width: none;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px;
+    overflow: visible;
   }
-  .daily-day-strip::-webkit-scrollbar {
+  .daily-day-card:nth-child(-n+2),
+  .daily-day-card:nth-child(n+6) {
     display: none;
   }
   .daily-day-card {
-    padding: 7px 8px !important;
+    padding: 7px 6px !important;
   }
   .stock-page {
     display: flex;
@@ -10248,6 +10249,7 @@ textarea {
   min-width: 0;
 }
 .daily-day-card {
+  position: relative;
   display: grid;
   justify-items: center;
   gap: 2px;
@@ -10257,8 +10259,18 @@ textarea {
   background: #ffffff;
   color: #334155;
   cursor: pointer;
+  margin: 0;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
   transition: all 0.16s ease;
+}
+.daily-day-card-picker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
 }
 .daily-day-card:hover {
   border-color: #a5b4fc;
@@ -10299,39 +10311,7 @@ textarea {
 .daily-day-card.active span {
   color: #ffffff;
 }
-.daily-day-calendar-btn {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
-  border: 1px solid #dfe4ec;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #5143ed;
-  cursor: pointer;
-  margin: 0;
-}
-.daily-day-calendar-btn:hover {
-  border-color: #818cf8;
-  background: #f5f4ff;
-}
-.daily-day-calendar-btn svg {
-  width: 18px;
-  height: 18px;
-  pointer-events: none;
-}
-.daily-day-calendar-btn input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-.theme-dark .daily-day-card,
-.theme-dark .daily-day-calendar-btn {
+.theme-dark .daily-day-card {
   border-color: rgba(148, 163, 184, 0.22);
   background: #1e293b;
   color: #e2e8f0;

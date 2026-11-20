@@ -5057,7 +5057,7 @@ function DailyArchive({
     setSelectedArchiveDay(`${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`);
   };
   useEffect(() => {
-    if (selectedArchiveDay && availableDays.includes(selectedArchiveDay)) return;
+    if (selectedArchiveDay) return;
     setSelectedArchiveDay(
       currentDay?.date && availableDays.includes(currentDay.date)
         ? currentDay.date
@@ -5424,14 +5424,33 @@ function DailyArchive({
         <div className="daily-day-strip">
           {dayStripDates.map((entry) => {
             const active = entry.iso === stripCenterDay;
-            return (
+            return active ? (
+              <label
+                key={entry.iso}
+                className={`daily-day-card active ${entry.count > 0 ? "has-orders" : ""}`}
+                title="Takvimden tarih seç"
+              >
+                <small>SEÇİLMİŞ GÜN</small>
+                <b>{entry.dayMonth}</b>
+                <span>{entry.count > 0 ? `${entry.count} sipariş` : entry.weekday}</span>
+                <input
+                  type="date"
+                  className="daily-day-card-picker"
+                  value={stripCenterDay}
+                  onChange={(event) => {
+                    if (event.target.value) setSelectedArchiveDay(event.target.value);
+                  }}
+                  aria-label="Rapor günü seç"
+                />
+              </label>
+            ) : (
               <button
                 key={entry.iso}
                 type="button"
-                className={`daily-day-card ${active ? "active" : ""} ${entry.count > 0 ? "has-orders" : ""}`}
+                className={`daily-day-card ${entry.count > 0 ? "has-orders" : ""}`}
                 onClick={() => setSelectedArchiveDay(entry.iso)}
               >
-                <small>{active ? "SEÇİLMİŞ GÜN" : entry.shortWeekday}</small>
+                <small>{entry.shortWeekday}</small>
                 <b>{entry.dayMonth}</b>
                 <span>{entry.count > 0 ? `${entry.count} sipariş` : entry.weekday}</span>
               </button>
@@ -5444,15 +5463,6 @@ function DailyArchive({
           onClick={() => shiftArchiveDay(1)}
           aria-label="Sonraki gün"
         ><ChevronRight aria-hidden="true" /></button>
-        <label className="daily-day-calendar-btn" title="Takvimden tarih seç">
-          <CalendarDays aria-hidden="true" />
-          <input
-            type="date"
-            value={selectedArchiveDay}
-            onChange={(event) => setSelectedArchiveDay(event.target.value)}
-            aria-label="Rapor günü seç"
-          />
-        </label>
       </nav>
       <div className="daily-archive-body">
       <div className={`day-control ${currentDay?.closed ? "closed" : "open"}`}>
