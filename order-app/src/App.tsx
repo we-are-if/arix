@@ -12511,7 +12511,7 @@ function OrderDetail({
           </section>
         )}
         {canViewAudit && order.status === "delivered" && (
-          <details className="order-history">
+          <details className="order-history" open>
             <summary>
               <span>{ui.fullTrace}</span>
               <small>{ui.traceHint}</small>
@@ -12616,28 +12616,40 @@ function OrderDetail({
                       "preparedCorrection",
                     ].includes(entry.action),
                   )
-                  .map((entry) => (
-                    <p key={`${entry.orderNumber}-${entry.id}`}>
-                      <b>
-                        {entry.orderNumber} ·{" "}
-                        {entry.productName || entry.action}
-                      </b>
-                      {(entry.oldValue !== undefined ||
-                        entry.newValue !== undefined) && (
-                        <span>
-                          {" "}
-                          · {printableAuditValue(entry.oldValue)} →{" "}
-                          {printableAuditValue(entry.newValue)}
-                        </span>
-                      )}
-                      <br />
-                      <small>
-                        {entry.by} ·{" "}
-                        {new Date(entry.at).toLocaleString(language)}
-                        {entry.reason ? ` · Neden: ${entry.reason}` : ""}
-                      </small>
-                    </p>
-                  ))}
+                  .map((entry) => {
+                    const statusLabel = (val?: string | number | null) =>
+                      val ? statusMeta[String(val) as Status]?.label || String(val) : "-";
+                    const title =
+                      entry.action === "status"
+                        ? `Durum değişti: ${statusLabel(entry.oldValue)} → ${statusLabel(entry.newValue)}`
+                        : entry.action === "preparedQuantity"
+                          ? `${entry.productName || "Ürün"} · Hazırlanan metre (${printableAuditValue(entry.oldValue)} → ${printableAuditValue(entry.newValue)} mt)`
+                          : entry.action === "preparedRollCount"
+                            ? `${entry.productName || "Ürün"} · Hazırlanan rulo (${printableAuditValue(entry.oldValue)} → ${printableAuditValue(entry.newValue)} rulo)`
+                            : entry.action === "despatchReady"
+                              ? "İrsaliye onaylandı"
+                              : entry.action === "despatchRevoked"
+                                ? "İrsaliye onayı geri alındı"
+                                : entry.action === "draftSaved"
+                                  ? "Hazırlama taslağı kaydedildi"
+                                  : entry.action === "partialReady"
+                                    ? `Kısmi hazırlık tamamlandı (${printableAuditValue(entry.newValue)})`
+                                    : entry.action === "partialReadyCreated"
+                                      ? "Kısmi sipariş oluşturuldu"
+                                      : entry.action === "preparedCorrection"
+                                        ? `Hazır ürün düzeltildi: ${printableAuditValue(entry.newValue)}`
+                                        : entry.productName || entry.action;
+                    return (
+                      <p key={`${entry.orderNumber}-${entry.id}`}>
+                        <b>{entry.orderNumber} · {title}</b>
+                        <br />
+                        <small>
+                          {entry.by} · {new Date(entry.at).toLocaleString("tr-TR")}
+                          {entry.reason ? ` · Neden: ${entry.reason}` : ""}
+                        </small>
+                      </p>
+                    );
+                  })}
               </section>
             </div>
           </details>
@@ -12657,63 +12669,115 @@ function OrderDetail({
                 {[...(order.audit ?? [])].reverse().map((entry) => {
                   const statusLabel = (val?: string | number | null) =>
                     val ? statusMeta[String(val) as Status]?.label || String(val) : "-";
-                  const actionTitle =
-                    entry.action === "preparedQuantity" || entry.action === "preparedRollCount"
-                      ? entry.productName
-                      : entry.action === "preparedCorrection"
-                        ? "Hazır ürün bilgisi düzeltildi"
-                        : entry.action === "created"
-                          ? "Sipariş oluşturuldu"
-                          : entry.action === "status"
-                            ? `${statusLabel(entry.oldValue)} → ${statusLabel(entry.newValue)}`
-                            : entry.action === "draftSaved"
-                              ? "Taslak kaydedildi"
-                              : entry.action === "orderEdited"
-                                ? "Sipariş düzenlendi"
-                                : entry.action === "partialReady"
-                                  ? `Hazır parti: ${entry.newValue}`
-                                  : entry.action === "partialReadyCreated"
-                                    ? "Kısmi sipariş oluşturuldu"
-                                    : entry.action === "testModeEnabled"
-                                      ? "Test modu açıldı"
-                                      : entry.action === "testModeDisabled"
-                                        ? "Test modu kapatıldı"
-                                        : entry.action === "orderLocked"
-                                          ? "Sipariş kilitlendi"
-                                          : entry.action === "orderUnlocked"
-                                            ? "Sipariş kilidi açıldı"
-                                            : entry.action === "cutAllowance"
-                                              ? `${entry.productName ? `${entry.productName} · ` : ""}Kesim payı güncellendi`
-                                              : entry.action === "despatchReady"
-                                                ? "İrsaliye onaylandı"
-                                                : entry.action === "despatchRevoked"
-                                                  ? "İrsaliye iptal edildi"
-                                                  : entry.action === "deliveryNote"
-                                                    ? "Teslim notu güncellendi"
-                                                    : entry.action === "deliveryPhoto"
-                                                      ? "Teslimat fotoğrafı güncellendi"
-                                                      : entry.action === "attachmentAdded"
-                                                        ? "Belge eklendi"
-                                                        : entry.action === "attachmentDeleted"
-                                                          ? "Belge silindi"
-                                                          : entry.action;
+                  const actionInfo: { title: string; detail?: string } =
+                    entry.action === "preparedQuantity"
+                      ? {
+                          title: `${entry.productName || "Ürün"} · Hazırlanan metre güncellendi`,
+                          detail: `${entry.oldValue ?? "-"} → ${entry.newValue} mt`,
+                        }
+                      : entry.action === "preparedRollCount"
+                        ? {
+                            title: `${entry.productName || "Ürün"} · Hazırlanan rulo güncellendi`,
+                            detail: `${entry.oldValue ?? "-"} → ${entry.newValue} rulo`,
+                          }
+                        : entry.action === "preparedCorrection"
+                          ? {
+                              title: "Hazır ürün bilgisi düzeltildi",
+                              detail: entry.newValue ? String(entry.newValue) : undefined,
+                            }
+                          : entry.action === "created"
+                            ? {
+                                title: "Sipariş oluşturuldu",
+                                detail: "Müşteri için yeni sipariş kaydı açıldı.",
+                              }
+                            : entry.action === "status"
+                              ? {
+                                  title: `Durum değişti: ${statusLabel(entry.oldValue)} → ${statusLabel(entry.newValue)}`,
+                                  detail: "Sipariş aşaması güncellendi.",
+                                }
+                              : entry.action === "draftSaved"
+                                ? {
+                                    title: "Hazırlama taslağı kaydedildi",
+                                    detail: "Girilen miktarlar ara verilmek üzere kaydedildi.",
+                                  }
+                                : entry.action === "orderEdited"
+                                  ? {
+                                      title: "Sipariş bilgileri düzenlendi",
+                                      detail: "Müşteri, not veya ürün satırları güncellendi.",
+                                    }
+                                  : entry.action === "partialReady"
+                                    ? {
+                                        title: "Kısmi hazırlık tamamlandı",
+                                        detail: entry.newValue ? `Hazırlanan parti: ${entry.newValue}` : undefined,
+                                      }
+                                    : entry.action === "partialReadyCreated"
+                                      ? {
+                                          title: "Kısmi sipariş oluşturuldu",
+                                          detail: "Ana siparişten yeni teslimat parçası ayrıldı.",
+                                        }
+                                      : entry.action === "testModeEnabled"
+                                        ? {
+                                            title: "Test modu açıldı",
+                                            detail: "Bildirim gönderilmez, stoktan düşülmez ve günlük satışa dahil edilmez.",
+                                          }
+                                        : entry.action === "testModeDisabled"
+                                          ? {
+                                              title: "Test modu kapatıldı",
+                                              detail: "Sipariş normal çalışma akışına geri alındı.",
+                                            }
+                                          : entry.action === "orderLocked"
+                                            ? {
+                                                title: "Sipariş kilitlendi",
+                                                detail: "Sipariş üzerinde düzenleme yetkisi geçici olarak sınırlandı.",
+                                              }
+                                            : entry.action === "orderUnlocked"
+                                              ? {
+                                                  title: "Sipariş kilidi açıldı",
+                                                  detail: "Sipariş tekrar düzenlenebilir hale getirildi.",
+                                                }
+                                              : entry.action === "cutAllowance"
+                                                ? {
+                                                    title: `${entry.productName ? `${entry.productName} · ` : ""}Kesim payı güncellendi`,
+                                                    detail: entry.newValue ? String(entry.newValue) : "Kesim payı ayarı değiştirildi.",
+                                                  }
+                                                : entry.action === "despatchReady"
+                                                  ? {
+                                                      title: "İrsaliye onaylandı",
+                                                      detail: entry.newValue ? String(entry.newValue) : "Sipariş sevk için hazırlandı.",
+                                                    }
+                                                  : entry.action === "despatchRevoked"
+                                                    ? {
+                                                        title: "İrsaliye onayı geri alındı",
+                                                        detail: "İrsaliye bilgisi tekrar düzenlemeye açıldı.",
+                                                      }
+                                                    : entry.action === "deliveryNote"
+                                                      ? {
+                                                          title: "Teslim notu güncellendi",
+                                                          detail: entry.newValue ? String(entry.newValue) : "Teslimat açıklaması kaydedildi.",
+                                                        }
+                                                      : entry.action === "deliveryPhoto"
+                                                        ? {
+                                                            title: "Teslimat fotoğrafı eklendi",
+                                                            detail: "Teslimat kanıtı görseli güncellendi.",
+                                                          }
+                                                        : entry.action === "attachmentAdded"
+                                                          ? {
+                                                              title: "Belge eklendi",
+                                                              detail: entry.newValue ? String(entry.newValue) : "Siparişe dosya yüklendi.",
+                                                            }
+                                                          : entry.action === "attachmentDeleted"
+                                                            ? {
+                                                                title: "Belge silindi",
+                                                                detail: entry.newValue ? String(entry.newValue) : "Siparişten dosya kaldırıldı.",
+                                                              }
+                                                            : {
+                                                                title: "Sipariş işlemi kaydedildi",
+                                                                detail: entry.newValue ? String(entry.newValue) : undefined,
+                                                              };
                   return (
                   <p key={entry.id}>
-                    <b>{actionTitle}</b>
-                    {entry.action === "preparedQuantity" && (
-                      <span>
-                        {entry.oldValue ?? "-"} → {entry.newValue} mt
-                      </span>
-                    )}
-                    {entry.action === "preparedRollCount" && (
-                      <span>
-                        {entry.oldValue ?? "-"} → {entry.newValue}{" "}
-                        {ui.rollCount.toLowerCase()}
-                      </span>
-                    )}
-                    {entry.action === "preparedCorrection" && (
-                      <span>{entry.newValue}</span>
-                    )}
+                    <b>{actionInfo.title}</b>
+                    {actionInfo.detail && <span>{actionInfo.detail}</span>}
                     <small>
                       {entry.by} · {new Date(entry.at).toLocaleString("tr-TR")}
                       {entry.reason ? ` · Neden: ${entry.reason}` : ""}
