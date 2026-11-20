@@ -1,4 +1,4 @@
-const APP_SHELL_VERSION = "2026-11-12-daily-v17";
+const APP_SHELL_VERSION = "2026-11-20-daily-v18";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil((async () => {
