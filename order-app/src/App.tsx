@@ -15821,6 +15821,8 @@ function Modal({
       return {};
     }
   });
+  const [mobileSheetExpanded, setMobileSheetExpanded] = useState(false);
+  const mobileDragStartY = useRef<number | null>(null);
 
   const startResize = (edge: "right" | "left" | "bottom" | "corner") => (event: React.MouseEvent) => {
     if (window.innerWidth <= 600 || !modalRef.current) return;
@@ -15890,9 +15892,52 @@ function Modal({
       <section
         ref={modalRef}
         style={inlineStyle}
-        className={`modal ${wide ? "wide" : ""} ${className}`.trim()}
+        className={`modal ${wide ? "wide" : ""} ${mobileSheetExpanded ? "mobile-sheet-expanded" : ""} ${className}`.trim()}
       >
-        <header>
+        <div
+          className="modal-mobile-grabber"
+          onClick={() => setMobileSheetExpanded((prev) => !prev)}
+          onTouchStart={(event) => {
+            mobileDragStartY.current = event.touches[0]?.clientY ?? null;
+          }}
+          onTouchEnd={(event) => {
+            if (mobileDragStartY.current === null) return;
+            const endY = event.changedTouches[0]?.clientY ?? mobileDragStartY.current;
+            const dy = endY - mobileDragStartY.current;
+            mobileDragStartY.current = null;
+            if (dy < -30) {
+              setMobileSheetExpanded(true);
+            } else if (dy > 60) {
+              if (mobileSheetExpanded) {
+                setMobileSheetExpanded(false);
+              } else {
+                onClose();
+              }
+            }
+          }}
+          aria-hidden="true"
+        >
+          <span />
+        </div>
+        <header
+          onTouchStart={(event) => {
+            if (window.innerWidth > 600) return;
+            if ((event.target as HTMLElement)?.closest("button")) return;
+            mobileDragStartY.current = event.touches[0]?.clientY ?? null;
+          }}
+          onTouchEnd={(event) => {
+            if (window.innerWidth > 600 || mobileDragStartY.current === null) return;
+            const endY = event.changedTouches[0]?.clientY ?? mobileDragStartY.current;
+            const dy = endY - mobileDragStartY.current;
+            mobileDragStartY.current = null;
+            if (dy < -35) {
+              setMobileSheetExpanded(true);
+            } else if (dy > 65) {
+              if (mobileSheetExpanded) setMobileSheetExpanded(false);
+              else onClose();
+            }
+          }}
+        >
           {showBack && (
             <button type="button" className="modal-back" aria-label="Geri" onClick={onClose}>
               <ArrowLeft size={19} aria-hidden="true" />

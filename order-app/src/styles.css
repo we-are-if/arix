@@ -12037,7 +12037,71 @@ textarea {
   z-index: 2200;
   background: transparent;
 }
+.modal-mobile-grabber {
+  display: none;
+}
 @media (max-width: 600px) {
+  .modal-mobile-grabber {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0 2px;
+    cursor: grab;
+    touch-action: none;
+  }
+  .modal-mobile-grabber span {
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: #cbd5e1;
+  }
+  .modal.mobile-sheet-expanded {
+    height: 92dvh !important;
+    max-height: 92dvh !important;
+  }
+  .order-detail-modal .prep-cut-allowance {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: 100% !important;
+    padding-top: 4px !important;
+  }
+  .order-detail-modal .prep-cut-allowance > label:first-child {
+    grid-column: 1 / 2 !important;
+    justify-self: start !important;
+    font-size: 12px !important;
+  }
+  .order-detail-modal .prep-cut-allowance > strong {
+    grid-column: 2 / 3 !important;
+    grid-row: 1 !important;
+    justify-self: end !important;
+    white-space: nowrap !important;
+  }
+  .order-detail-modal .prep-cut-allowance > label:not(:first-child) {
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .order-detail-modal .prep-cut-allowance > label:not(:first-child) input {
+    width: 100% !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 0 48px 0 10px !important;
+    border: 1px solid #dfe4ec !important;
+    border-radius: 10px !important;
+    text-align: right !important;
+    font-size: 14px !important;
+  }
+  .order-detail-modal .prep-cut-allowance > label:not(:first-child) span {
+    position: absolute !important;
+    right: 10px !important;
+    font-size: 11px !important;
+    color: #64748b !important;
+    pointer-events: none;
+  }
   .order-detail-more-portal {
     display: flex;
     align-items: flex-end;
