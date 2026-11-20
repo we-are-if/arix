@@ -11224,7 +11224,10 @@ function OrderDetail({
                   </button>
                 )}
                 {order.lockedAt && (
-                  <span className="order-mini-flag locked" title="Bu sipariş kilitli">
+                  <span
+                    className="order-mini-flag locked"
+                    title={`Sipariş kilitli${order.lockedBy ? ` · ${order.lockedBy}` : ""}${order.lockReason ? ` · ${order.lockReason}` : ""}`}
+                  >
                     <Lock aria-hidden="true" /> Kilitli
                   </span>
                 )}
@@ -12606,7 +12609,6 @@ function OrderDetail({
               </div>
             </details>
           )}
-        {order.lockedAt && <div className="order-lock-notice"><Lock aria-hidden="true" /><span><b>Sipariş kilitli</b><small>{order.lockedBy}{order.lockReason ? ` · ${order.lockReason}` : ""}</small></span></div>}
       </Modal>
       {rollbackTarget && (
         <Modal
