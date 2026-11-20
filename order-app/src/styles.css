@@ -11346,14 +11346,17 @@ textarea {
   display: flex !important;
   flex-direction: column !important;
   align-items: stretch !important;
-  padding: 10px 12px !important;
+  padding: 10px 14px !important;
   gap: 8px !important;
 }
 .order-detail-modal .prep-row > div:first-child {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  flex-wrap: wrap !important;
+  gap: 4px 10px !important;
+  text-align: left !important;
 }
 .order-detail-modal .prep-row > div:first-child > span {
   margin-left: auto;
@@ -11381,12 +11384,15 @@ textarea {
 .order-detail-modal.detail-tab-history .order-test-mode-banner {
   display: none !important;
 }
-.order-detail-modal .prep-inputs {
+.order-detail-modal .prep-row > .prep-inputs,
+.order-detail-modal .prep-row > .prepared-quantity-fields {
   display: flex !important;
+  flex-direction: row !important;
   align-items: flex-end !important;
   flex-wrap: wrap !important;
   gap: 8px 10px !important;
-  width: auto !important;
+  width: 100% !important;
+  max-width: none !important;
 }
 .order-detail-modal .actual {
   gap: 3px !important;

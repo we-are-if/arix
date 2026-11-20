@@ -11149,7 +11149,7 @@ function OrderDetail({
           )}
           {!isWarehousePrepMode && canLockOrder && <button className="order-lock-top-action" type="button" disabled={busy} onClick={() => void toggleOrderLock()}>{order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}<span>{order.lockedAt ? "Kilidi aç" : "Kilitle"}</span></button>}
         </div>
-        {!contextOnlyView && (
+        {!contextOnlyView && (((order.status === "ready" || order.status === "delivered") || (order.attachments || []).some((a) => !a.deletedAt)) || (canViewAudit && order.status === "delivered")) && (
           <div className="daily-filter-tabs order-detail-tabs" role="tablist" aria-label="Sipariş detay menüsü">
             <button
               type="button"
