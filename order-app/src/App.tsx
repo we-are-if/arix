@@ -3527,6 +3527,7 @@ export default function App() {
         ) : pageTab === "stock" ? (
           <StockPage
             products={products}
+            orders={orders}
             language={language}
             session={session}
             canManage={currentWorkflowRole === "owner" || Boolean(session.permissions?.includes("products.manage"))}
@@ -7438,12 +7439,14 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
 
 function StockPage({
   products,
+  orders = [],
   session,
   canManage,
   onManage,
   onChanged,
 }: {
   products: Product[];
+  orders?: Order[];
   language: Language;
   session: Session;
   canManage: boolean;
@@ -7757,8 +7760,18 @@ function StockPage({
       {activeProduct && (
         <StockProductModal
           product={activeProduct}
-          orderMovements={movements.filter(
-            (m) => (m.productCode && m.productCode === (activeProduct.code || activeProduct.sku)) || m.productName === activeProduct.name,
+          orderMovements={movements.filter((m) => {
+            const pCode = (activeProduct.code || activeProduct.sku || "").trim().toLocaleLowerCase("tr");
+            const mCode = (m.productCode || "").trim().toLocaleLowerCase("tr");
+            return (pCode && mCode && pCode === mCode) || m.productName.trim().toLocaleLowerCase("tr") === activeProduct.name.trim().toLocaleLowerCase("tr");
+          })}
+          reservedOrders={orders.filter((o) =>
+            ["new", "preparing", "ready"].includes(o.status) &&
+            safeItems(o).some((item) => {
+              const pCode = (activeProduct.code || activeProduct.sku || "").trim().toLocaleLowerCase("tr");
+              const iCode = (item.productCode || "").trim().toLocaleLowerCase("tr");
+              return item.productId === activeProduct.id || (pCode && iCode && pCode === iCode) || item.productName.trim().toLocaleLowerCase("tr") === activeProduct.name.trim().toLocaleLowerCase("tr");
+            }),
           )}
           session={session}
           onClose={() => setActiveProduct(null)}
@@ -7820,10 +7833,12 @@ function StockDocumentDetailModal({ document, language, onClose }: { document: S
 function StockProductModal({
   product,
   orderMovements = [],
+  reservedOrders = [],
   onClose,
 }: {
   product: Product;
   orderMovements?: OrderStockMovement[];
+  reservedOrders?: Order[];
   session: Session;
   onClose: () => void;
   onChanged: () => void;
@@ -7849,6 +7864,13 @@ function StockProductModal({
     loan_purchase: "Borç alış",
     loan_lend: "Borç veriş",
   };
+
+  const physical = Number(product.physicalQuantity || 0);
+  const reserved = Number(product.reservedQuantity || 0);
+  const available = Number(product.availableQuantity ?? physical - reserved);
+  const state = available <= 0 ? "out" : available <= 100 ? "low" : "ok";
+  const totalOrderOut = orderMovements.reduce((sum, m) => sum + (Number(m.stockQuantity) || 0), 0);
+  const totalDocNet = history.reduce((sum, item) => sum + (Number(item.signedQuantity) || 0), 0);
 
   const combinedEntries = useMemo(() => {
     const docItems = history.map((item) => ({
@@ -7893,29 +7915,83 @@ function StockProductModal({
   return (
     <Modal
       title={`${product.code || product.sku || "-"} · ${product.name}`}
-      subtitle="Stok bakiyesi ve tüm ürün hareket geçmişi"
+      subtitle="Ürün bilgileri, açık rezervler ve hareket geçmişi"
       onClose={onClose}
       wide
       className="stock-product-modal"
     >
+      <div className="stock-product-info-grid">
+        <div>
+          <small>Ürün Kodu</small>
+          <b>{product.code || product.sku || "-"}</b>
+        </div>
+        <div>
+          <small>Birim / Ambalaj</small>
+          <b>
+            {product.unit || "mt"}
+            {product.packageQuantity ? ` · 1 ${product.packageUnit || "rulo"} = ${product.packageQuantity} ${product.unit || "mt"}` : ""}
+          </b>
+        </div>
+        <div>
+          <small>Stok Durumu</small>
+          <span className={`stock-state ${state}`}>{state === "out" ? "Tükendi" : state === "low" ? "Kritik" : "Yeterli"}</span>
+        </div>
+        <div>
+          <small>Toplam Sipariş Çıkışı</small>
+          <b>-{totalOrderOut.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt ({orderMovements.length})</b>
+        </div>
+        <div>
+          <small>Evrak Net Hareketi</small>
+          <b>{totalDocNet >= 0 ? "+" : ""}{totalDocNet.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt ({history.length})</b>
+        </div>
+      </div>
+
       <div className="stock-product-balances">
         <article>
           <span>Fiziki stok</span>
-          <strong>{Number(product.physicalQuantity || 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
+          <strong>{physical.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
         </article>
         <article>
           <span>Rezerv</span>
-          <strong>{Number(product.reservedQuantity || 0).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
+          <strong>{reserved.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
         </article>
         <article>
           <span>Kullanılabilir</span>
-          <strong>{Number(product.availableQuantity ?? (Number(product.physicalQuantity || 0) - Number(product.reservedQuantity || 0))).toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
+          <strong>{available.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
         </article>
         <article>
           <span>Rulo</span>
           <strong>{Number(product.rollCount || 0).toLocaleString("tr-TR")}</strong>
         </article>
       </div>
+
+      {reservedOrders.length > 0 && (
+        <section className="stock-product-reserves">
+          <header>
+            <b>Açık rezervler ({reservedOrders.length} sipariş)</b>
+          </header>
+          <div className="stock-reserve-list">
+            {reservedOrders.map((order) => {
+              const matchedQty = safeItems(order)
+                .filter((item) => {
+                  const pCode = (product.code || product.sku || "").trim().toLocaleLowerCase("tr");
+                  const iCode = (item.productCode || "").trim().toLocaleLowerCase("tr");
+                  return item.productId === product.id || (pCode && iCode && pCode === iCode) || item.productName.trim().toLocaleLowerCase("tr") === product.name.trim().toLocaleLowerCase("tr");
+                })
+                .reduce((sum, item) => sum + (Number(item.preparedQuantity || item.quantity) || 0), 0);
+              return (
+                <div key={order.id} className="stock-reserve-item">
+                  <div>
+                    <b>{order.customerName}</b>
+                    <small>{order.number} · {statusMeta[order.status]?.label || order.status}</small>
+                  </div>
+                  <strong>{matchedQty.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} mt</strong>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="stock-product-history">
         <header>
