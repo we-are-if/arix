@@ -9246,7 +9246,7 @@ textarea {
 }
 
 @media (min-width: 1121px) {
-  .app-shell.is-board-view {
+  .app-shell {
     position: fixed;
     inset: 0;
     width: 100%;
@@ -9257,40 +9257,92 @@ textarea {
     flex-direction: column;
     overflow: hidden;
   }
-  .app-shell.is-board-view > header {
+  .app-shell > header {
     flex: 0 0 auto;
   }
-  .app-shell.is-board-view .order-content {
+  .app-shell .order-content {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding: 12px 24px 10px;
+    padding: 14px 16px 14px 14px;
   }
-  .app-shell.is-board-view .order-top-nav {
+  .app-shell .order-top-nav {
     flex: 0 0 auto;
   }
-  .app-shell.is-board-view .board-view {
+  .app-shell .board-view {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     overflow: hidden;
   }
-  .app-shell.is-board-view .board {
+  .app-shell .board {
     flex: 1 1 auto;
     min-height: 0;
     height: auto;
     grid-template-rows: minmax(0, 1fr);
     overflow-y: hidden;
   }
-  .app-shell.is-board-view .app-page-footer {
+  .app-shell .approval-forms-page {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .app-shell .approval-forms-page > .approval-forms-toolbar,
+  .app-shell .approval-forms-page > .approval-credit-strip,
+  .app-shell .approval-forms-page > .approval-forms-tabs {
     flex: 0 0 auto;
-    margin-top: 8px;
-    padding-top: 8px;
-    min-height: 26px;
+  }
+  .app-shell .approval-forms-page > .approval-forms-table,
+  .app-shell .approval-forms-page > .offer-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .app-shell .daily-archive {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  .app-shell .stock-page {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .app-shell .stock-page > .stock-page-header,
+  .app-shell .stock-page > .stock-page-summary,
+  .app-shell .stock-page > .stock-page-toolbar {
+    flex: 0 0 auto;
+  }
+  .app-shell .stock-page > .stock-page-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .app-shell .stock-page-table,
+  .app-shell .stock-page-movements {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .app-shell .stock-page-table .stock-overview-body,
+  .app-shell .stock-page-movements > div {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .app-shell .app-page-footer {
+    display: none;
   }
 }
 
@@ -9319,7 +9371,7 @@ textarea {
 .order-sidebar {
   width: 236px;
   flex: 0 0 236px;
-  margin: 14px 0 14px 16px;
+  margin: 14px 0 14px 14px;
   border: 1px solid #e6eaf2;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.96);
@@ -9590,12 +9642,12 @@ textarea {
 }
 
 @media (min-width: 1121px) {
-  .app-shell.is-board-view .order-workspace-shell {
+  .app-shell .order-workspace-shell {
     flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
   }
-  .app-shell.is-board-view .order-main-column {
+  .app-shell .order-main-column {
     flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
