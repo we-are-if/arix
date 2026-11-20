@@ -50,6 +50,7 @@ declare global {
 }
 
 let googleScriptPromise: Promise<void> | null = null;
+const PASSWORD_REQUIREMENTS = "Ən az 8 simvol, böyük hərf, kiçik hərf və rəqəm.";
 function loadGoogleScript() {
   if (window.google?.accounts?.id) return Promise.resolve();
   if (googleScriptPromise) return googleScriptPromise;
@@ -229,7 +230,7 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
       </form> : mode === "reset-confirm" ? <form onSubmit={confirmPasswordReset}>
         <label>Yeni şifrə<input type="password" autoComplete="new-password" minLength={8} value={reset.password} onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))} required /></label>
         <label>Yeni şifrəni təkrar edin<input type="password" autoComplete="new-password" minLength={8} value={reset.confirm} onChange={(event) => setReset((current) => ({ ...current, confirm: event.target.value }))} required /></label>
-        <p className="daily-auth-help">Şifrəniz ən az 8 simvol olmalıdır. Bu bağlantı bir dəfə istifadə olunur.</p>
+        <p className="daily-auth-help">{PASSWORD_REQUIREMENTS} Bu bağlantı bir dəfə istifadə olunur.</p>
         {error && <div className="daily-auth-error">{error}</div>}
         <button className="daily-auth-submit" type="submit" disabled={busy}>{busy ? "Yenilənir..." : "Şifrəni yenilə"}</button>
       </form> : mode === "login" ? <>
@@ -259,6 +260,7 @@ function Login({ onSuccess }: { onSuccess: (session: DailySession) => void }) {
         <label>Ad və soyad<input value={registration.name} onChange={(event) => setRegistration((current) => ({ ...current, name: event.target.value }))} required /></label>
         <label>E-poçt<input type="email" autoComplete="email" value={registration.email} onChange={(event) => setRegistration((current) => ({ ...current, email: event.target.value }))} required /></label>
         <label>Şifrə<input type="password" autoComplete="new-password" minLength={8} value={registration.password} onChange={(event) => setRegistration((current) => ({ ...current, password: event.target.value }))} required /></label>
+        <p className="daily-auth-help">{PASSWORD_REQUIREMENTS}</p>
         <label>Dəvət kodu<input className="daily-auth-code-input" value={registration.companyCode} onChange={(event) => setRegistration((current) => ({ ...current, companyCode: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))} minLength={8} maxLength={24} required /></label>
         {error && <div className="daily-auth-error">{error}</div>}
         <button className="daily-auth-submit" type="submit" disabled={busy}>{busy ? "Göndərilir..." : "Təsdiq üçün göndər"}</button>

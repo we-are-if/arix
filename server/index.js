@@ -1299,7 +1299,8 @@ async function handleDaily(req, res, parts = []) {
       if (!Object.hasOwn(DAILY_ROLE_PERMISSIONS, dailyRoleKey(role))) return send(res, 400, { error: "Daily rolu düzgün deyil." });
       if (current.authUsers.some((user) => String(user.email || "").toLocaleLowerCase("en-US") === email)) return send(res, 409, { error: "Bu e-poçt artıq istifadə olunur." });
       const suppliedPassword = String(body.password || "").trim();
-      if (suppliedPassword && suppliedPassword.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+      const suppliedPasswordError = suppliedPassword ? passwordPolicyError(suppliedPassword) : "";
+      if (suppliedPasswordError) return send(res, 400, { error: suppliedPasswordError });
       if (!suppliedPassword && !mailTransport) return send(res, 503, { error: "Şifrə bağlantısı üçün e-poçt xidməti hazır deyil. Şifrəni əl ilə daxil edin." });
       const user = { id: `daily-${randomUUID()}`, name, email, role, companyId: req.dailyCompanyId || "azartmembran", active: body.active !== false, createdAt: new Date().toISOString(), permissions: Array.isArray(body.permissions) ? body.permissions.filter((key) => DAILY_ALL_PERMISSIONS.includes(key)) : (DAILY_ROLE_PERMISSIONS[dailyRoleKey(role)] || DAILY_ROLE_PERMISSIONS["müşahidəçi"]) };
       if (suppliedPassword) setPassword(user, suppliedPassword, false);
@@ -1358,7 +1359,8 @@ async function handleDaily(req, res, parts = []) {
       if (Array.isArray(body.permissions)) target.permissions = [...new Set(body.permissions.filter((key) => DAILY_ALL_PERMISSIONS.includes(key)))];
       if (String(body.password || "").trim()) {
         const nextPassword = String(body.password).trim();
-        if (nextPassword.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+        const nextPasswordError = passwordPolicyError(nextPassword);
+        if (nextPasswordError) return send(res, 400, { error: nextPasswordError });
         setPassword(target, nextPassword, false);
       }
       const nextTarget = {
@@ -3240,8 +3242,17 @@ function validPassword(user, password) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+function passwordPolicyError(password) {
+  const value = String(password || "");
+  if (value.length < 8) return "Şifrə ən az 8 simvol olmalıdır.";
+  if (!/\p{Lu}/u.test(value) || !/\p{Ll}/u.test(value) || !/\d/u.test(value)) {
+    return "Şifrədə ən az bir böyük hərf, bir kiçik hərf və bir rəqəm olmalıdır.";
+  }
+  return "";
+}
+
 function createTemporaryPassword() {
-  return `Ax!${randomBytes(6).toString("base64url")}`;
+  return `Ax1!${randomBytes(6).toString("base64url")}`;
 }
 
 function dailyPasswordResetTokenHash(token) {
@@ -3589,7 +3600,8 @@ async function handleDailyAuth(req, res, parts) {
     const password = String(body.password || "");
     const companyId = String(body.companyId || "").trim();
     if (token.length < 20) return send(res, 400, { error: "Şifrə yeniləmə bağlantısı düzgün deyil." });
-    if (password.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) return send(res, 400, { error: passwordError });
     const changed = await confirmDailyPasswordReset(token, password, companyId);
     if (!changed) return send(res, 400, { error: "Bu şifrə yeniləmə bağlantısının vaxtı bitib və ya artıq istifadə olunub." });
     return send(res, 200, { ok: true });
@@ -3687,7 +3699,8 @@ async function handleDailyAuth(req, res, parts) {
     const password = String(body.password ?? "");
     const companyCode = String(body.companyCode ?? "").trim().toUpperCase();
     if (!name || !email.includes("@")) return send(res, 400, { error: "Ad soyad və düzgün e-poçt məcburidir." });
-    if (password.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) return send(res, 400, { error: passwordError });
 
     const target = await findDailyJoinCodeCompany(companyCode);
     if (!target) return send(res, 403, { error: "Daily dəvət kodu yanlışdır." });
@@ -3887,7 +3900,8 @@ async function handleAuth(req, res, parts) {
     const token = String(body.token || "").trim();
     const password = String(body.password || "");
     if (token.length < 20) return send(res, 400, { error: "Şifrə yeniləmə bağlantısı düzgün deyil." });
-    if (password.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) return send(res, 400, { error: passwordError });
     const changed = await confirmOrderPasswordReset(db, token, password);
     if (!changed) return send(res, 400, { error: "Bu şifrə yeniləmə bağlantısının vaxtı bitib və ya artıq istifadə olunub." });
     return send(res, 200, { ok: true });
@@ -3920,7 +3934,8 @@ async function handleAuth(req, res, parts) {
     const password = String(body.password ?? "");
     const companyCode = String(body.companyCode ?? "").trim().toUpperCase();
     if (!name || !email.includes("@")) return send(res, 400, { error: "Ad soyad və düzgün e-poçt məcburidir." });
-    if (password.length < 8) return send(res, 400, { error: "Şifrə ən az 8 simvol olmalıdır." });
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) return send(res, 400, { error: passwordError });
     if (!db.companyJoinCode || companyCode !== db.companyJoinCode) return send(res, 403, { error: "Dəvət kodu yanlışdır." });
     if (db.authUsers.some((item) => String(item.email ?? "").trim().toLocaleLowerCase("en-US") === email)) {
       return send(res, 409, { error: "Bu e-poçtla hesab və ya müraciət artıq mövcuddur." });
@@ -3939,7 +3954,8 @@ async function handleAuth(req, res, parts) {
     const currentPassword = String(body.currentPassword ?? "");
     const newPassword = String(body.newPassword ?? "");
     if (!validPassword(user, currentPassword)) return send(res, 401, { error: "Cari şifrə yanlışdır." });
-    if (newPassword.length < 8) return send(res, 400, { error: "Yeni şifrə ən az 8 simvol olmalıdır." });
+    const newPasswordError = passwordPolicyError(newPassword);
+    if (newPasswordError) return send(res, 400, { error: newPasswordError });
     setPassword(user, newPassword, false);
     await writeDb(db);
     return send(res, 200, { data: publicAuthUser(user) });

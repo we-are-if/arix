@@ -14234,7 +14234,7 @@ function Login({
           </div>
           <div className="login-heading">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-            <span><b>{mode === "reset-request" ? "Şifrəni yenilə" : mode === "reset-confirm" ? "Yeni şifrə qurun" : mode === "register" ? "Qeydiyyat müraciəti" : "Hesabınıza daxil olun"}</b><small>{mode === "reset-request" ? "E-poçtunuza təhlükəsiz, tək istifadəlik bağlantı göndərəcəyik." : mode === "reset-confirm" ? "Yeni şifrəniz ən az 8 simvol olmalıdır." : mode === "register" ? "Şirkət sahibinin təsdiqindən sonra girişiniz açılacaq." : "Sifariş məlumatları yalnız icazəli istifadəçilər üçün açıqdır."}</small></span>
+            <span><b>{mode === "reset-request" ? "Şifrəni yenilə" : mode === "reset-confirm" ? "Yeni şifrə qurun" : mode === "register" ? "Qeydiyyat müraciəti" : "Hesabınıza daxil olun"}</b><small>{mode === "reset-request" ? "E-poçtunuza təhlükəsiz, tək istifadəlik bağlantı göndərəcəyik." : mode === "reset-confirm" ? "Ən az 8 simvol, böyük hərf, kiçik hərf və rəqəm istifadə edin." : mode === "register" ? "Şirkət sahibinin təsdiqindən sonra girişiniz açılacaq." : "Sifariş məlumatları yalnız icazəli istifadəçilər üçün açıqdır."}</small></span>
           </div>
           {pending ? (
             <div className="pending-box">
@@ -14254,7 +14254,7 @@ function Login({
             <form onSubmit={confirmPasswordReset}>
               <label><span>Yeni şifrə</span><input type="password" autoComplete="new-password" minLength={8} required value={reset.password} onChange={(event) => setReset((current) => ({ ...current, password: event.target.value }))} /></label>
               <label><span>Yeni şifrəni təkrar edin</span><input type="password" autoComplete="new-password" minLength={8} required value={reset.confirm} onChange={(event) => setReset((current) => ({ ...current, confirm: event.target.value }))} /></label>
-              <p className="reset-help">Bu bağlantı bir dəfə istifadə olunur.</p>
+              <p className="reset-help">Ən az 8 simvol, böyük hərf, kiçik hərf və rəqəm istifadə edin. Bu bağlantı bir dəfə istifadə olunur.</p>
               <button disabled={busy} className="primary full">{busy ? "Yenilənir..." : "Şifrəni yenilə"}</button>
             </form>
           ) : mode === "login" ? (
@@ -14365,6 +14365,7 @@ function Login({
                   }
                 />
               </label>
+              <p className="reset-help">Ən az 8 simvol, böyük hərf, kiçik hərf və rəqəm istifadə edin.</p>
               <label>
                 <span>Davet kodu</span>
                 <input
