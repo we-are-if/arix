@@ -6662,12 +6662,26 @@ async function handleOrderBoard(req, res, url, parts) {
       const sourceOrders = (waiting.sourceOrderIds || [])
         .map((sourceOrderId) => db.orderBoard.find((sourceOrder) => String(sourceOrder.id) === String(sourceOrderId)))
         .filter(Boolean);
+      const sourceOrderId = selectedSourceGroupId.startsWith("order:") ? selectedSourceGroupId.slice("order:".length) : "";
+      const sourceOrder = sourceOrderId
+        ? db.orderBoard.find((candidate) => String(candidate.id) === sourceOrderId)
+        : null;
+      // Hazır durumundayken teslimatı ertelenen sipariş yeniden aktife
+      // alındığında tekrar hazırlama kuyruğuna dönmez. Diğer kaynaklar yeni
+      // sipariş olarak devam eder.
+      const releaseStatus = sourceOrder?.status === "ready" ? "ready" : "new";
+      const releaseItems = selectedItems.map((item) => releaseStatus === "ready" ? {
+        ...item,
+        preparedQuantity: item.quantity,
+        preparedRollCount: item.orderedRollCount ?? 0,
+      } : item);
       const sourceWithApprovalForm = sourceOrders.find((sourceOrder) => sourceOrder.approvalForm);
       const sourceWithDespatch = sourceOrders.find((sourceOrder) => sourceOrder.despatchReady === true);
       const order = {
         id: randomUUID(), number: nextOrderNumber(db, businessDate), customerName: waiting.customerName,
         note: String(body.note || waiting.note || "").trim(), originalText: "Teslimat bekleyen satıştan aktarıldı",
-        businessDate, status: "new", isTest: waiting.isTest === true, isLoanReturn: waiting.isLoanReturn === true,
+        businessDate, status: releaseStatus, isTest: waiting.isTest === true, isLoanReturn: waiting.isLoanReturn === true,
+        ...(releaseStatus === "ready" ? { readyAt: now, readyBy: actor, preparedAt: now, preparedBy: actor } : {}),
         isDeferredDelivery: true, deliveryWaitingSourceId: waiting.id, deliveryWaitingNumber: waiting.number, deliveryReleaseId: releaseId,
         ...(sourceWithApprovalForm ? {
           inheritedApprovalForm: {
@@ -6712,14 +6726,14 @@ async function handleOrderBoard(req, res, url, parts) {
           despatchScope: "full",
         } : {}),
         ...(firstOrderId ? { parentOrderId: firstOrderId, parentOrderNumber: (waiting.releases || []).find((release) => release.orderId === firstOrderId)?.orderNumber } : {}),
-        items: structuredClone(selectedItems),
+        items: structuredClone(releaseItems),
         originalItems: (waiting.items || []).map((item) => ({ ...item, preparedQuantity: null, preparedRollCount: null })),
         createdBy: actor, createdByUserId: req.authUser?.id || null, createdAt: now, updatedAt: now,
-        history: [{ status: "new", at: now, by: actor }],
+        history: [{ status: releaseStatus, at: now, by: actor, ...(releaseStatus === "ready" ? { reason: "Hazır sipariş bekleyen teslimattan geri aktarıldı." } : {}) }],
         audit: [{ id: randomUUID(), action: "deliveryWaitingReleased", newValue: waiting.number, by: actor, userId: req.authUser?.id, at: now }],
       };
       waiting.releases ??= [];
-      waiting.releases.push({ id: releaseId, orderId: order.id, orderNumber: order.number, items: structuredClone(selectedItems), createdAt: now, createdBy: actor, note: order.note });
+      waiting.releases.push({ id: releaseId, orderId: order.id, orderNumber: order.number, items: structuredClone(releaseItems), createdAt: now, createdBy: actor, note: order.note });
       waiting.updatedAt = now;
       waiting.updatedBy = actor;
       db.orderBoard.push(order);
