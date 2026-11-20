@@ -11024,16 +11024,16 @@ function OrderDetail({
                 💬
               </button>
             )}
-            {order.status === "new" && canPrepare && !editing && (
+            {detailTab === "prep" && order.status === "new" && canPrepare && !editing && (
               <button className="primary" disabled={busy} onClick={() => changeStatus("preparing")}>
-                {ui.start}
+                <span className="hide-mobile">Hazırlamaya </span>başla
               </button>
             )}
-            {order.status === "preparing" && !order.exportPackingRequired && canPrepare && !editing && (
+            {detailTab === "prep" && order.status === "preparing" && !order.exportPackingRequired && canPrepare && !editing && (
               <>
                 {!preparationEditing && (
                   <button className="primary" disabled={busy} onClick={() => setPreparationEditing(true)}>
-                    Hazırlamaya devam et
+                    <span className="hide-mobile">Hazırlamaya </span>devam et
                   </button>
                 )}
                 {preparationEditing && (
@@ -11042,7 +11042,7 @@ function OrderDetail({
                       Vazgeç
                     </button>
                     <button className="secondary" disabled={busy} onClick={saveDraft}>
-                      Taslağı kaydet
+                      Kaydet
                     </button>
                     <button className="primary" disabled={busy || items.every((item) => !(Number(item.preparedQuantity) > 0))} onClick={() => changeStatus("ready")}>
                       {ui.done}
@@ -11051,13 +11051,31 @@ function OrderDetail({
                 )}
               </>
             )}
-            {order.status === "ready" && canDeliver && order.despatchReady && !editing && !correctingPrepared && (
+            {detailTab === "prep" && order.status === "ready" && !editing && !correctingPrepared && (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => setDetailTab(order.despatchReady ? "delivery" : "documents")}
+              >
+                {order.despatchReady ? "Teslimata geç" : "Belgelere geç"}
+              </button>
+            )}
+            {detailTab === "documents" && order.status === "ready" && order.despatchReady && canDeliver && !editing && !correctingPrepared && (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => setDetailTab("delivery")}
+              >
+                Teslimata geç
+              </button>
+            )}
+            {(detailTab === "delivery" || contextOnlyView === "delivery") && order.status === "ready" && canDeliver && order.despatchReady && !editing && !correctingPrepared && (
               <button
                 className="primary"
                 disabled={busy || (!canDeliverWithoutProof && (!deliveryNote.trim() || !hasDeliveryProof))}
                 onClick={() => void deliverSelected()}
               >
-                {deliverySelection.every((entry) => entry.selected) ? ui.delivered : "Seçilenleri teslim et"}
+                {deliverySelection.every((entry) => entry.selected) ? "Teslim et" : "Seçilenleri teslim et"}
               </button>
             )}
             {canEditOrder && editing && (

@@ -11936,6 +11936,9 @@ textarea {
   color: #f1f5f9;
 }
 @media (max-width: 600px) {
+  .hide-mobile {
+    display: none !important;
+  }
   .order-detail-modal {
     width: 100% !important;
   }
@@ -11943,18 +11946,26 @@ textarea {
     flex-wrap: nowrap !important;
     gap: 6px !important;
   }
+  .modal > header .modal-heading {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+  .modal > header .modal-heading h2,
+  .modal > header .modal-heading p {
+    display: block !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
   .modal > .modal-body {
     padding: 10px 14px max(22px, env(safe-area-inset-bottom)) !important;
   }
   .modal-header-actions {
-    flex: 0 1 auto;
-    max-width: 62%;
+    flex: 0 0 auto !important;
+    max-width: none !important;
     margin-left: auto;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .modal-header-actions::-webkit-scrollbar {
-    display: none;
+    overflow: visible !important;
   }
   .order-detail-header-bar {
     flex-wrap: nowrap;
