@@ -6741,66 +6741,108 @@ async function handleOrderBoard(req, res, url, parts) {
             { id: randomUUID(), action: "deliveryWaitingReleased", newValue: waiting.number, by: actor, userId: req.authUser?.id, at: now },
           ]
         : [{ id: randomUUID(), action: "deliveryWaitingReleased", newValue: waiting.number, by: actor, userId: req.authUser?.id, at: now }];
-      const order = {
-        id: randomUUID(), number: nextOrderNumber(db, businessDate), customerName: waiting.customerName,
-        note: String(body.note || waiting.note || "").trim(), originalText: "Teslimat bekleyen satıştan aktarıldı",
-        businessDate, status: releaseStatus, isTest: waiting.isTest === true, isLoanReturn: waiting.isLoanReturn === true,
-        ...(releaseStatus === "ready" ? { readyAt: sourceReadyAt, readyBy: sourceReadyBy, preparedAt: sourcePreparedAt, preparedBy: sourcePreparedBy } : {}),
-        isDeferredDelivery: true, deliveryWaitingSourceId: waiting.id, deliveryWaitingNumber: waiting.number, deliveryReleaseId: releaseId,
-        ...(sourceWithApprovalForm ? {
-          inheritedApprovalForm: {
-            orderId: sourceWithApprovalForm.id,
-            orderNumber: sourceWithApprovalForm.number,
-            formNumber: sourceWithApprovalForm.approvalForm?.number || sourceWithApprovalForm.number,
-          },
-        } : {}),
-        ...(sourceWithDespatch ? {
-          inheritedDespatch: {
-            orderId: sourceWithDespatch.id,
-            orderNumber: sourceWithDespatch.number,
-            number: sourceWithDespatch.despatchNumber || "",
+      const sourceGroupItems = summary.items.filter((item) => !selectedSourceGroupId || String(item.sourceGroupId || "invoice") === selectedSourceGroupId);
+      const isFullSourceOrderRelease = Boolean(
+        sourceOrder &&
+        sourceOrder.archivedAt &&
+        String(sourceOrder.deferredDeliveryWaitingId || "") === String(waiting.id) &&
+        !(waiting.releases || []).some((rel) => !rel.cancelledAt && String(rel.orderId) === String(sourceOrder.id)) &&
+        sourceGroupItems.length > 0 &&
+        sourceGroupItems.every((wItem) => {
+          const picked = selectedItems.find((s) => String(s.waitingItemId) === String(wItem.id));
+          if (!picked) return false;
+          const qMatch = Math.abs((Number(picked.quantity) || 0) - (Number(wItem.remainingQuantity) || 0)) <= 0.000001;
+          const rMatch = (Number(picked.orderedRollCount) || 0) === (Number(wItem.remainingRollCount) || 0);
+          return qMatch && rMatch;
+        }),
+      );
+      let order;
+      if (isFullSourceOrderRelease) {
+        delete sourceOrder.archivedAt;
+        delete sourceOrder.archivedBy;
+        delete sourceOrder.archiveReason;
+        delete sourceOrder.deferredDeliveryWaitingId;
+        delete sourceOrder.documentOnly;
+        sourceOrder.businessDate = businessDate;
+        sourceOrder.status = releaseStatus;
+        if (body.note && String(body.note).trim()) sourceOrder.note = String(body.note).trim();
+        sourceOrder.isDeferredDelivery = true;
+        sourceOrder.deliveryWaitingSourceId = waiting.id;
+        sourceOrder.deliveryWaitingNumber = waiting.number;
+        sourceOrder.deliveryReleaseId = releaseId;
+        sourceOrder.items = structuredClone(releaseItems);
+        if (releaseStatus === "ready") {
+          sourceOrder.readyAt = sourceReadyAt;
+          sourceOrder.readyBy = sourceReadyBy;
+          sourceOrder.preparedAt = sourcePreparedAt;
+          sourceOrder.preparedBy = sourcePreparedBy;
+        }
+        sourceOrder.updatedAt = now;
+        sourceOrder.history = inheritedHistory;
+        sourceOrder.audit = inheritedAudit;
+        order = sourceOrder;
+      } else {
+        order = {
+          id: randomUUID(), number: nextOrderNumber(db, businessDate), customerName: waiting.customerName,
+          note: String(body.note || waiting.note || "").trim(), originalText: "Teslimat bekleyen satıştan aktarıldı",
+          businessDate, status: releaseStatus, isTest: waiting.isTest === true, isLoanReturn: waiting.isLoanReturn === true,
+          ...(releaseStatus === "ready" ? { readyAt: sourceReadyAt, readyBy: sourceReadyBy, preparedAt: sourcePreparedAt, preparedBy: sourcePreparedBy } : {}),
+          isDeferredDelivery: true, deliveryWaitingSourceId: waiting.id, deliveryWaitingNumber: waiting.number, deliveryReleaseId: releaseId,
+          ...(sourceWithApprovalForm ? {
+            inheritedApprovalForm: {
+              orderId: sourceWithApprovalForm.id,
+              orderNumber: sourceWithApprovalForm.number,
+              formNumber: sourceWithApprovalForm.approvalForm?.number || sourceWithApprovalForm.number,
+            },
+          } : {}),
+          ...(sourceWithDespatch ? {
+            inheritedDespatch: {
+              orderId: sourceWithDespatch.id,
+              orderNumber: sourceWithDespatch.number,
+              number: sourceWithDespatch.despatchNumber || "",
+              withoutDespatch: sourceWithDespatch.withoutDespatch === true,
+            },
+            despatchReady: true,
+            despatchNumber: sourceWithDespatch.despatchNumber || "",
             withoutDespatch: sourceWithDespatch.withoutDespatch === true,
-          },
-          despatchReady: true,
-          despatchNumber: sourceWithDespatch.despatchNumber || "",
-          withoutDespatch: sourceWithDespatch.withoutDespatch === true,
-          despatchReadyAt: sourceWithDespatch.despatchReadyAt || now,
-          despatchReadyBy: sourceWithDespatch.despatchReadyBy || actor,
-          despatchScope: "full",
-        } : {}),
-        ...(!sourceWithApprovalForm && externalDocument?.hasApprovalForm ? {
-          inheritedApprovalForm: {
-            orderId: "external",
-            orderNumber: externalDocument.sourceLabel || selectedSourceGroupId,
-            formNumber: externalDocument.approvalFormNumber || "Harici mevcut sipariş formu",
-          },
-        } : {}),
-        ...(!sourceWithDespatch && externalDocument?.hasDespatch ? {
-          inheritedDespatch: {
-            orderId: "external",
-            orderNumber: externalDocument.sourceLabel || selectedSourceGroupId,
-            number: externalDocument.despatchNumber || "Harici mevcut irsaliye",
+            despatchReadyAt: sourceWithDespatch.despatchReadyAt || now,
+            despatchReadyBy: sourceWithDespatch.despatchReadyBy || actor,
+            despatchScope: "full",
+          } : {}),
+          ...(!sourceWithApprovalForm && externalDocument?.hasApprovalForm ? {
+            inheritedApprovalForm: {
+              orderId: "external",
+              orderNumber: externalDocument.sourceLabel || selectedSourceGroupId,
+              formNumber: externalDocument.approvalFormNumber || "Harici mevcut sipariş formu",
+            },
+          } : {}),
+          ...(!sourceWithDespatch && externalDocument?.hasDespatch ? {
+            inheritedDespatch: {
+              orderId: "external",
+              orderNumber: externalDocument.sourceLabel || selectedSourceGroupId,
+              number: externalDocument.despatchNumber || "Harici mevcut irsaliye",
+              withoutDespatch: externalDocument.withoutDespatch === true,
+            },
+            despatchReady: true,
+            despatchNumber: externalDocument.despatchNumber || "",
             withoutDespatch: externalDocument.withoutDespatch === true,
-          },
-          despatchReady: true,
-          despatchNumber: externalDocument.despatchNumber || "",
-          withoutDespatch: externalDocument.withoutDespatch === true,
-          despatchReadyAt: externalDocument.markedAt || now,
-          despatchReadyBy: externalDocument.markedBy || actor,
-          despatchScope: "full",
-        } : {}),
-        ...(firstOrderId ? { parentOrderId: firstOrderId, parentOrderNumber: (waiting.releases || []).find((release) => release.orderId === firstOrderId)?.orderNumber } : {}),
-        items: structuredClone(releaseItems),
-        originalItems: (waiting.items || []).map((item) => ({ ...item, preparedQuantity: null, preparedRollCount: null })),
-        createdBy: actor, createdByUserId: req.authUser?.id || null, createdAt: now, updatedAt: now,
-        history: inheritedHistory,
-        audit: inheritedAudit,
-      };
+            despatchReadyAt: externalDocument.markedAt || now,
+            despatchReadyBy: externalDocument.markedBy || actor,
+            despatchScope: "full",
+          } : {}),
+          ...(firstOrderId ? { parentOrderId: firstOrderId, parentOrderNumber: (waiting.releases || []).find((release) => release.orderId === firstOrderId)?.orderNumber } : {}),
+          items: structuredClone(releaseItems),
+          originalItems: (waiting.items || []).map((item) => ({ ...item, preparedQuantity: null, preparedRollCount: null })),
+          createdBy: actor, createdByUserId: req.authUser?.id || null, createdAt: now, updatedAt: now,
+          history: inheritedHistory,
+          audit: inheritedAudit,
+        };
+        db.orderBoard.push(order);
+      }
       waiting.releases ??= [];
       waiting.releases.push({ id: releaseId, orderId: order.id, orderNumber: order.number, items: structuredClone(releaseItems), createdAt: now, createdBy: actor, note: order.note });
       waiting.updatedAt = now;
       waiting.updatedBy = actor;
-      db.orderBoard.push(order);
       await notifyUsers(db, order, db.authUsers.filter((user) => orderWorkflowRole(user) === "warehouse" || hasPermission(user, "orders.prepare")), "order_created", "Yeni planlı teslimat", `${actor} tarafından aktife gönderildi · ${order.number} · ${order.customerName}`, req.authUser);
       await writeDb(db);
       return send(res, 201, { data: { waiting: deliveryWaitingSummary(waiting), order: orderWithPresence(order, req.authUser) } });
