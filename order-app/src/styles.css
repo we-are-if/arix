@@ -11342,3 +11342,61 @@ textarea {
   border-color: rgba(148, 163, 184, 0.2) !important;
   background: #171e2d !important;
 }
+.order-detail-modal .prep-row {
+  padding: 10px 12px !important;
+  gap: 8px !important;
+}
+.order-detail-modal .prep-inputs {
+  gap: 6px 8px !important;
+}
+.order-detail-modal .actual {
+  gap: 3px !important;
+}
+.order-detail-modal .actual span {
+  font-size: 11px !important;
+}
+.order-detail-modal .actual input {
+  height: 36px !important;
+  min-height: 36px !important;
+  border-radius: 10px !important;
+  font-size: 14px !important;
+}
+.order-detail-modal .prep-cut-allowance,
+.order-detail-modal .cut-allowance-editor {
+  grid-column: 1 / -1;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 6px 10px !important;
+  padding-top: 2px;
+}
+.order-detail-modal .cut-allowance-toggle {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 6px !important;
+  min-height: 28px !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+}
+.order-detail-modal .cut-allowance-toggle input {
+  width: 15px !important;
+  height: 15px !important;
+  min-height: 15px !important;
+  margin: 0 !important;
+}
+.order-detail-modal .prep-cut-allowance > strong,
+.order-detail-modal .cut-allowance-editor > strong {
+  padding: 3px 8px !important;
+  border-radius: 7px !important;
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  font-size: 11px !important;
+  font-weight: 750 !important;
+}
+.theme-dark .order-detail-modal .prep-cut-allowance > strong,
+.theme-dark .order-detail-modal .cut-allowance-editor > strong {
+  background: #1e293b !important;
+  color: #cbd5e1 !important;
+}
