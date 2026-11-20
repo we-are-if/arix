@@ -3094,16 +3094,6 @@ export default function App() {
                 </span>
               </button>
             )}
-            {canSell && (
-              <button
-                type="button"
-                className="header-create-order-btn mobile-only-create primary"
-                onClick={() => setCreateOpen(true)}
-                aria-label={text.create}
-              >
-                <span className="create-order-plus" aria-hidden="true">＋</span>
-              </button>
-            )}
 
             {/* Language menu */}
             <div className="relative">
@@ -3392,6 +3382,17 @@ export default function App() {
               onClick={() => setPageTab("forms")}
             >
               <FileText aria-hidden="true" /><span>{text.approvalFormsTab}</span>
+            </button>
+          )}
+          {canSell && (
+            <button
+              type="button"
+              className="mobile-bottom-create-btn"
+              onClick={() => setCreateOpen(true)}
+              aria-label={text.create}
+              title={text.create}
+            >
+              <Plus aria-hidden="true" />
             </button>
           )}
           {canViewDays && (
