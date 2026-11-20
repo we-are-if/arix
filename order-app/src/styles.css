@@ -11546,6 +11546,197 @@ textarea {
   background: #111827;
   color: #cbd5e1;
 }
+
+/* =========================================================
+   ARIX SPIRIT: MODERN MODAL SHELL & MOBILE ACTION BAR
+   ========================================================= */
+.modal-backdrop {
+  background: rgba(15, 23, 42, 0.48) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.modal {
+  border: 1px solid rgba(99, 102, 241, 0.14) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22), 0 4px 16px rgba(81, 67, 237, 0.08) !important;
+  overflow: hidden;
+}
+.modal > header {
+  background: linear-gradient(180deg, #f8f8ff 0%, #ffffff 100%) !important;
+  border-bottom: 1px solid #eef2f7 !important;
+  padding: 16px 20px 14px !important;
+}
+.modal > header h2 {
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  color: #0f172a !important;
+  letter-spacing: -0.01em;
+}
+.modal > header p {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #64748b !important;
+}
+.modal > header > button {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 11px !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+  color: #475569 !important;
+}
+.modal > header > button:hover {
+  border-color: #c7d2fe !important;
+  background: #f5f4ff !important;
+  color: #5143ed !important;
+}
+
+.order-detail-top-actions {
+  padding: 10px 12px;
+  border: 1px solid #eef2f7;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.order-detail-primary-actions button,
+.order-detail-more-btn {
+  min-height: 36px !important;
+  padding: 0 13px !important;
+  border-radius: 11px !important;
+  font-size: 12.5px !important;
+  font-weight: 750 !important;
+  white-space: nowrap;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.order-detail-primary-actions button.primary {
+  background: linear-gradient(135deg, #5b4cf0 0%, #4838db 100%) !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(81, 67, 237, 0.26);
+}
+.order-detail-primary-actions button.primary:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+}
+.order-detail-primary-actions button.secondary,
+.order-detail-more-btn {
+  background: #ffffff !important;
+  border: 1px solid #dfe4ec !important;
+  color: #334155 !important;
+}
+.order-detail-primary-actions button.secondary:hover,
+.order-detail-more-btn:hover {
+  border-color: #c7d2fe !important;
+  background: #f5f4ff !important;
+  color: #4338ca !important;
+}
+
+.order-detail-modal .order-audit {
+  border: 1px solid #eef2f7 !important;
+  background: #f8fafc !important;
+  border-radius: 12px !important;
+  padding: 8px 12px !important;
+}
+.order-detail-modal .prep-summary {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  flex-wrap: wrap !important;
+  gap: 8px 12px !important;
+  padding-top: 2px;
+}
+.order-detail-modal .prep-summary > * {
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  font-size: 12px !important;
+  font-weight: 700;
+}
+.order-detail-modal .prep-summary > b {
+  background: #ecfdf5;
+  color: #059669 !important;
+}
+
+.theme-dark .modal {
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+.theme-dark .modal > header {
+  background: linear-gradient(180deg, #1b2436 0%, #161d2b 100%) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.16) !important;
+}
+.theme-dark .modal > header h2 {
+  color: #f8fafc !important;
+}
+.theme-dark .modal > header > button {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: #1e293b !important;
+  color: #cbd5e1 !important;
+}
+.theme-dark .order-detail-top-actions,
+.theme-dark .order-detail-modal .order-audit {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  background: #111827 !important;
+}
+.theme-dark .order-detail-primary-actions button.secondary,
+.theme-dark .order-detail-more-btn {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e2e8f0 !important;
+}
+.theme-dark .order-detail-modal .prep-summary > * {
+  background: #1e293b;
+  color: #cbd5e1;
+}
+
+@media (max-width: 600px) {
+  .modal-backdrop {
+    padding: 0 !important;
+    align-items: flex-end !important;
+  }
+  .modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 93dvh !important;
+    border-radius: 22px 22px 0 0 !important;
+    border-bottom: 0 !important;
+  }
+  .modal > header {
+    padding: 13px 14px 11px !important;
+  }
+  .modal > header h2 {
+    font-size: 16px !important;
+  }
+  .order-detail-top-actions {
+    flex-wrap: nowrap !important;
+    padding: 7px 8px !important;
+    gap: 6px !important;
+  }
+  .order-detail-primary-actions {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    scrollbar-width: none;
+    gap: 6px !important;
+    padding-bottom: 1px;
+  }
+  .order-detail-primary-actions::-webkit-scrollbar {
+    display: none;
+  }
+  .order-detail-primary-actions button,
+  .order-detail-more-btn {
+    min-height: 34px !important;
+    padding: 0 11px !important;
+    font-size: 12px !important;
+    border-radius: 10px !important;
+  }
+  .order-detail-more-btn span {
+    display: none;
+  }
+  .order-detail-more-btn {
+    width: 34px !important;
+    padding: 0 !important;
+    justify-content: center;
+  }
+}
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
   padding: 3px 8px !important;
