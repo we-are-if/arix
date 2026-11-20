@@ -11859,9 +11859,22 @@ textarea {
   color: #334155 !important;
 }
 .order-detail-header-bar .arix-chat-order-trigger-btn {
-  background: #f1efff !important;
-  border: 1px solid #d8d4ff !important;
-  color: #4b3dde !important;
+  background: #ede9fe !important;
+  border: 1px solid #c4b5fd !important;
+  color: #4f46e5 !important;
+}
+.order-detail-header-bar .arix-chat-order-trigger-btn svg {
+  color: #4f46e5 !important;
+  stroke: #4f46e5 !important;
+}
+.order-detail-header-bar .arix-chat-order-trigger-btn:hover {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+.order-detail-header-bar .arix-chat-order-trigger-btn:hover svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
 }
 .order-detail-header-bar .arix-chat-icon-btn,
 .order-detail-header-bar .order-detail-more-btn.icon-only {
@@ -12550,6 +12563,134 @@ textarea {
 }
 .theme-dark .order-detail-modal .order-history > div > p > span {
   color: #cbd5e1 !important;
+}
+
+/* =========================================================
+   FAZ 3: MODERN ARIX YÖNETİM MODALLARI (AYARLAR, ARŞİV, ÇÖP, TESLİMAT BEKLEYENLER, BORÇLAR)
+   ========================================================= */
+.settings-modal {
+  width: min(980px, calc(100vw - 32px));
+}
+.settings-modal .settings-nav {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 4px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 12px !important;
+  background: #f1f5f9 !important;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-modal .settings-nav::-webkit-scrollbar {
+  display: none;
+}
+.settings-modal .settings-tab {
+  flex: 0 0 auto;
+  min-height: 32px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: #475569 !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  white-space: nowrap;
+}
+.settings-modal .settings-tab.active {
+  background: #ffffff !important;
+  color: #5143ed !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08) !important;
+}
+.settings-modal .stock-summary-grid article {
+  border-radius: 14px !important;
+  border-color: #e2e8f0 !important;
+}
+.settings-modal input:not([type="checkbox"]):not([type="radio"]),
+.settings-modal select,
+.settings-modal textarea {
+  border-radius: 10px !important;
+  border-color: #dfe4ec !important;
+}
+
+.inactive-orders-modal,
+.delivery-waiting-workspace-modal {
+  width: min(760px, calc(100vw - 32px));
+}
+.inactive-orders-list {
+  display: grid !important;
+  gap: 8px !important;
+}
+.inactive-order-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  padding: 10px 12px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.inactive-order-row:hover {
+  border-color: #c7d2fe !important;
+  box-shadow: 0 4px 14px rgba(81, 67, 237, 0.06);
+}
+.inactive-order-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.inactive-order-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.inactive-order-actions button {
+  min-height: 34px !important;
+  padding: 0 11px !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  white-space: nowrap;
+}
+
+.delivery-waiting-workspace-modal .delivery-waiting-card,
+.delivery-waiting-workspace-modal .loan-card {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+}
+.theme-dark .settings-modal .settings-nav {
+  background: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+.theme-dark .settings-modal .settings-tab {
+  color: #94a3b8 !important;
+}
+.theme-dark .settings-modal .settings-tab.active {
+  background: #1e293b !important;
+  color: #c7d2fe !important;
+}
+.theme-dark .inactive-order-row,
+.theme-dark .delivery-waiting-workspace-modal .delivery-waiting-card,
+.theme-dark .delivery-waiting-workspace-modal .loan-card {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  background: #171e2d !important;
+}
+@media (max-width: 600px) {
+  .settings-modal,
+  .inactive-orders-modal,
+  .delivery-waiting-workspace-modal {
+    width: 100% !important;
+  }
+  .inactive-order-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .inactive-order-actions {
+    justify-content: flex-end;
+  }
 }
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {

@@ -3558,7 +3558,7 @@ export default function App() {
                   <button type="button" className="inactive-order-info" onClick={() => { setArchiveOrdersOpen(false); setInactiveDetailOrder(order); }}>
                     <span className="inactive-order-icon archived"><Archive aria-hidden="true" /></span>
                     <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün · Arşivlendi</small></span>
-                    <span className="inactive-order-detail"><span>{reason || "Sebep kaydedilmemiş"}</span><small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language, { dateStyle: "short", timeStyle: "short" })}` : ""}</small></span>
+                    <span className="inactive-order-detail"><span>{reason || "Sebep kaydedilmemiş"}</span><small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" })}` : ""}</small></span>
                   </button>
                   <div className="inactive-order-actions">
                     <button type="button" className="secondary" disabled={inactiveOrderBusyId === order.id} onClick={() => void restoreArchivedOrder(order)}><RotateCcw aria-hidden="true" />Aktife al</button>
@@ -3615,7 +3615,7 @@ export default function App() {
                   <button type="button" className="inactive-order-info" onClick={() => { setInactiveOrdersOpen(false); setInactiveDetailOrder(order); }}>
                     <span className={`inactive-order-icon ${kind}`}><Trash2 aria-hidden="true" /></span>
                     <span className="inactive-order-main"><b>{order.customerName}</b><small>{order.number} · {order.items.length} ürün · {deleted ? "Silindi" : "İptal edildi"}</small></span>
-                    <span className="inactive-order-detail"><span>{reason || "Sebep kaydedilmemiş"}</span><small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString(language, { dateStyle: "short", timeStyle: "short" })}` : ""}</small></span>
+                    <span className="inactive-order-detail"><span>{reason || "Sebep kaydedilmemiş"}</span><small>{actor || "-"}{at ? ` · ${new Date(at).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" })}` : ""}</small></span>
                   </button>
                   {deleted && canManageTrash && <div className="inactive-order-actions">
                     <button type="button" className="secondary" disabled={inactiveOrderBusyId === order.id} onClick={() => void manageDeletedOrder(order, "restore")}>{text.restore}</button>
