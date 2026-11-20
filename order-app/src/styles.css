@@ -10779,6 +10779,10 @@ textarea {
    MODERN ARIX-STYLE STOK MERKEZİ & PRODUCT HISTORY
    ========================================================= */
 .stock-modern-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   height: 100%;
