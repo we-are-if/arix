@@ -3250,19 +3250,18 @@ export default function App() {
           }} onShowPdf={(order, revision) => {
             const selectedOrder = { ...order, id: revision.sourceOrderId || order.id, ...(revision.sourceOrderId ? { mergedIntoOrderId: order.id, mergedIntoOrderNumber: order.number } : {}), approvalForm: revision.form };
             const cachedBlob = clientPdfPreviewCache.get(getOrderPdfCacheKey(selectedOrder));
-            const isDomesticWithoutArchive = revision.documentType === "domestic" && (!revision.isCurrent || !revision.form.archive?.path);
+            const needsHistoricalRender = revision.documentType === "domestic" && !revision.isCurrent && !cachedBlob;
             setApprovalEntrySource(revision.isCurrent ? "forms" : "order");
             setApprovalHistoricalPreview(!revision.isCurrent);
-            if (cachedBlob || !isDomesticWithoutArchive) {
-              setPdfPreviewBlob(cachedBlob ?? null);
-              setPdfPreviewFilename("");
-              setPdfOrder(selectedOrder);
-              return;
+            setPdfPreviewBlob(cachedBlob ?? null);
+            setPdfPreviewFilename("");
+            setPdfOrder(selectedOrder);
+            if (needsHistoricalRender) {
+              setApprovalSingleDocument(true);
+              setApprovalPreviewOnly(true);
+              setApprovalEditorIntent("view");
+              setActiveApprovalOrder(selectedOrder);
             }
-            setApprovalSingleDocument(true);
-            setApprovalPreviewOnly(true);
-            setApprovalEditorIntent("view");
-            setActiveApprovalOrder(selectedOrder);
           }} />
         ) : pageTab === "days" ? (
           <DailyArchive
@@ -3625,11 +3624,19 @@ export default function App() {
           historical={approvalHistoricalPreview}
           previewPdfBlob={pdfPreviewBlob ?? undefined}
           previewFilename={pdfPreviewFilename || undefined}
-          onClose={() => { setPdfOrder(null); setPdfPreviewBlob(null); setPdfPreviewFilename(""); setApprovalHistoricalPreview(false); }}
+          waitingForPreviewBlob={Boolean(activeApprovalOrder && approvalPreviewOnly)}
+          onFallbackPreviewNeeded={() => {
+            setApprovalSingleDocument(true);
+            setApprovalPreviewOnly(true);
+            setApprovalEditorIntent("view");
+            setActiveApprovalOrder(pdfOrder);
+          }}
+          onClose={() => { setPdfOrder(null); setPdfPreviewBlob(null); setPdfPreviewFilename(""); setApprovalHistoricalPreview(false); setActiveApprovalOrder(null); setApprovalPreviewOnly(false); }}
           onEdit={() => {
             setPdfPreviewBlob(null);
             setPdfPreviewFilename("");
             setPdfOrder(null);
+            setApprovalPreviewOnly(false);
             setApprovalEditorIntent("edit");
             setActiveApprovalOrder(pdfOrder);
           }}
@@ -3637,6 +3644,7 @@ export default function App() {
             setPdfPreviewBlob(null);
             setPdfPreviewFilename("");
             setPdfOrder(null);
+            setApprovalPreviewOnly(false);
             setApprovalEditorIntent("approve");
             setActiveApprovalOrder(pdfOrder);
           }}
@@ -3644,6 +3652,7 @@ export default function App() {
             setPdfPreviewBlob(null);
             setPdfPreviewFilename("");
             setPdfOrder(null);
+            setApprovalPreviewOnly(false);
             setApprovalEditorIntent("reject");
             setActiveApprovalOrder(pdfOrder);
           }}
@@ -6369,7 +6378,11 @@ function ApprovalFormsPage({
               return (
                 <div className="approval-form-row" key={order.id}>
                   <span className="approval-form-show-control" onClick={(event) => event.stopPropagation()}>
-                    <button className="approval-form-pdf" type="button" onClick={() => {
+                    <button className="approval-form-pdf" type="button" onMouseEnter={() => {
+                      if (!offer && versions.length === 1 && versions[0].isCurrent) {
+                        prefetchOrderPdf({ ...order, approvalForm: versions[0].form });
+                      }
+                    }} onClick={() => {
                       if (offer) {
                         setShowingOffer(offer);
                         return;
@@ -6451,30 +6464,35 @@ function ApprovalFormsPage({
         onSaved={() => undefined}
         onPreviewPdf={(blob, order, filename) => { setShowingOffer(null); setOfferPreview({ offer: showingOffer, order, blob, filename }); }}
       />}
-      {offerPreview && <ApprovalPdfViewer
-        order={offerPreview.order}
-        session={session}
-        allowApproval={false}
-        historical
-        previewPdfBlob={offerPreview.blob}
-        previewFilename={offerPreview.filename}
-        allowShare={offerPreview.offer.status !== "draft"}
-        onCustomerSend={offerPreview.offer.status === "draft" ? () => updateOfferWorkflow(offerPreview.offer, "send", { skipConfirm: true }) : undefined}
-        extraActions={<>
-          {!offerPreview.offer.convertedOrderId && <>
-            <button type="button" onClick={() => { setOfferPreview(null); setEditingOffer(offerPreview.offer); }}><Pencil aria-hidden="true" /><span>Düzenle</span></button>
-            <button type="button" className="approval-viewer-reject" disabled={offerBusyId === offerPreview.offer.id} onClick={() => { setOfferPreview(null); void deleteOffer(offerPreview.offer); }}><Trash2 aria-hidden="true" /><span>Sil</span></button>
+      {(offerPreview || showingOffer) && (() => {
+        const activeOffer = offerPreview?.offer ?? showingOffer!;
+        const activeOfferOrder = offerPreview?.order ?? offerAsOrder(activeOffer);
+        return <ApprovalPdfViewer
+          order={activeOfferOrder}
+          session={session}
+          allowApproval={false}
+          historical
+          previewPdfBlob={offerPreview?.blob}
+          previewFilename={offerPreview?.filename}
+          waitingForPreviewBlob={Boolean(showingOffer && !offerPreview)}
+          allowShare={activeOffer.status !== "draft"}
+          onCustomerSend={activeOffer.status === "draft" ? () => updateOfferWorkflow(activeOffer, "send", { skipConfirm: true }) : undefined}
+          extraActions={<>
+            {!activeOffer.convertedOrderId && <>
+              <button type="button" onClick={() => { setShowingOffer(null); setOfferPreview(null); setEditingOffer(activeOffer); }}><Pencil aria-hidden="true" /><span>Düzenle</span></button>
+              <button type="button" className="approval-viewer-reject" disabled={offerBusyId === activeOffer.id} onClick={() => { setShowingOffer(null); setOfferPreview(null); void deleteOffer(activeOffer); }}><Trash2 aria-hidden="true" /><span>Sil</span></button>
+            </>}
+            {activeOffer.status === "sent" && <><button type="button" className="approval-viewer-approve" disabled={offerBusyId === activeOffer.id} onClick={() => void convertOffer(activeOffer)}><Check aria-hidden="true" /><span>Onayla</span></button><button type="button" className="approval-viewer-reject" disabled={offerBusyId === activeOffer.id} onClick={() => void updateOfferWorkflow(activeOffer, "reject")}><X aria-hidden="true" /><span>Reddet</span></button></>}
+            {activeOffer.status === "approved" && <><button type="button" className="approval-viewer-status" disabled><Check aria-hidden="true" /><span>Onaylandı</span></button><button type="button" className="approval-viewer-approve" disabled={offerBusyId === activeOffer.id} onClick={() => void convertOffer(activeOffer)}><ListChecks aria-hidden="true" /><span>Siparişe aktar</span></button></>}
+            {activeOffer.status === "rejected" && <><button type="button" className="approval-viewer-reject" disabled><X aria-hidden="true" /><span>Reddedildi</span></button><button type="button" disabled={offerBusyId === activeOffer.id} onClick={() => void updateOfferWorkflow(activeOffer, "revise")}><RotateCcw aria-hidden="true" /><span>Revizyon</span></button></>}
+            {activeOffer.status === "converted" && <button type="button" className="approval-viewer-status" disabled><Check aria-hidden="true" /><span>{activeOffer.convertedOrderNumber || "Siparişe aktarıldı"}</span></button>}
           </>}
-          {offerPreview.offer.status === "sent" && <><button type="button" className="approval-viewer-approve" disabled={offerBusyId === offerPreview.offer.id} onClick={() => void convertOffer(offerPreview.offer)}><Check aria-hidden="true" /><span>Onayla</span></button><button type="button" className="approval-viewer-reject" disabled={offerBusyId === offerPreview.offer.id} onClick={() => void updateOfferWorkflow(offerPreview.offer, "reject")}><X aria-hidden="true" /><span>Reddet</span></button></>}
-          {offerPreview.offer.status === "approved" && <><button type="button" className="approval-viewer-status" disabled><Check aria-hidden="true" /><span>Onaylandı</span></button><button type="button" className="approval-viewer-approve" disabled={offerBusyId === offerPreview.offer.id} onClick={() => void convertOffer(offerPreview.offer)}><ListChecks aria-hidden="true" /><span>Siparişe aktar</span></button></>}
-          {offerPreview.offer.status === "rejected" && <><button type="button" className="approval-viewer-reject" disabled><X aria-hidden="true" /><span>Reddedildi</span></button><button type="button" disabled={offerBusyId === offerPreview.offer.id} onClick={() => void updateOfferWorkflow(offerPreview.offer, "revise")}><RotateCcw aria-hidden="true" /><span>Revizyon</span></button></>}
-          {offerPreview.offer.status === "converted" && <button type="button" className="approval-viewer-status" disabled><Check aria-hidden="true" /><span>{offerPreview.offer.convertedOrderNumber || "Siparişe aktarıldı"}</span></button>}
-        </>}
-        onClose={() => setOfferPreview(null)}
-        onEdit={() => undefined}
-        onApprove={() => undefined}
-        onReject={() => undefined}
-      />}
+          onClose={() => { setShowingOffer(null); setOfferPreview(null); }}
+          onEdit={() => undefined}
+          onApprove={() => undefined}
+          onReject={() => undefined}
+        />;
+      })()}
     </section>
   );
 }
@@ -6498,6 +6516,7 @@ function getDocumentPrintCss(): string {
 
 const CLIENT_PDF_CACHE_LIMIT = 40;
 const clientPdfPreviewCache = new Map<string, Blob>();
+const clientPdfPrefetchInFlight = new Set<string>();
 function rememberClientPdfPreview(key: string, blob: Blob) {
   if (!key || !blob || !blob.size) return;
   if (clientPdfPreviewCache.has(key)) clientPdfPreviewCache.delete(key);
@@ -6513,14 +6532,28 @@ function getOrderPdfCacheKey(order: Order): string {
   if (!form) return "";
   return `order-pdf:${order.id}:${form.documentType || "domestic"}:${form.number || ""}:${form.updatedAt || ""}:${form.status || ""}:${form.archive?.path || ""}`;
 }
+function prefetchOrderPdf(order: Order): void {
+  const form = order.approvalForm;
+  if (!form || order.id.startsWith("offer-")) return;
+  const cacheKey = getOrderPdfCacheKey(order);
+  if (!cacheKey || clientPdfPreviewCache.has(cacheKey) || clientPdfPrefetchInFlight.has(cacheKey)) return;
+  clientPdfPrefetchInFlight.add(cacheKey);
+  fetch(`/api/orders/${order.id}/approval-form/pdf${form.documentType !== "domestic" ? `?documentType=${encodeURIComponent(form.documentType || "")}&expectedUpdatedAt=${encodeURIComponent(form.updatedAt || "")}` : ""}`, { credentials: "include" })
+    .then((response) => (response.ok ? response.blob() : null))
+    .then((blob) => { if (blob && blob.size > 0) rememberClientPdfPreview(cacheKey, blob); })
+    .catch(() => undefined)
+    .finally(() => { clientPdfPrefetchInFlight.delete(cacheKey); });
+}
 
-function ApprovalPdfViewer({ order, session, allowApproval, historical = false, previewPdfBlob, previewFilename, allowShare = true, onCustomerSend, extraActions, onClose, onEdit, onApprove, onReject, onWithdraw, onPrinted }: {
+function ApprovalPdfViewer({ order, session, allowApproval, historical = false, previewPdfBlob, previewFilename, waitingForPreviewBlob = false, onFallbackPreviewNeeded, allowShare = true, onCustomerSend, extraActions, onClose, onEdit, onApprove, onReject, onWithdraw, onPrinted }: {
   order: Order;
   session: Session;
   allowApproval: boolean;
   historical?: boolean;
   previewPdfBlob?: Blob;
   previewFilename?: string;
+  waitingForPreviewBlob?: boolean;
+  onFallbackPreviewNeeded?: () => void;
   allowShare?: boolean;
   onCustomerSend?: () => Promise<void> | void;
   extraActions?: ReactNode;
@@ -6539,6 +6572,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
   const pagesRef = useRef<HTMLDivElement | null>(null);
   const nativePdfRef = useRef<HTMLIFrameElement | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const fallbackTriggeredRef = useRef(false);
   const filename = previewFilename || order.approvalForm?.archive?.filename || `${order.approvalForm?.number || order.number}.pdf`;
   const nativeShare = Reflect.get(navigator, "share") as ((data: ShareData) => Promise<void>) | undefined;
   const nativeCanShare = Reflect.get(navigator, "canShare") as ((data: ShareData) => boolean) | undefined;
@@ -6569,21 +6603,30 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
     const immediateBlob = previewPdfBlob ?? (cacheKey ? clientPdfPreviewCache.get(cacheKey) : undefined);
     if (immediateBlob) {
       if (cacheKey) rememberClientPdfPreview(cacheKey, immediateBlob);
+      setError("");
       setPdfBlob(immediateBlob);
       objectUrl = URL.createObjectURL(immediateBlob);
       setPdfUrl(objectUrl);
       return () => URL.revokeObjectURL(objectUrl);
     }
+    if (waitingForPreviewBlob) {
+      return undefined;
+    }
     fetch(`/api/orders/${order.id}/approval-form/pdf${order.approvalForm?.documentType !== "domestic" ? `?documentType=${encodeURIComponent(order.approvalForm?.documentType || "")}&expectedUpdatedAt=${encodeURIComponent(order.approvalForm?.updatedAt || "")}` : ""}`, { credentials: "include" })
       .then(async (response) => {
         if (!response.ok) {
+          if (response.status === 404 && onFallbackPreviewNeeded && !fallbackTriggeredRef.current) {
+            fallbackTriggeredRef.current = true;
+            onFallbackPreviewNeeded();
+            return null;
+          }
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.error || "PDF açılamadı.");
         }
         return response.blob();
       })
       .then((blob) => {
-        if (cancelled) return;
+        if (cancelled || !blob) return;
         if (cacheKey) rememberClientPdfPreview(cacheKey, blob);
         objectUrl = URL.createObjectURL(blob);
         setPdfBlob(blob);
@@ -6594,7 +6637,7 @@ function ApprovalPdfViewer({ order, session, allowApproval, historical = false, 
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [order, order.id, previewPdfBlob]);
+  }, [order, order.id, previewPdfBlob, waitingForPreviewBlob, onFallbackPreviewNeeded]);
 
   useEffect(() => {
     if (useNativeWindowsViewer || !pdfBlob || !pagesRef.current) return;
@@ -12467,7 +12510,7 @@ function ApprovalFormEditor({
           method: "POST",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(previewEndpoint ? { html } : (isProforma ? { documentType: form.documentType, expectedUpdatedAt: form.updatedAt } : { html })),
+          body: JSON.stringify(previewEndpoint ? { html } : (isProforma ? { documentType: form.documentType, expectedUpdatedAt: form.updatedAt } : { html, historical: !allowApproval })),
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));

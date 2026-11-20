@@ -2756,6 +2756,22 @@ async function renderOrderApprovalPdf(html) {
   return pdfRenderEngineInstance(html);
 }
 
+function currentOrderPdfCachePath(order) {
+  const form = order?.approvalForm;
+  if (!order?.id || !form) return "";
+  const versionStamp = `${form.number || ""}:${form.status || ""}:${form.updatedAt || order.updatedAt || ""}`;
+  const versionHash = createHash("sha256").update(versionStamp).digest("hex").slice(0, 20);
+  return join(DATA_DIR, "pdf-render-cache", `order-${safeWindowsPathSegment(String(order.id))}-${versionHash}.pdf`);
+}
+
+async function saveCurrentOrderPdfCache(order, pdf) {
+  const cachePath = currentOrderPdfCachePath(order);
+  if (!cachePath || !pdf?.length) return;
+  await mkdir(join(DATA_DIR, "pdf-render-cache"), { recursive: true }).catch(() => {});
+  const tempPath = `${cachePath}.${randomUUID()}.tmp`;
+  await writeFile(tempPath, pdf).then(() => rename(tempPath, cachePath)).catch(() => unlink(tempPath).catch(() => {}));
+}
+
 async function renderOrderApprovalPdfLegacy(html) {
   const source = String(html ?? "");
   if (!source || source.length > 5_000_000) throw new Error("PDF HTML məlumatı etibarsızdır.");
@@ -7819,11 +7835,12 @@ async function handleOrderBoard(req, res, url, parts) {
     const archivedCustomerName = String(order.approvalForm.customerName || order.customerName).trim();
     const customer = findOrderCustomerByName(db.orderCustomers, archivedCustomerName);
     const isExport = isExportApprovalDocument(order.approvalForm);
-    const salesRepresentative = order.isTest ? "TEST" : salesRepresentativeArchiveFolder(customer?.salesRepresentative);
+    const salesRepresentative = order.isTest
+      ? "TEST"
+      : (salesRepresentativeArchiveFolder(customer?.salesRepresentative || order.approvalForm?.salesRepresentative) || "GENEL");
     const customerFolderName = order.isTest
       ? safeWindowsPathSegment(archivedCustomerName)
-      : safeWindowsPathSegment(isExport ? exportCustomerFolder(customer?.name) : customer?.folderName);
-    if (!customer && !order.isTest) return send(res, 409, { error: `Müşteri kartı bulunamadı: ${archivedCustomerName}. Müşteri adını karttaki adla eşleştirin.` });
+      : safeWindowsPathSegment(isExport ? exportCustomerFolder(customer?.name || archivedCustomerName) : (customer?.folderName || customer?.name || archivedCustomerName));
     if ((!isExport && !salesRepresentative) || !customerFolderName) return send(res, 409, { error: "Müşterinin arşiv klasörü bilgileri tamamlanmalıdır." });
 
     const body = await parseBody(req, 8_000_000);
@@ -7840,6 +7857,7 @@ async function handleOrderBoard(req, res, url, parts) {
       return send(res, error.statusCode || 503, { error: `PDF yazdırıla bilmədi: ${error.message}` });
     }
     if (pdf.length > 10_000_000) return send(res, 413, { error: "PDF 10 MB-dan kiçik olmalıdır." });
+    void saveCurrentOrderPdfCache(order, pdf);
 
     const now = new Date();
     const { year, month, display } = orderArchiveDateParts(now);
@@ -7984,6 +8002,7 @@ async function handleOrderBoard(req, res, url, parts) {
         ({ pdf } = await authoritativeExportPdf(order, document, db));
       } else {
         pdf = await renderOrderApprovalPdf(body.html);
+        if (!body.historical) void saveCurrentOrderPdfCache(order, pdf);
       }
     } catch (error) {
       return send(res, error.statusCode || 503, { error: `PDF oluşturulamadı: ${error.message}` });
@@ -8006,7 +8025,8 @@ async function handleOrderBoard(req, res, url, parts) {
       const actorName = normalizeSalesRepresentativeName(req.authUser?.name || "");
       const assignedId = String(order.approvalForm.salesRepresentativeUserId || "");
       const assignedName = normalizeSalesRepresentativeName(order.approvalForm.salesRepresentative || "");
-      const mayView = assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName);
+      const ownsOrder = String(order.createdByUserId || "") === actorId || (!order.createdByUserId && normalizeSalesRepresentativeName(order.createdBy || "") === actorName);
+      const mayView = assignedId ? assignedId === actorId : Boolean(assignedName && assignedName === actorName) || ownsOrder;
       if (!mayView) return send(res, 403, { error: "Bu sipariş formunun PDF dosyasını görme yetkiniz yok." });
     }
     if (isExportApprovalDocument(order.approvalForm)) {
@@ -8024,27 +8044,32 @@ async function handleOrderBoard(req, res, url, parts) {
       } catch (error) { return send(res, error.statusCode || 503, { error: error.message }); }
     }
     const archivePath = String(order.approvalForm.archive?.path || "").trim();
-    if (!archivePath) return send(res, 404, { error: "Bu form için arşivlenmiş PDF bulunamadı." });
     const archiveRoot = resolve(isExportApprovalDocument(order.approvalForm) ? EXPORT_ARCHIVE_ROOT : ORDER_ARCHIVE_ROOT);
-    const resolvedArchivePath = resolve(archivePath);
-    if (!pathIsWithin(archiveRoot, resolvedArchivePath)) {
+    const resolvedArchivePath = archivePath ? resolve(archivePath) : "";
+    if (resolvedArchivePath && !pathIsWithin(archiveRoot, resolvedArchivePath)) {
       return send(res, 403, { error: "Arşiv yolu izin verilen klasörün dışında." });
     }
-    try {
-      const pdf = await readFile(resolvedArchivePath);
-      const filename = String(order.approvalForm.archive?.filename || `${order.approvalForm.number}.pdf`).replace(/[\r\n"]/g, " ");
-      res.writeHead(200, {
-        "content-type": "application/pdf",
-        "content-length": pdf.length,
-        "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(filename)}`,
-        "cache-control": "private, no-store",
-        "x-content-type-options": "nosniff",
-      });
-      return res.end(pdf);
-    } catch (error) {
-      if (error?.code === "ENOENT") return send(res, 404, { error: "Arşiv PDF dosyası bulunamadı." });
-      return send(res, 503, { error: `Arşiv PDF dosyası açılamadı: ${error.message}` });
+    const filename = String(order.approvalForm.archive?.filename || `${order.approvalForm.number}.pdf`).replace(/[\r\n"]/g, " ");
+    for (const candidatePath of [resolvedArchivePath, currentOrderPdfCachePath(order)].filter(Boolean)) {
+      try {
+        const pdf = await readFile(candidatePath);
+        if (pdf.length > 5 && pdf.subarray(0, 5).toString("ascii") === "%PDF-") {
+          res.writeHead(200, {
+            "content-type": "application/pdf",
+            "content-length": pdf.length,
+            "content-disposition": `inline; filename*=UTF-8''${encodeURIComponent(filename)}`,
+            "cache-control": "private, no-store",
+            "x-content-type-options": "nosniff",
+          });
+          return res.end(pdf);
+        }
+      } catch (error) {
+        if (error?.code && error.code !== "ENOENT") {
+          return send(res, 503, { error: `Arşiv PDF dosyası açılamadı: ${error.message}` });
+        }
+      }
     }
+    return send(res, 404, { error: "Bu form için arşivlenmiş PDF bulunamadı." });
   }
 
   if (req.method === "POST" && id && parts[2] === "delivery-photo") {

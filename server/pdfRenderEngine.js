@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const MEMORY_CACHE_LIMIT = 80;
+const DISK_CACHE_LIMIT = 100;
 const WARM_BROWSER_IDLE_MS = 180_000;
 
 export function createPdfRenderEngine({ dataDir, findBrowserExecutable, execFileAsync }) {
@@ -13,6 +14,35 @@ export function createPdfRenderEngine({ dataDir, findBrowserExecutable, execFile
 
   let warmBrowser = null;
   let warmQueue = Promise.resolve();
+  let pruneRunning = false;
+
+  async function pruneDiskCache() {
+    if (pruneRunning) return;
+    pruneRunning = true;
+    try {
+      const names = (await readdir(cacheDir)).filter((name) => name.endsWith(".pdf"));
+      if (names.length <= DISK_CACHE_LIMIT) return;
+      const entries = await Promise.all(
+        names.map(async (name) => {
+          const fullPath = join(cacheDir, name);
+          try {
+            const info = await stat(fullPath);
+            return { fullPath, mtimeMs: info.mtimeMs };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const valid = entries.filter(Boolean).sort((a, b) => b.mtimeMs - a.mtimeMs);
+      for (const stale of valid.slice(DISK_CACHE_LIMIT)) {
+        await unlink(stale.fullPath).catch(() => {});
+      }
+    } catch {
+      // Ignore background prune errors.
+    } finally {
+      pruneRunning = false;
+    }
+  }
 
   function rememberPdf(fingerprint, pdf) {
     if (memoryCache.has(fingerprint)) memoryCache.delete(fingerprint);
@@ -277,6 +307,7 @@ export function createPdfRenderEngine({ dataDir, findBrowserExecutable, execFile
         await writeFile(tempFile, pdf)
           .then(() => rename(tempFile, cacheFile))
           .catch(() => unlink(tempFile).catch(() => {}));
+        void pruneDiskCache();
         return pdf;
       } finally {
         await rm(jobDirectory, { recursive: true, force: true }).catch(() => {});
