@@ -11455,6 +11455,97 @@ textarea {
     justify-content: space-between !important;
   }
 }
+
+.arix-despatch-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 16px !important;
+  background: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+.arix-despatch-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.arix-despatch-head small {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #5143ed;
+  margin-bottom: 2px;
+}
+.arix-despatch-head h3 {
+  margin: 0 !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  color: #0f172a !important;
+}
+.arix-despatch-badge {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.arix-despatch-badge.ready {
+  background: #dcfce7;
+  color: #15803d;
+}
+.arix-despatch-badge.pending {
+  background: #fef3c7;
+  color: #b45309;
+}
+.arix-despatch-summary {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 12px;
+  color: #475569;
+}
+.arix-despatch-upload-box {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.arix-despatch-upload-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.arix-despatch-upload-head strong {
+  font-size: 12px;
+  font-weight: 750;
+  color: #1e293b;
+}
+.arix-despatch-upload-head span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+.theme-dark .arix-despatch-card {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  background: #171e2d !important;
+}
+.theme-dark .arix-despatch-head h3,
+.theme-dark .arix-despatch-upload-head strong {
+  color: #f1f5f9 !important;
+}
+.theme-dark .arix-despatch-summary,
+.theme-dark .arix-despatch-upload-box {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: #111827;
+  color: #cbd5e1;
+}
 .order-detail-modal .prep-cut-allowance > strong,
 .order-detail-modal .cut-allowance-editor > strong {
   padding: 3px 8px !important;

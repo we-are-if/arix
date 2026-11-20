@@ -11149,7 +11149,7 @@ function OrderDetail({
           )}
           {!isWarehousePrepMode && canLockOrder && <button className="order-lock-top-action" type="button" disabled={busy} onClick={() => void toggleOrderLock()}>{order.lockedAt ? <LockOpen aria-hidden="true" /> : <Lock aria-hidden="true" />}<span>{order.lockedAt ? "Kilidi aç" : "Kilitle"}</span></button>}
         </div>
-        {!contextOnlyView && ((order.status === "ready" || order.status === "delivered") || (order.attachments || []).some((a) => !a.deletedAt)) && (
+        {!contextOnlyView && (
           <div className="daily-filter-tabs order-detail-tabs" role="tablist" aria-label="Sipariş detay menüsü">
             <button
               type="button"
@@ -11171,17 +11171,15 @@ function OrderDetail({
                 Belgeler & Teslimat
               </button>
             )}
-            {canViewAudit && order.status === "delivered" && (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={detailTab === "history"}
-                className={detailTab === "history" ? "active" : ""}
-                onClick={() => setDetailTab("history")}
-              >
-                Geçmiş
-              </button>
-            )}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={detailTab === "history"}
+              className={detailTab === "history" ? "active" : ""}
+              onClick={() => setDetailTab("history")}
+            >
+              {ui.changeHistory} <b>{(order.history || []).length}</b>
+            </button>
           </div>
         )}
         {isOwner && order.isTest && <div className="order-test-mode-banner active">
@@ -11857,14 +11855,16 @@ function OrderDetail({
             })}</div>
           </section>
         )}
-        {(order.status === "ready" || order.status === "delivered") && (
+        {(order.status === "delivered" || (order.attachments || []).some((a) => a.kind === "orderForm" && !a.deletedAt)) && (
           <section className="order-documents">
             <div className="order-documents-heading">
               <h3>{ui.documents}</h3>
               <small>{ui.fileHint}</small>
             </div>
             <div className="order-document-grid">
-              {(["orderForm", "despatch"] as const).map((kind) => {
+              {(["orderForm", "despatch"] as const)
+                .filter((kind) => kind === "despatch" || (order.attachments || []).some((a) => a.kind === "orderForm" && !a.deletedAt))
+                .map((kind) => {
                 const files = (order.attachments || []).filter(
                   (attachment) =>
                     attachment.kind === kind && !attachment.deletedAt,
@@ -12066,22 +12066,73 @@ function OrderDetail({
             )
           )}
         {order.status === "ready" && (
-          <section className="delivery-form readonly">
-            <h3>
-              {order.despatchReady
-                ? order.withoutDespatch
-                  ? ui.deliveryWithoutDespatchReady
-                  : ui.despatchReady
-                : ui.despatchPending}
-            </h3>
+          <section className="delivery-form readonly arix-despatch-card">
+            <div className="arix-despatch-head">
+              <div>
+                <small>İRSALİYE VE SEVK HAZIRLIĞI</small>
+                <h3>
+                  {order.despatchReady
+                    ? order.withoutDespatch
+                      ? ui.deliveryWithoutDespatchReady
+                      : ui.despatchReady
+                    : ui.despatchPending}
+                </h3>
+              </div>
+              <span className={`arix-despatch-badge ${order.despatchReady ? "ready" : "pending"}`}>
+                {order.despatchReady ? "Hazır" : "Bekliyor"}
+              </span>
+            </div>
             {order.despatchReady && (
-              <p>
+              <p className="arix-despatch-summary">
                 <b>{order.withoutDespatch ? ui.deliveryWithoutDespatch : order.despatchNumber}</b>
                 {order.despatchReadyBy ? ` · ${order.despatchReadyBy}` : ""}
                 {order.inheritedDespatch ? ` · ${order.inheritedDespatch.orderNumber} siparişinin irsaliyesi` : ""}
                 {` · ${order.despatchScope === "partial" ? "Seçili ürün/miktarlar" : "Siparişin tamamı"}`}
               </p>
             )}
+            <div className="arix-despatch-upload-box">
+              <div className="arix-despatch-upload-head">
+                <strong>İrsaliye Belgesi</strong>
+                <span>{(order.attachments || []).filter((a) => a.kind === "despatch" && !a.deletedAt).length} dosya</span>
+              </div>
+              {(order.attachments || []).some((a) => a.kind === "despatch" && !a.deletedAt) && (
+                <div className="order-document-list">
+                  {(order.attachments || [])
+                    .filter((a) => a.kind === "despatch" && !a.deletedAt)
+                    .map((attachment) => (
+                      <div key={attachment.id}>
+                        <span>
+                          <b>{attachment.name}</b>
+                          <small>{formatFileSize(attachment.size)} · {attachment.uploadedBy}</small>
+                        </span>
+                        <span className="order-document-actions">
+                          <button type="button" onClick={() => setPreviewAttachment(attachment)}>{ui.previewFile}</button>
+                          <a href={`${attachment.url}?download=1`}>{ui.downloadFile}</a>
+                          {isOwner && (
+                            <button type="button" disabled={busy} onClick={() => void deleteAttachment(attachment)}>{ui.deleteFile}</button>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              )}
+              {canManageDocuments && (
+                <label className="order-document-upload">
+                  <span>＋ İrsaliye PDF veya görsel yükle</span>
+                  <input
+                    type="file"
+                    accept={`${imageAccept},application/pdf,.pdf`}
+                    multiple
+                    disabled={busy}
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files || []);
+                      if (files.length) void uploadAttachments("despatch", files);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              )}
+            </div>
             {canManageDespatch && !order.inheritedDespatch && (
               <div className="despatch-controls">
                 {!order.despatchReady && (
