@@ -4545,6 +4545,11 @@ function BoardColumn({
                   <b>Bekleyen teslimattan aktarıldı</b>
                 </div>
               )}
+              {(order.quoteId || order.quoteNumber || order.audit?.some((entry) => entry.action === "createdFromOffer")) && (
+                <div className="order-kind-badge quote-converted">
+                  <b>Tekliften aktarıldı</b>
+                </div>
+              )}
               <h3>{order.customerName}</h3>
               <ul>
                 {order.items.slice(0, 4).map((item, index) => (

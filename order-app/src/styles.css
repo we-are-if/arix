@@ -6179,6 +6179,7 @@ textarea {
 .defer-delivery-external-numbers .field { display:grid; gap:.25rem; }
 .defer-delivery-external-numbers .field span { font-size:.72rem; font-weight:650; }
 .order-kind-badge.deferred-delivery { background:#e7f6f2; color:#08775e; }
+.order-kind-badge.quote-converted { width:fit-content; margin-top:5px; border:1px solid #8bd8ba; border-radius:5px; background:#eaf9f2; padding:4px 8px; color:#08734d; font-size:11px; }
 .order-delivery-history { margin-top:1rem; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
 .order-delivery-history > header { display:flex; align-items:center; justify-content:space-between; padding:.9rem 1rem; border-bottom:1px solid var(--line); }
 .order-delivery-history h3,.order-delivery-history p { margin:0; }
@@ -6206,6 +6207,7 @@ textarea {
 
 .theme-dark .delivery-source-badge,.theme-dark .delivery-release-index,.theme-dark .delivery-invoice-group > header > span,.theme-dark .order-delivery-history > header > b { background:rgba(108,92,255,.18); color:#bbb4ff; }
 .theme-dark .delivery-source-badge.opening_balance,.theme-dark .order-kind-badge.deferred-delivery,.theme-dark .order-delivery-history-head > span { background:rgba(26,180,137,.15); color:#67d9b7; }
+.theme-dark .order-kind-badge.quote-converted { border-color:#26785d; background:#12382c; color:#7ee2bd; }
 .theme-dark .delivery-waiting-card-icon { background:rgba(26,180,137,.15); color:#67d9b7; }
 .theme-dark .delivery-prepare-action { border-color:#4d467b; background:rgba(108,92,255,.1); }
 .theme-dark .delivery-document-management { border-color:rgba(46,196,152,.3); background:rgba(26,180,137,.1); }
