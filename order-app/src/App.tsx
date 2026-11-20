@@ -3,7 +3,7 @@ import { canWithdrawApproval } from "../../shared/approvalPermissions.js";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import readXlsxFile, { readSheet } from "read-excel-file/browser";
-import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Moon, MoreVertical, NotepadText, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
+import { Archive, ArrowLeft, Bell, Building2, CalendarDays, Camera, Check, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardCopy, Download, Eye, FileText, HandCoins, Layers3, ListChecks, Lock, LockOpen, Maximize2, Menu, Moon, MoreVertical, NotepadText, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, RotateCcw, ScanText, Scissors, Search, Send, Settings2, Share2, Smartphone, Sun, Trash2, Truck, UserRound, X } from "lucide-react";
 import AriXLogo from "../../src/components/AriXLogo";
 import { matchOrderFormItems, mergeFormWarning } from "../../shared/orderFormItems.js";
 import { sortApprovalHistory } from "../../shared/approvalFormHistory.js";
@@ -2173,6 +2173,10 @@ export default function App() {
     const saved = localStorage.getItem("arix-order-page-tab");
     return ["board", "forms", "days", "stock"].includes(saved || "") ? saved as "board" | "waiting" | "forms" | "days" | "stock" : "board";
   });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("arix-order-sidebar-collapsed") === "1"; } catch { return false; }
+  });
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [orderDay, setOrderDay] = useState<OrderDay | null>(null);
   const dayToggleBusyRef = useRef(false);
   const hasLoadedRef = useRef(false);
@@ -2187,11 +2191,12 @@ export default function App() {
   const text = copy[language];
 
   useBrowserBackLayer(
-    languageMenuOpen || profileMenuOpen || notificationMenuOpen,
+    languageMenuOpen || profileMenuOpen || notificationMenuOpen || mobileNavOpen,
     () => {
       setLanguageMenuOpen(false);
       setProfileMenuOpen(false);
       setNotificationMenuOpen(false);
+      setMobileNavOpen(false);
     },
   );
 
@@ -2207,6 +2212,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("arix-order-page-tab", pageTab);
   }, [pageTab]);
+
+  useEffect(() => {
+    try { localStorage.setItem("arix-order-sidebar-collapsed", sidebarCollapsed ? "1" : "0"); } catch {}
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (!session) return;
@@ -2899,33 +2908,172 @@ export default function App() {
     }
   };
 
+  const activeOrderCount = orders.filter((o) => !["delivered", "cancelled", "fulfilled"].includes(o.status)).length;
+  const waitingOpenCount = deliveryWaiting.filter((record) => record.status !== "completed").length;
+  const loanOutstandingCount = loanDocuments.filter((document) => ["loan_purchase", "loan_lend"].includes(document.type) && document.lines.some((line) => Number(line.loanOutstanding ?? 0) > 0 || Number(line.loanOutstandingRollCount ?? 0) > 0)).length;
+  const currentTabTitle = pageTab === "board" ? text.workflowTab : pageTab === "forms" ? text.approvalFormsTab : pageTab === "days" ? text.daysTab : pageTab === "stock" ? "Stok" : text.title;
+
+  const renderSidebarNav = (inDrawer = false) => {
+    const collapsed = !inDrawer && sidebarCollapsed;
+    const closeIfDrawer = () => { if (inDrawer) setMobileNavOpen(false); };
+    return (
+      <nav className="order-sidebar-nav" aria-label="Ana menü">
+        <div className="order-sidebar-group">
+          {!collapsed && <span className="order-sidebar-group-label">Görünümler</span>}
+          <button
+            type="button"
+            className={`order-sidebar-item ${pageTab === "board" ? "active" : ""}`}
+            title={collapsed ? text.workflowTab : undefined}
+            onClick={() => { setPageTab("board"); closeIfDrawer(); }}
+          >
+            <ListChecks aria-hidden="true" />
+            {!collapsed && <span>{text.workflowTab}</span>}
+            {activeOrderCount > 0 && <b className="order-sidebar-badge">{initialDataLoading && !orders.length ? "—" : activeOrderCount}</b>}
+          </button>
+          {canViewApprovalForms && (
+            <button
+              type="button"
+              className={`order-sidebar-item ${pageTab === "forms" ? "active" : ""}`}
+              title={collapsed ? text.approvalFormsTab : undefined}
+              onClick={() => { setPageTab("forms"); closeIfDrawer(); }}
+            >
+              <FileText aria-hidden="true" />
+              {!collapsed && <span>{text.approvalFormsTab}</span>}
+            </button>
+          )}
+          {canViewDays && (
+            <button
+              type="button"
+              className={`order-sidebar-item ${pageTab === "days" ? "active" : ""}`}
+              title={collapsed ? text.daysTab : undefined}
+              onClick={() => { setPageTab("days"); closeIfDrawer(); }}
+            >
+              <CalendarDays aria-hidden="true" />
+              {!collapsed && <span>{text.daysTab}</span>}
+            </button>
+          )}
+          {canViewStock && (
+            <button
+              type="button"
+              className={`order-sidebar-item ${pageTab === "stock" ? "active" : ""}`}
+              title={collapsed ? "Stok" : undefined}
+              onClick={() => { setPageTab("stock"); closeIfDrawer(); }}
+            >
+              <Layers3 aria-hidden="true" />
+              {!collapsed && <span>Stok</span>}
+            </button>
+          )}
+        </div>
+        <div className="order-sidebar-group">
+          {!collapsed && <span className="order-sidebar-group-label">Takip & Kayıtlar</span>}
+          {canManageDeliveryWaiting && (
+            <button
+              type="button"
+              className="order-sidebar-item"
+              title={collapsed ? "Teslimat bekleyenler" : undefined}
+              onClick={() => { setDeliveryWaitingOpen(true); closeIfDrawer(); }}
+            >
+              <Truck aria-hidden="true" />
+              {!collapsed && <span>Teslimat bekleyenler</span>}
+              {waitingOpenCount > 0 && <b className="order-sidebar-badge is-teal">{waitingOpenCount > 99 ? "99+" : waitingOpenCount}</b>}
+            </button>
+          )}
+          {canSell && (
+            <button
+              type="button"
+              className="order-sidebar-item"
+              title={collapsed ? "Borç ürünler" : undefined}
+              onClick={() => { setLoanProductsOpen(true); closeIfDrawer(); }}
+            >
+              <HandCoins aria-hidden="true" />
+              {!collapsed && <span>Borç ürünler</span>}
+              {loanOutstandingCount > 0 && <b className="order-sidebar-badge is-amber">{loanOutstandingCount}</b>}
+            </button>
+          )}
+          <button
+            type="button"
+            className="order-sidebar-item"
+            title={collapsed ? "Arşivlenen siparişler" : undefined}
+            onClick={() => { setArchiveOrdersOpen(true); closeIfDrawer(); }}
+          >
+            <Archive aria-hidden="true" />
+            {!collapsed && <span>Arşivlenenler</span>}
+            {archivedOrders.length > 0 && <b className="order-sidebar-badge">{archivedOrders.length > 99 ? "99+" : archivedOrders.length}</b>}
+          </button>
+          <button
+            type="button"
+            className="order-sidebar-item"
+            title={collapsed ? "Silinen ve iptal edilenler" : undefined}
+            onClick={() => { setInactiveOrdersOpen(true); closeIfDrawer(); }}
+          >
+            <Trash2 aria-hidden="true" />
+            {!collapsed && <span>Silinen / İptal</span>}
+            {deletedOrders.length > 0 && <b className="order-sidebar-badge is-rose">{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</b>}
+          </button>
+        </div>
+        {canOpenSettings && (
+          <div className="order-sidebar-group order-sidebar-bottom">
+            <button
+              type="button"
+              className="order-sidebar-item"
+              title={collapsed ? text.settings : undefined}
+              onClick={() => {
+                setSettingsMode("settings");
+                setSettingsOpen(true);
+                closeIfDrawer();
+              }}
+            >
+              <Settings2 aria-hidden="true" />
+              {!collapsed && <span>{text.settings}</span>}
+            </button>
+          </div>
+        )}
+      </nav>
+    );
+  };
+
   return (
     <main className={`app-shell ${isDark ? "theme-dark" : ""} ${pageTab === "board" ? "is-board-view" : ""}`}>
       <header
         className={`sticky top-0 z-40 border-b backdrop-blur ${isDark ? "glass-header-dark border-white/10" : "glass-header border-white/70"}`}
       >
-        <div className="flex w-full items-center justify-between px-3 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <AriXLogo className="glass-logo h-11 w-11" />
-            <div className="hidden text-lg font-semibold tracking-tight sm:block">
-              AriX Order
+        <div className="flex w-full items-center justify-between px-3 py-2.5 sm:px-5">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              className={`order-sidebar-toggle-mobile mobile-header-control inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`}
+              onClick={() => setMobileNavOpen((value) => !value)}
+              aria-label="Menüyü aç"
+            >
+              <Menu size={19} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`order-sidebar-toggle-desktop inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`}
+              onClick={() => setSidebarCollapsed((value) => !value)}
+              aria-label={sidebarCollapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+              title={sidebarCollapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
+            </button>
+            <AriXLogo className="glass-logo h-10 w-10" />
+            <div className="hidden items-center gap-2 sm:flex">
+              <span className="text-base font-semibold tracking-tight">AriX Order</span>
+              <span className={`rounded-lg px-2 py-0.5 text-xs font-semibold ${isDark ? "bg-white/10 text-slate-300" : "bg-indigo-50 text-indigo-700"}`}>
+                {currentTabTitle}
+              </span>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Settings button */}
-            {canOpenSettings && (
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {canSell && (
               <button
-                onClick={() => {
-                  setSettingsMode("settings");
-                  setSettingsOpen(true);
-                }}
-                className={`mobile-header-control inline-flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition ${isDark ? "glass-control-dark border-white/10 hover:bg-white/10" : "glass-control border-white/70 hover:bg-white/75"}`}
-                aria-label={text.settings}
+                type="button"
+                className="header-create-order-btn primary"
+                onClick={() => setCreateOpen(true)}
+                aria-label={text.create}
               >
-                <span className="arix-header-icon" aria-hidden="true">
-                  <Settings2 />
-                </span>
-                <span className="hidden sm:inline">{text.settings}</span>
+                <span className="create-order-plus" aria-hidden="true">＋</span>
+                <span className="create-order-label">{text.create}</span>
               </button>
             )}
 
@@ -3150,6 +3298,23 @@ export default function App() {
         document.body,
       )}
 
+      <div className="order-workspace-shell">
+        <aside className={`order-sidebar ${sidebarCollapsed ? "is-collapsed" : ""}`}>
+          {renderSidebarNav(false)}
+        </aside>
+        {mobileNavOpen && (
+          <div className="order-mobile-drawer-backdrop" onClick={() => setMobileNavOpen(false)}>
+            <aside className="order-mobile-drawer" onClick={(event) => event.stopPropagation()}>
+              <div className="order-mobile-drawer-head">
+                <AriXLogo className="h-9 w-9" />
+                <strong>AriX Order</strong>
+                <button type="button" className="close" onClick={() => setMobileNavOpen(false)} aria-label="Menüyü kapat">×</button>
+              </div>
+              {renderSidebarNav(true)}
+            </aside>
+          </div>
+        )}
+        <div className="order-main-column">
       <div className="order-content">
         {syncWarning && (
           <div className="sync-warning" role="status">
@@ -3169,85 +3334,36 @@ export default function App() {
             <button onClick={() => setError("")}>×</button>
           </div>
         )}
-        <div className="order-top-nav">
-          <div className="order-view-tabs" role="tablist">
+        <div className="order-view-tabs mobile-only-view-tabs" role="tablist">
+          <button
+            className={pageTab === "board" ? "active" : ""}
+            onClick={() => setPageTab("board")}
+          >
+            <ListChecks aria-hidden="true" /><span>{text.workflowTab}</span>
+          </button>
+          {canViewApprovalForms && (
             <button
-              className={pageTab === "board" ? "active" : ""}
-              onClick={() => setPageTab("board")}
+              className={pageTab === "forms" ? "active" : ""}
+              onClick={() => setPageTab("forms")}
             >
-              <ListChecks aria-hidden="true" /><span>{text.workflowTab}</span>
+              <FileText aria-hidden="true" /><span>{text.approvalFormsTab}</span>
             </button>
-            {canViewApprovalForms && (
-              <button
-                className={pageTab === "forms" ? "active" : ""}
-                onClick={() => setPageTab("forms")}
-              >
-                <FileText aria-hidden="true" /><span>{text.approvalFormsTab}</span>
-              </button>
-            )}
-            {canViewDays && (
-              <button
-                className={pageTab === "days" ? "active" : ""}
-                onClick={() => setPageTab("days")}
-              >
-                <CalendarDays aria-hidden="true" /><span>{text.daysTab}</span>
-              </button>
-            )}
-            {canViewStock && (
-              <button
-                className={pageTab === "stock" ? "active" : ""}
-                onClick={() => setPageTab("stock")}
-              >
-                <Layers3 aria-hidden="true" /><span>Stok</span>
-              </button>
-            )}
-          </div>
-          {pageTab === "board" && (
-            <div className="page-actions">
-              <div className="summary">
-                <b>
-                  {initialDataLoading && !orders.length
-                    ? "—"
-                    : orders.filter(
-                        (o) =>
-                          !["delivered", "cancelled", "fulfilled"].includes(
-                            o.status,
-                          ),
-                      ).length}
-                </b>
-                <span>{text.active}</span>
-              </div>
-              <button className="inactive-orders-trigger archive-trigger" type="button" onClick={() => setArchiveOrdersOpen(true)} aria-label="Arşivlenen siparişler" title="Arşivlenen siparişler">
-                <Archive aria-hidden="true" />
-                {archivedOrders.length > 0 && <span>{archivedOrders.length > 99 ? "99+" : archivedOrders.length}</span>}
-              </button>
-              {canManageDeliveryWaiting && (
-                <button className="inactive-orders-trigger waiting-trigger" type="button" onClick={() => setDeliveryWaitingOpen(true)} aria-label="Teslimat bekleyenler" title="Teslimat bekleyenler">
-                  <Truck aria-hidden="true" />
-                  {deliveryWaiting.filter((record) => record.status !== "completed").length > 0 && <span>{deliveryWaiting.filter((record) => record.status !== "completed").length > 99 ? "99+" : deliveryWaiting.filter((record) => record.status !== "completed").length}</span>}
-                </button>
-              )}
-              {canSell && (
-                <button className="inactive-orders-trigger loan-products-trigger" type="button" onClick={() => setLoanProductsOpen(true)} aria-label="Borç ürünler" title="Borç ürünler">
-                  <HandCoins aria-hidden="true" />
-                  {loanDocuments.some((document) => ["loan_purchase", "loan_lend"].includes(document.type) && document.lines.some((line) => Number(line.loanOutstanding ?? 0) > 0 || Number(line.loanOutstandingRollCount ?? 0) > 0)) && <span>{loanDocuments.filter((document) => ["loan_purchase", "loan_lend"].includes(document.type) && document.lines.some((line) => Number(line.loanOutstanding ?? 0) > 0 || Number(line.loanOutstandingRollCount ?? 0) > 0)).length}</span>}
-                </button>
-              )}
-              <button className="inactive-orders-trigger trash-trigger" type="button" onClick={() => setInactiveOrdersOpen(true)} aria-label="Silinen ve iptal edilen siparişler" title="Silinen ve iptal edilen siparişler">
-                <Trash2 aria-hidden="true" />
-                {deletedOrders.length > 0 && <span>{deletedOrders.length > 99 ? "99+" : deletedOrders.length}</span>}
-              </button>
-              {canSell && (
-                <button
-                  className="primary"
-                  onClick={() => setCreateOpen(true)}
-                  aria-label={text.create}
-                >
-                  <span className="create-order-plus" aria-hidden="true">＋</span>
-                  <span className="create-order-label">{text.create}</span>
-                </button>
-              )}
-            </div>
+          )}
+          {canViewDays && (
+            <button
+              className={pageTab === "days" ? "active" : ""}
+              onClick={() => setPageTab("days")}
+            >
+              <CalendarDays aria-hidden="true" /><span>{text.daysTab}</span>
+            </button>
+          )}
+          {canViewStock && (
+            <button
+              className={pageTab === "stock" ? "active" : ""}
+              onClick={() => setPageTab("stock")}
+            >
+              <Layers3 aria-hidden="true" /><span>Stok</span>
+            </button>
           )}
         </div>
         {initialDataLoading && !orders.length && (
@@ -3511,6 +3627,8 @@ export default function App() {
             {inactiveDetailOrder.archivedAt && <footer className="inactive-detail-actions"><button type="button" className="primary" disabled={inactiveOrderBusyId === inactiveDetailOrder.id} onClick={() => void restoreArchivedOrder(inactiveDetailOrder)}><RotateCcw aria-hidden="true" />Aktife al</button></footer>}
           </Modal>
         )}
+      </div>
+      </div>
       </div>
 
       {activeDeliveryWaiting && (
