@@ -44,6 +44,7 @@ const invoiceFields = [
   { key: "date", label: "Sənəd tarixi" },
   { key: "customer", label: "Müştəri" },
   { key: "seller", label: "Satış təmsilçisi" },
+  { key: "createdBy", label: "Tərtib edən" },
   { key: "warehouse", label: "Anbar" },
   { key: "note", label: "Qeyd" },
   { key: "salesAmount", label: "Cari satış" },

@@ -190,6 +190,7 @@ export function applyInvoiceUpsert({ current, invoice, approve = false, actor, h
       linkedEntryIds: existing.linkedEntryIds,
       linkedEntriesSummary: existing.linkedEntriesSummary,
       finalDebt: updatedFinalDebt,
+      createdBy: existing.createdBy || actor.name,
       approvedBy: existing.approvedBy || actor.name,
       approvedAt: existing.approvedAt || nowIso,
     };
@@ -265,6 +266,7 @@ export function applyInvoiceUpsert({ current, invoice, approve = false, actor, h
     finalDebt,
     linkedEntryIds,
     linkedEntriesSummary,
+    createdBy: existing?.createdBy || actor.name,
     approvedBy: actor.name,
     approvedAt: nowIso,
   };

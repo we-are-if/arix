@@ -135,6 +135,7 @@ const QaimeDocument = forwardRef<HTMLElement, Props>(function QaimeDocument(
   ref,
 ) {
   const sellerName = invoice.seller || "Arif Mahmud";
+  const preparerName = invoice.createdBy || sellerName;
   const warehouseName = invoice.warehouse || "ANAnas";
   const paymentSummaries = invoice.linkedEntriesSummary || [];
   const salesQtySummary = formatQuantitySummary(invoice.items);
@@ -142,10 +143,10 @@ const QaimeDocument = forwardRef<HTMLElement, Props>(function QaimeDocument(
   const returnQtySummary = formatQuantitySummary(returnItems);
   const status =
     invoice.status === "active"
-      ? { className: "approved", label: "Təsdiqləndi", Icon: Check, color: "#ffffff", strokeWidth: 3, size: 15, detail: `${invoice.approvedBy || sellerName} tərəfindən tərtib edildi` }
+      ? { className: "approved", label: "Təsdiqləndi", Icon: Check, color: "#ffffff", strokeWidth: 3, size: 15, detail: `${invoice.approvedBy || sellerName} tərəfindən təsdiq edildi`, preparer: `Tərtib edən: ${preparerName}` }
       : invoice.status === "draft"
-        ? { className: "pending", label: "Təsdiq gözləyir", Icon: Clock, color: "#ffffff", strokeWidth: 2.5, size: 15, detail: `${sellerName} tərəfindən tərtib edildi` }
-        : { className: "rejected", label: "Rədd edildi", Icon: X, color: "#ffffff", strokeWidth: 3, size: 15, detail: invoice.rejectionReason || `${sellerName} tərəfindən tərtib edildi` };
+        ? { className: "pending", label: "Təsdiq gözləyir", Icon: Clock, color: "#ffffff", strokeWidth: 2.5, size: 15, detail: `Tərtib edən: ${preparerName}`, preparer: undefined }
+        : { className: "rejected", label: "Rədd edildi", Icon: X, color: "#ffffff", strokeWidth: 3, size: 15, detail: invoice.rejectionReason || `${invoice.cancelledBy || sellerName} tərəfindən rədd edildi`, preparer: `Tərtib edən: ${preparerName}` };
 
   return (
     <article className="approval-paper" ref={ref} id="qaime-printable-sheet">
@@ -193,6 +194,7 @@ const QaimeDocument = forwardRef<HTMLElement, Props>(function QaimeDocument(
             <span>
               <b>{status.label}</b>
               <small>{status.detail}</small>
+              {status.preparer && <small>{status.preparer}</small>}
             </span>
           </div>
         </div>

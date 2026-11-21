@@ -42,6 +42,8 @@ export type InvoiceRecord = {
   invoiceNo: string;
   date: string;
   createdAt: string;
+  /** Server-assigned original preparer; distinct from the approver. */
+  createdBy?: string;
   customer: string;
   seller?: string;
   warehouse?: string;

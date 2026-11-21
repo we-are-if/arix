@@ -544,6 +544,7 @@ export default function InvoiceAttachmentView({
     invoiceNo: invoiceNo.trim(),
     date: invoiceDate.trim(),
     createdAt: existingEditorInvoice?.createdAt || new Date().toISOString(),
+    createdBy: existingEditorInvoice?.createdBy || currentUserName,
     customer: selectedCustomer.trim(),
     seller: sellerName.trim(),
     warehouse: warehouseName.trim(),
@@ -961,6 +962,7 @@ export default function InvoiceAttachmentView({
       note: docNote.trim(),
       status: "draft",
       createdAt: (existingEditorInvoice?.status === "draft" && existingEditorInvoice?.createdAt) || new Date().toISOString(),
+      createdBy: existingEditorInvoice?.createdBy || currentUserName,
       restartOf: restartSourceId || existingEditorInvoice?.restartOf,
     };
     onConfirmInvoice(record);
@@ -1008,6 +1010,7 @@ export default function InvoiceAttachmentView({
       note: docNote.trim(),
       status: "active",
       createdAt: existingEditorInvoice?.createdAt || new Date().toISOString(),
+      createdBy: existingEditorInvoice?.createdBy || currentUserName,
       approvedBy: currentUserName,
       approvedAt: new Date().toISOString(),
       restartOf: restartSourceId || existingEditorInvoice?.restartOf,
