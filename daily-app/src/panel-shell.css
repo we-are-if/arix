@@ -3948,7 +3948,7 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .approval-forms-search-empty button:hover { border-color: var(--arix-primary); background: var(--arix-primary); color: #fff; }
 
 /* Approval PDF Viewer Modal */
-.approval-pdf-viewer { position: fixed; inset: 0; z-index: 300; display: grid; grid-template-rows: auto minmax(0, 1fr); background: rgba(15, 23, 42, .82); }
+.approval-pdf-viewer { position: fixed; inset: 0; z-index: 300; display: grid; grid-template-rows: auto minmax(0, 1fr); isolation: isolate; background: var(--arix-page); }
 .approval-pdf-viewer > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; min-height: 64px; border-bottom: 1px solid var(--arix-line); background: var(--arix-panel); padding: 8px 16px; box-shadow: var(--arix-panel-shadow); }
 .approval-pdf-viewer > header > button, .approval-pdf-viewer nav > button, .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button { display: flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--arix-line); border-radius: 8px; background: var(--arix-panel); padding: 8px 12px; color: var(--arix-text); font-size: 12px; font-weight: 750; cursor: pointer; transition: all .15s ease; }
 .approval-pdf-viewer > header button:hover, .approval-pdf-viewer nav > button:hover, .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button:hover { border-color: var(--arix-primary); color: var(--arix-primary); }
