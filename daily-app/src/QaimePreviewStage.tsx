@@ -46,6 +46,40 @@ export default function QaimePreviewStage({
     };
   }, [mode]);
 
+  // Phone action captions are useful, but showing them just because a person
+  // chose 80% would overflow on some devices and leave unused room on others.
+  // Measure the real header after its available actions render instead.
+  useEffect(() => {
+    if (mode !== "viewer") return;
+
+    const viewer = containerRef.current?.closest<HTMLElement>(".approval-pdf-viewer");
+    const header = viewer?.querySelector<HTMLElement>("header");
+    const nav = header?.querySelector<HTMLElement>("nav");
+    if (!header || !nav) return;
+
+    let frame = 0;
+    const updateActionCaptions = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        header.classList.add("approval-viewer-measure-labels");
+        const captionsFit = nav.scrollWidth <= nav.clientWidth;
+        header.classList.remove("approval-viewer-measure-labels");
+        header.classList.toggle("approval-viewer-action-labels", captionsFit);
+      });
+    };
+
+    const observer = new ResizeObserver(updateActionCaptions);
+    observer.observe(header);
+    observer.observe(nav);
+    updateActionCaptions();
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      header.classList.remove("approval-viewer-measure-labels", "approval-viewer-action-labels");
+    };
+  }, [mode, invoice.id, invoice.status]);
+
   const setRef = (el: HTMLElement | null) => {
     internalPaperRef.current = el;
     if (!paperRef) return;
