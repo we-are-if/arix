@@ -3917,6 +3917,11 @@ export default function App() {
           allowApproval={approvalEntrySource === "forms"}
           previewOnly={approvalPreviewOnly}
           singleDocument={approvalSingleDocument}
+          approvalTransitionOnly={Boolean(
+            pdfOrder &&
+            approvalEditorIntent === "approve" &&
+            activeApprovalOrder.id === pdfOrder.id,
+          )}
           onPreviewPdf={(blob, nextOrder, filename) => {
             setPdfPreviewBlob(blob);
             setPdfPreviewFilename(filename);
@@ -3966,8 +3971,8 @@ export default function App() {
           onApprove={() => {
             setPdfPreviewBlob(null);
             setPdfPreviewFilename("");
-            setPdfOrder(null);
             setApprovalPreviewOnly(false);
+            setApprovalSingleDocument(false);
             setApprovalEditorIntent("approve");
             setActiveApprovalOrder(pdfOrder);
           }}
@@ -12868,6 +12873,7 @@ function ApprovalFormEditor({
   allowApproval = false,
   previewOnly = false,
   singleDocument = false,
+  approvalTransitionOnly = false,
   packingMode = false,
   onPreviewPdf,
   previewEndpoint,
@@ -12884,6 +12890,7 @@ function ApprovalFormEditor({
   allowApproval?: boolean;
   previewOnly?: boolean;
   singleDocument?: boolean;
+  approvalTransitionOnly?: boolean;
   packingMode?: boolean;
   onPreviewPdf?: (blob: Blob, order: Order, filename: string) => void;
   previewEndpoint?: string;
@@ -13949,15 +13956,31 @@ function ApprovalFormEditor({
     </div>
   ) : undefined;
 
+  const showApprovalTransition = approvalTransitionOnly && initialAction === "approve" && canApprove && !proxyApprovalDialogOpen;
   return (
     <>
+    {showApprovalTransition && (
+      <div className="approval-transition-layer" role="status" aria-live="polite" aria-busy={!error}>
+        <div className={`approval-transition-card${error ? " has-error" : ""}`}>
+          <div className="approval-transition-mark" aria-hidden="true"><AriXLogo /></div>
+          <span className="approval-transition-orbit" aria-hidden="true" />
+          <strong>{error ? "Onay tamamlanamadı" : "Onaylanıyor"}</strong>
+          <p>{error || (rateReady ? "Form onaylanıyor ve güncel görüntü hazırlanıyor…" : "Güncel kur bilgisi hazırlanıyor…")}</p>
+          {error && (
+            <div className="approval-transition-actions">
+              <button type="button" className="secondary" onClick={onClose}>Forma dön</button>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
     <Modal
       title={isProforma ? exportDocumentTitle : labels.title}
       subtitle={`${order.customerName} · ${order.number}`}
       onClose={onClose}
       wide={!previewOnly}
       showBack
-      className={`approval-modal ${isPackingTask ? "packing-task-only" : ""} ${previewOnly && !editing ? "preview-only" : ""}`}
+      className={`approval-modal ${isPackingTask ? "packing-task-only" : ""} ${previewOnly && !editing ? "preview-only" : ""} ${showApprovalTransition ? "approval-transition-only" : ""}`}
     >
       {topActionButtons}
       {error && <p className="form-error">{error}</p>}
