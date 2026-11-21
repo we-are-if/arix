@@ -293,11 +293,13 @@ export default function InvoiceAttachmentView({
   const [parsedItems, setParsedItems] = useState<ParsedSalesItem[]>([]);
   const [returnItems, setReturnItems] = useState<ParsedSalesItem[]>([]);
   const [editorBanner, setEditorBanner] = useState<{ type: "success" | "warning" | "info"; text: string } | null>(null);
+  const [viewerExportAction, setViewerExportAction] = useState<"share" | "copy" | "print" | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pdfPaperRef = useRef<HTMLElement | null>(null);
   const editorPaperRef = useRef<HTMLElement | null>(null);
   const invoiceContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const viewerExportBusyRef = useRef(false);
 
   useEffect(() => {
     if (!invoiceContextMenu) return;
@@ -1022,6 +1024,27 @@ export default function InvoiceAttachmentView({
     closeEditor();
   };
 
+  const runViewerExport = async (
+    action: "share" | "copy" | "print",
+    work: () => Promise<void> | void,
+  ) => {
+    if (viewerExportBusyRef.current) return;
+    viewerExportBusyRef.current = true;
+    setViewerExportAction(action);
+    try {
+      await work();
+    } finally {
+      const release = () => {
+        viewerExportBusyRef.current = false;
+        setViewerExportAction(null);
+      };
+      // The print window is scheduled by the browser a moment after this call.
+      // Keep the first tap locked long enough to prevent duplicate print frames.
+      if (action === "print") window.setTimeout(release, 900);
+      else release();
+    }
+  };
+
   const handlePrintPdf = (mode: PrintMode = "bw") => {
     const targetPaper = pdfPaperRef.current || editorPaperRef.current;
     if (!targetPaper) return;
@@ -1159,6 +1182,8 @@ export default function InvoiceAttachmentView({
       setEditorBanner({ type: "warning", text: "PDF paylaşımı hazırlanmadı. Çap et / PDF düyməsindən istifadə edin." });
     }
   };
+
+  const isViewerExportBusy = viewerExportAction !== null;
 
   return (
     <>
@@ -2031,18 +2056,31 @@ export default function InvoiceAttachmentView({
                   <span>Rədd et / Ləğv et</span>
                 </button>
               )}
-              <button type="button" className="approval-viewer-share" onClick={() => void handleSharePdf()}>
+              <button
+                type="button"
+                className={`approval-viewer-share${viewerExportAction === "share" ? " is-busy" : ""}`}
+                disabled={isViewerExportBusy}
+                aria-busy={viewerExportAction === "share" || undefined}
+                onClick={() => void runViewerExport("share", handleSharePdf)}
+              >
                 <Share2 size={16} />
-                <span>Paylaş</span>
+                <span>{viewerExportAction === "share" ? "Hazırlanır…" : "Paylaş"}</span>
               </button>
               <QaimePrintButton
-                className="approval-viewer-print"
+                className={`approval-viewer-print${viewerExportAction === "print" ? " is-busy" : ""}`}
                 size={16}
-                onPrint={(mode) => handlePrintPdf(mode)}
+                disabled={isViewerExportBusy}
+                onPrint={(mode) => void runViewerExport("print", () => handlePrintPdf(mode))}
               />
-              <button type="button" className="approval-viewer-copy" onClick={() => void handleCopyPaperImage()}>
+              <button
+                type="button"
+                className={`approval-viewer-copy${viewerExportAction === "copy" ? " is-busy" : ""}`}
+                disabled={isViewerExportBusy}
+                aria-busy={viewerExportAction === "copy" || undefined}
+                onClick={() => void runViewerExport("copy", handleCopyPaperImage)}
+              >
                 <Copy size={16} />
-                <span>Şəkli kopyala</span>
+                <span>{viewerExportAction === "copy" ? "Hazırlanır…" : "Şəkli kopyala"}</span>
               </button>
               {pdfViewerInvoice.status !== "cancelled" && canManageInvoice && <button
                 type="button"
@@ -2073,7 +2111,7 @@ export default function InvoiceAttachmentView({
                 <span>Qalıcı sil</span>
               </button>}
               {(pdfViewerInvoice.status !== "cancelled" && canManageInvoice || canRestartInvoice || canDeleteInvoicePermanently) && (
-                <details className="approval-viewer-more">
+              <details className={`approval-viewer-more${isViewerExportBusy ? " is-disabled" : ""}`} aria-disabled={isViewerExportBusy || undefined}>
                   <summary aria-label="Digər qaimə əməliyyatları" title="Digər əməliyyatlar"><MoreHorizontal size={19} /></summary>
                   <div className="approval-viewer-more-menu">
                     {pdfViewerInvoice.status !== "cancelled" && canManageInvoice && <button type="button" onClick={() => {

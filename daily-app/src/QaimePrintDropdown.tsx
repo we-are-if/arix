@@ -413,12 +413,14 @@ export function QaimePrintButton({
   size = 16,
   label = "Çap et / PDF",
   dropUp = false,
+  disabled = false,
 }: {
   onPrint: (mode: PrintMode) => void;
   className?: string;
   size?: number;
   label?: string;
   dropUp?: boolean;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
@@ -426,6 +428,7 @@ export function QaimePrintButton({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleToggle = () => {
+    if (disabled) return;
     if (!open) {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
@@ -460,6 +463,10 @@ export function QaimePrintButton({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [open]);
 
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
   return (
     <div
       ref={containerRef}
@@ -470,7 +477,9 @@ export function QaimePrintButton({
         type="button"
         className={className}
         onClick={handleToggle}
+        disabled={disabled}
         aria-expanded={open}
+        aria-busy={disabled || undefined}
         title="Çap etmə rejimini seçin"
         style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
       >

@@ -3952,6 +3952,10 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .approval-pdf-viewer > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; min-height: 64px; border-bottom: 1px solid var(--arix-line); background: var(--arix-panel); padding: 8px 16px; box-shadow: var(--arix-panel-shadow); }
 .approval-pdf-viewer > header > button, .approval-pdf-viewer nav > button, .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button { display: flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--arix-line); border-radius: 8px; background: var(--arix-panel); padding: 8px 12px; color: var(--arix-text); font-size: 12px; font-weight: 750; cursor: pointer; transition: all .15s ease; }
 .approval-pdf-viewer > header button:hover, .approval-pdf-viewer nav > button:hover, .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button:hover { border-color: var(--arix-primary); color: var(--arix-primary); }
+.approval-pdf-viewer nav > button:disabled, .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button:disabled { cursor: wait; opacity: .64; }
+.approval-pdf-viewer nav > button.is-busy > svg, .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button.is-busy > svg { animation: arix-viewer-action-spin .8s linear infinite; }
+.approval-viewer-more.is-disabled { pointer-events: none; opacity: .5; }
+@keyframes arix-viewer-action-spin { to { transform: rotate(360deg); } }
 .approval-pdf-viewer > header svg { width: 17px; height: 17px; }
 .approval-pdf-viewer > header > div { display: grid; min-width: 0; gap: 2px; }
 .approval-pdf-viewer > header b, .approval-pdf-viewer > header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
