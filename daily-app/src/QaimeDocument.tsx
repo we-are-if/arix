@@ -143,7 +143,7 @@ const QaimeDocument = forwardRef<HTMLElement, Props>(function QaimeDocument(
   const returnQtySummary = formatQuantitySummary(returnItems);
   const status =
     invoice.status === "active"
-      ? { className: "approved", label: "Təsdiqləndi", Icon: Check, color: "#ffffff", strokeWidth: 3, size: 15, detail: `${invoice.approvedBy || sellerName} tərəfindən təsdiq edildi`, preparer: `Tərtib edən: ${preparerName}` }
+      ? { className: "approved", label: "Təsdiqləndi", Icon: Check, color: "#ffffff", strokeWidth: 3, size: 15, detail: `Təsdiq etdi: ${invoice.approvedBy || sellerName}`, preparer: `Tərtib edən: ${preparerName}` }
       : invoice.status === "draft"
         ? { className: "pending", label: "Təsdiq gözləyir", Icon: Clock, color: "#ffffff", strokeWidth: 2.5, size: 15, detail: `Tərtib edən: ${preparerName}`, preparer: undefined }
         : { className: "rejected", label: "Rədd edildi", Icon: X, color: "#ffffff", strokeWidth: 3, size: 15, detail: invoice.rejectionReason || `${invoice.cancelledBy || sellerName} tərəfindən rədd edildi`, preparer: `Tərtib edən: ${preparerName}` };
