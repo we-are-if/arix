@@ -27,6 +27,25 @@ export default function QaimePreviewStage({
   const [paperHeight, setPaperHeight] = useState<number>(1123);
   const [zoomMode, setZoomMode] = useState<"fit" | "full">("fit");
 
+  // The device-wide Daily scale uses CSS zoom.  On iPhone Safari, combining
+  // that zoom with this stage's A4 fit transform makes the qaimə a twice-
+  // scaled composited layer (and text becomes visibly soft).  A viewer is
+  // full-screen, so it can use the actual viewport while it is open; the
+  // user's chosen scale is restored immediately on close.
+  useEffect(() => {
+    if (mode !== "viewer") return;
+
+    const root = document.documentElement;
+    const previousInlineZoom = root.style.zoom;
+    root.dataset.dailyQaimeViewer = "true";
+    root.style.zoom = "1";
+
+    return () => {
+      delete root.dataset.dailyQaimeViewer;
+      root.style.zoom = previousInlineZoom;
+    };
+  }, [mode]);
+
   const setRef = (el: HTMLElement | null) => {
     internalPaperRef.current = el;
     if (!paperRef) return;

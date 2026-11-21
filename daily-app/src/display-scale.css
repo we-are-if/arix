@@ -17,6 +17,10 @@
 /* Screen magnification reflows layout; printed documents retain their original scale. */
 @media screen {
   html[data-daily-display-scale] { zoom: var(--daily-display-scale, 1); }
+  /* A qaimə has its own responsive A4 fit stage.  Do not make iPhone rasterize
+     the whole page scale and the document scale together while that viewer is
+     open; QaimePreviewStage restores the selected scale on close. */
+  html[data-daily-display-scale][data-daily-qaime-viewer="true"] { zoom: 1 !important; }
   html[data-daily-display-scale]:not([data-daily-display-scale="100"]) .modal-backdrop > .modal {
     max-height: calc((100dvh - 32px) / var(--daily-display-scale)) !important;
     overflow-y: auto;
@@ -54,6 +58,9 @@
     min-height: 0;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
+  }
+  html[data-daily-display-scale][data-daily-qaime-viewer="true"] .app-shell {
+    height: 100dvh;
   }
   html[data-daily-display-scale] .topbar {
     zoom: calc(1 / var(--daily-display-scale));
