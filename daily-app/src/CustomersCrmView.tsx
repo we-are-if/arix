@@ -16,6 +16,7 @@ import {
   Layers3,
   ListChecks,
   MapPin,
+  MoreHorizontal,
   NotepadText,
   Pencil,
   Phone,
@@ -1064,7 +1065,12 @@ export default function CustomersCrmView({
                     className="approval-viewer-approve"
                     onClick={() => {
                       onApproveInvoice(previewInvoice.id);
-                      setPreviewInvoice(null);
+                      setPreviewInvoice((current) => current ? {
+                        ...current,
+                        status: "active",
+                        approvedBy: currentUserName,
+                        approvedAt: new Date().toISOString(),
+                      } : null);
                     }}
                   >
                     <Check size={16} />
@@ -1086,9 +1092,23 @@ export default function CustomersCrmView({
                     <span>Rədd et</span>
                   </button>
                 )}
+                <button type="button" className="approval-viewer-share" onClick={() => void handleSharePdf()}>
+                  <Share2 size={16} />
+                  <span>Paylaş</span>
+                </button>
+                <QaimePrintButton
+                  className="approval-viewer-print"
+                  size={16}
+                  onPrint={(mode) => handlePrintPdf(mode)}
+                />
+                <button type="button" className="approval-viewer-copy" onClick={() => void handleCopyModalPaperImage()}>
+                  <Copy size={16} />
+                  <span>Şəkli kopyala</span>
+                </button>
                 {previewInvoice.status !== "cancelled" && canManageInvoice && (
                   <button
                     type="button"
+                    className="approval-viewer-secondary"
                     onClick={() => {
                       const inv = previewInvoice;
                       setPreviewInvoice(null);
@@ -1099,18 +1119,18 @@ export default function CustomersCrmView({
                     <span>Düzəlt</span>
                   </button>
                 )}
-                <button type="button" onClick={() => void handleCopyModalPaperImage()}>
-                  <Copy size={16} />
-                  <span>Şəkli kopyala</span>
-                </button>
-                <button type="button" onClick={() => void handleSharePdf()}>
-                  <Share2 size={16} />
-                  <span>Paylaş</span>
-                </button>
-                <QaimePrintButton
-                  size={16}
-                  onPrint={(mode) => handlePrintPdf(mode)}
-                />
+                {previewInvoice.status !== "cancelled" && canManageInvoice && (
+                  <details className="approval-viewer-more">
+                    <summary aria-label="Digər qaimə əməliyyatları" title="Digər əməliyyatlar"><MoreHorizontal size={19} /></summary>
+                    <div className="approval-viewer-more-menu">
+                      <button type="button" onClick={() => {
+                        const inv = previewInvoice;
+                        setPreviewInvoice(null);
+                        onOpenInvoiceInBuilder(inv);
+                      }}><Pencil size={16} /><span>Düzəlt</span></button>
+                    </div>
+                  </details>
+                )}
               </nav>
             </header>
             <main>

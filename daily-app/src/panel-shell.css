@@ -3965,6 +3965,7 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .approval-modal > .modal-actions button.approval-action-restart { border-color: #d97706; background: color-mix(in srgb, #d97706 15%, var(--arix-panel)); color: #d97706; }
 .approval-pdf-viewer nav button.approval-viewer-delete,
 .approval-modal > .modal-actions button.approval-action-delete { border-color: #e11d48; background: color-mix(in srgb, #e11d48 15%, var(--arix-panel)); color: #e11d48; }
+.approval-viewer-more { display: none; }
 .approval-pdf-viewer > main { min-width: 0; min-height: 0; overflow: auto; padding: 12px; }
 
 /* Normal Customer Directory List enhancements */
@@ -6029,21 +6030,77 @@ body { background: var(--arix-page); color: var(--arix-text); }
   .approval-pdf-viewer > header {
     display: flex;
     min-height: 62px;
-    gap: 8px;
-    overflow-x: auto;
+    gap: 5px;
+    overflow: visible;
     padding: 7px 8px;
-    scrollbar-width: none;
   }
-  .approval-pdf-viewer > header::-webkit-scrollbar { display: none; }
   .approval-pdf-viewer > header > div { display: none; }
   .approval-pdf-viewer > header > button,
-  .approval-pdf-viewer nav button {
-    min-width: max-content;
-    min-height: 44px;
-    padding: 7px 11px;
-    font-size: 10px;
+  .approval-pdf-viewer nav > button,
+  .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button,
+  .approval-pdf-viewer nav > .approval-viewer-more > summary {
+    display: inline-flex;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    gap: 0;
   }
-  .approval-pdf-viewer nav { display: flex; gap: 7px; }
+  .approval-pdf-viewer > header > button > span,
+  .approval-pdf-viewer nav > button > span,
+  .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button > span,
+  .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button > svg:last-child { display: none; }
+  .approval-pdf-viewer nav {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .approval-pdf-viewer nav > .approval-viewer-secondary { display: none; }
+  .approval-viewer-more { position: relative; display: block; flex: 0 0 auto; }
+  .approval-viewer-more > summary {
+    list-style: none;
+    cursor: pointer;
+    border: 1px solid var(--arix-line);
+    border-radius: 8px;
+    background: var(--arix-panel);
+    color: var(--arix-text);
+  }
+  .approval-viewer-more > summary::-webkit-details-marker { display: none; }
+  .approval-viewer-more[open] > summary { border-color: var(--arix-primary); color: var(--arix-primary); }
+  .approval-viewer-more-menu {
+    position: absolute;
+    z-index: 8;
+    top: calc(100% + 7px);
+    right: 0;
+    display: grid;
+    width: min(250px, calc(100vw - 20px));
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid var(--arix-line);
+    border-radius: 12px;
+    background: var(--arix-panel);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, .2);
+  }
+  .approval-pdf-viewer .approval-viewer-more-menu button {
+    display: flex !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 42px !important;
+    height: auto !important;
+    justify-content: flex-start !important;
+    padding: 8px 10px !important;
+    gap: 9px !important;
+    border-radius: 8px !important;
+    font-size: 12px !important;
+  }
+  .approval-pdf-viewer .approval-viewer-more-menu button > span { display: inline !important; }
+  .approval-pdf-viewer .approval-viewer-more-menu button.danger { color: #e11d48; }
   .approval-pdf-viewer > main {
     padding: 8px 4px;
     overflow-y: auto;

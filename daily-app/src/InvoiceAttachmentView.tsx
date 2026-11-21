@@ -19,6 +19,7 @@ import {
   Image as ImageIcon,
   Layers3,
   ListChecks,
+  MoreHorizontal,
   NotepadText,
   Pencil,
   Plus,
@@ -2000,7 +2001,12 @@ export default function InvoiceAttachmentView({
                   className="approval-viewer-approve"
                   onClick={() => {
                     onApproveInvoice(pdfViewerInvoice.id);
-                    setPdfViewerInvoice(null);
+                    setPdfViewerInvoice((current) => current ? {
+                      ...current,
+                      status: "active",
+                      approvedBy: currentUserName,
+                      approvedAt: new Date().toISOString(),
+                    } : null);
                   }}
                 >
                   <Check size={16} />
@@ -2022,8 +2028,22 @@ export default function InvoiceAttachmentView({
                   <span>Rədd et / Ləğv et</span>
                 </button>
               )}
+              <button type="button" className="approval-viewer-share" onClick={() => void handleSharePdf()}>
+                <Share2 size={16} />
+                <span>Paylaş</span>
+              </button>
+              <QaimePrintButton
+                className="approval-viewer-print"
+                size={16}
+                onPrint={(mode) => handlePrintPdf(mode)}
+              />
+              <button type="button" className="approval-viewer-copy" onClick={() => void handleCopyPaperImage()}>
+                <Copy size={16} />
+                <span>Şəkli kopyala</span>
+              </button>
               {pdfViewerInvoice.status !== "cancelled" && canManageInvoice && <button
                 type="button"
+                className="approval-viewer-secondary"
                 onClick={() => {
                   const inv = pdfViewerInvoice;
                   setPdfViewerInvoice(null);
@@ -2035,7 +2055,7 @@ export default function InvoiceAttachmentView({
               </button>}
               {canRestartInvoice && <button
                 type="button"
-                className="approval-viewer-restart"
+                className="approval-viewer-restart approval-viewer-secondary"
                 onClick={() => restartInvoiceInEditor(pdfViewerInvoice)}
               >
                 <RotateCcw size={16} />
@@ -2043,24 +2063,26 @@ export default function InvoiceAttachmentView({
               </button>}
               {canDeleteInvoicePermanently && <button
                 type="button"
-                className="approval-viewer-delete"
+                className="approval-viewer-delete approval-viewer-secondary"
                 onClick={() => permanentlyDeleteInvoice(pdfViewerInvoice)}
               >
                 <Trash2 size={16} />
                 <span>Qalıcı sil</span>
               </button>}
-              <button type="button" onClick={() => void handleCopyPaperImage()}>
-                <Copy size={16} />
-                <span>Şəkli kopyala</span>
-              </button>
-              <button type="button" onClick={() => void handleSharePdf()}>
-                <Share2 size={16} />
-                <span>Paylaş</span>
-              </button>
-              <QaimePrintButton
-                size={16}
-                onPrint={(mode) => handlePrintPdf(mode)}
-              />
+              {(pdfViewerInvoice.status !== "cancelled" && canManageInvoice || canRestartInvoice || canDeleteInvoicePermanently) && (
+                <details className="approval-viewer-more">
+                  <summary aria-label="Digər qaimə əməliyyatları" title="Digər əməliyyatlar"><MoreHorizontal size={19} /></summary>
+                  <div className="approval-viewer-more-menu">
+                    {pdfViewerInvoice.status !== "cancelled" && canManageInvoice && <button type="button" onClick={() => {
+                      const inv = pdfViewerInvoice;
+                      setPdfViewerInvoice(null);
+                      openEditorWithInvoice(inv);
+                    }}><Pencil size={16} /><span>Düzəlt</span></button>}
+                    {canRestartInvoice && <button type="button" onClick={() => restartInvoiceInEditor(pdfViewerInvoice)}><RotateCcw size={16} /><span>Başdan başla</span></button>}
+                    {canDeleteInvoicePermanently && <button type="button" className="danger" onClick={() => permanentlyDeleteInvoice(pdfViewerInvoice)}><Trash2 size={16} /><span>Qalıcı sil</span></button>}
+                  </div>
+                </details>
+              )}
             </nav>
           </header>
           <main>
