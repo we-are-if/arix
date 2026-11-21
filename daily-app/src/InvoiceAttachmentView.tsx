@@ -272,7 +272,8 @@ export default function InvoiceAttachmentView({
   const [restartSourceId, setRestartSourceId] = useState<string | null>(null);
   const [pdfViewerInvoice, setPdfViewerInvoice] = useState<InvoiceRecord | null>(null);
   const [invoiceContextMenu, setInvoiceContextMenu] = useState<{ invoice: InvoiceRecord; x: number; y: number } | null>(null);
-  const [invoiceApprovalConfirmation, setInvoiceApprovalConfirmation] = useState<InvoiceRecord | null>(null);
+  const [invoiceDecisionConfirmation, setInvoiceDecisionConfirmation] = useState<{ invoice: InvoiceRecord; action: "approve" | "cancel" } | null>(null);
+  const [invoiceDecisionReason, setInvoiceDecisionReason] = useState("");
 
   // Editor form state
   const [invoiceNo, setInvoiceNo] = useState("32609");
@@ -2028,7 +2029,10 @@ export default function InvoiceAttachmentView({
                 <button
                   type="button"
                   className="approval-viewer-approve"
-                  onClick={() => setInvoiceApprovalConfirmation(pdfViewerInvoice)}
+                  onClick={() => {
+                    setInvoiceDecisionReason("");
+                    setInvoiceDecisionConfirmation({ invoice: pdfViewerInvoice, action: "approve" });
+                  }}
                 >
                   <Check size={16} />
                   <span>Təsdiqlə</span>
@@ -2039,10 +2043,8 @@ export default function InvoiceAttachmentView({
                   type="button"
                   className="approval-viewer-reject"
                   onClick={() => {
-                    const reason = window.prompt("Ləğv səbəbini yazın:", "");
-                    if (reason === null) return;
-                    onCancelInvoice(pdfViewerInvoice.id, reason);
-                    setPdfViewerInvoice(null);
+                    setInvoiceDecisionReason("");
+                    setInvoiceDecisionConfirmation({ invoice: pdfViewerInvoice, action: "cancel" });
                   }}
                 >
                   <X size={16} />
@@ -2131,25 +2133,48 @@ export default function InvoiceAttachmentView({
         </div>
       )}
 
-      {invoiceApprovalConfirmation && (
+      {invoiceDecisionConfirmation && (
         <div className="qaime-viewer-confirm-backdrop" role="dialog" aria-modal="true" aria-labelledby="qaime-viewer-confirm-title">
           <section className="qaime-viewer-confirm-card">
             <div className="qaime-viewer-confirm-icon" aria-hidden="true"><AlertTriangle size={22} /></div>
             <div>
-              <span>QAİMƏ TƏSDİQİ</span>
-              <h2 id="qaime-viewer-confirm-title">Bu qaiməni təsdiqləyirsiniz?</h2>
-              <p><b>{displayInvoiceNumber(invoiceApprovalConfirmation)}</b> aktiv qaimə kimi qeyd ediləcək.</p>
+              <span>{invoiceDecisionConfirmation.action === "approve" ? "QAİMƏ TƏSDİQİ" : "QAİMƏNİ LƏĞV ET"}</span>
+              <h2 id="qaime-viewer-confirm-title">{invoiceDecisionConfirmation.action === "approve" ? "Bu qaiməni təsdiqləyirsiniz?" : "Bu qaiməni ləğv edirsiniz?"}</h2>
+              <p>
+                <b>{displayInvoiceNumber(invoiceDecisionConfirmation.invoice)}</b>{" "}
+                {invoiceDecisionConfirmation.action === "approve" ? "aktiv qaimə kimi qeyd ediləcək." : "ləğv edilmiş kimi tarixçədə qalacaq."}
+              </p>
             </div>
+            {invoiceDecisionConfirmation.action === "cancel" && (
+              <label className="qaime-viewer-confirm-reason">
+                <span>Ləğv səbəbi <em>(istəyə bağlı)</em></span>
+                <textarea
+                  autoFocus
+                  value={invoiceDecisionReason}
+                  onChange={(event) => setInvoiceDecisionReason(event.target.value)}
+                  placeholder="Məsələn: məbləğ və ya məhsul məlumatı səhvdir"
+                />
+              </label>
+            )}
             <footer>
-              <button type="button" className="secondary" onClick={() => setInvoiceApprovalConfirmation(null)}>Xeyr</button>
+              <button type="button" className="secondary" onClick={() => {
+                setInvoiceDecisionConfirmation(null);
+                setInvoiceDecisionReason("");
+              }}>Xeyr</button>
               <button
                 type="button"
-                className="approve"
+                className={invoiceDecisionConfirmation.action === "approve" ? "approve" : "cancel"}
                 onClick={() => {
-                  const target = invoiceApprovalConfirmation;
-                  setInvoiceApprovalConfirmation(null);
-                  onApproveInvoice(target.id);
-                  setPdfViewerInvoice((current) => current?.id === target.id ? {
+                  const target = invoiceDecisionConfirmation;
+                  setInvoiceDecisionConfirmation(null);
+                  setInvoiceDecisionReason("");
+                  if (target.action === "cancel") {
+                    onCancelInvoice(target.invoice.id, invoiceDecisionReason.trim() || undefined);
+                    setPdfViewerInvoice(null);
+                    return;
+                  }
+                  onApproveInvoice(target.invoice.id);
+                  setPdfViewerInvoice((current) => current?.id === target.invoice.id ? {
                     ...current,
                     status: "active",
                     approvedBy: currentUserName,
@@ -2157,7 +2182,8 @@ export default function InvoiceAttachmentView({
                   } : current);
                 }}
               >
-                <Check size={16} /> Bəli, təsdiqlə
+                {invoiceDecisionConfirmation.action === "approve" ? <Check size={16} /> : <X size={16} />}
+                {invoiceDecisionConfirmation.action === "approve" ? "Bəli, təsdiqlə" : "Bəli, ləğv et"}
               </button>
             </footer>
           </section>

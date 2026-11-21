@@ -6162,6 +6162,12 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .qaime-viewer-confirm-card footer button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; padding: 0 14px; font-size: 12px; font-weight: 750; cursor: pointer; }
 .qaime-viewer-confirm-card footer .secondary { border: 1px solid var(--arix-line, #dbe3ee); background: var(--arix-panel, #fff); color: var(--arix-text, #10213f); }
 .qaime-viewer-confirm-card footer .approve { border: 1px solid #059669; background: #059669; color: #fff; }
+.qaime-viewer-confirm-card footer .cancel { border: 1px solid #e11d48; background: #e11d48; color: #fff; }
+.qaime-viewer-confirm-reason { display: grid; gap: 6px; }
+.qaime-viewer-confirm-reason > span { color: var(--arix-text, #10213f); font-size: 12px; font-weight: 750; letter-spacing: 0; }
+.qaime-viewer-confirm-reason em { color: var(--arix-muted, #60708a); font-size: 10px; font-style: normal; font-weight: 500; }
+.qaime-viewer-confirm-reason textarea { min-height: 76px; box-sizing: border-box; width: 100%; resize: vertical; border: 1px solid var(--arix-line, #dbe3ee); border-radius: 9px; outline: 0; background: var(--arix-panel, #fff); color: var(--arix-text, #10213f); padding: 9px 10px; font: inherit; font-size: 12px; line-height: 1.4; }
+.qaime-viewer-confirm-reason textarea:focus { border-color: var(--arix-primary, #5145e5); box-shadow: 0 0 0 3px rgba(81, 69, 229, .12); }
 @media (max-width: 760px) {
   .qaime-viewer-confirm-backdrop { align-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px)); }
   .qaime-viewer-confirm-card { max-width: 340px; padding: 20px; }
