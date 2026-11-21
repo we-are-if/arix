@@ -36,7 +36,9 @@ html[data-ios-standalone="true"] body::before {
   height: env(safe-area-inset-top, 0px);
   background: var(--arix-page, #f5f7fb);
   pointer-events: none;
-  z-index: 2147483646;
+  /* Keep the status-bar colour behind application overlays. A giant z-index
+     put this layer over full-screen invoice actions on iOS. */
+  z-index: 39;
 }
 html[data-ios-standalone="true"] .topbar {
   top: 0 !important;
