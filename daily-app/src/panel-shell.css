@@ -3948,7 +3948,7 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .approval-forms-search-empty button:hover { border-color: var(--arix-primary); background: var(--arix-primary); color: #fff; }
 
 /* Approval PDF Viewer Modal */
-.approval-pdf-viewer { position: fixed; inset: 0; z-index: 300; display: grid; grid-template-rows: auto minmax(0, 1fr); background: rgba(15, 23, 42, .75); backdrop-filter: blur(6px); }
+.approval-pdf-viewer { position: fixed; inset: 0; z-index: 300; display: grid; grid-template-rows: auto minmax(0, 1fr); background: rgba(15, 23, 42, .82); }
 .approval-pdf-viewer > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; min-height: 64px; border-bottom: 1px solid var(--arix-line); background: var(--arix-panel); padding: 8px 16px; box-shadow: var(--arix-panel-shadow); }
 .approval-pdf-viewer > header > button, .approval-pdf-viewer nav > button, .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button { display: flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--arix-line); border-radius: 8px; background: var(--arix-panel); padding: 8px 12px; color: var(--arix-text); font-size: 12px; font-weight: 750; cursor: pointer; transition: all .15s ease; }
 .approval-pdf-viewer > header button:hover, .approval-pdf-viewer nav > button:hover, .approval-pdf-viewer nav > .qaime-print-dropdown-wrap > button:hover { border-color: var(--arix-primary); color: var(--arix-primary); }
@@ -6030,13 +6030,20 @@ body { background: var(--arix-page); color: var(--arix-text); }
 .approval-signatures small { color: #7b8798; font-size: 8px; }
 
 @media (max-width: 760px) {
-  .approval-pdf-viewer { grid-template-rows: auto minmax(0, 1fr); }
+  .approval-pdf-viewer {
+    grid-template-rows: auto minmax(0, 1fr);
+    box-sizing: border-box;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
   .approval-pdf-viewer > header {
     display: flex;
-    min-height: 62px;
+    min-height: calc(62px + env(safe-area-inset-top, 0px));
     gap: 5px;
     overflow: visible;
-    padding: 7px 8px;
+    padding: max(7px, env(safe-area-inset-top, 0px)) 8px 7px;
+    position: relative;
+    z-index: 2;
   }
   .approval-pdf-viewer > header > div { display: none; }
   .approval-pdf-viewer > header > button,
@@ -6114,12 +6121,52 @@ body { background: var(--arix-page); color: var(--arix-text); }
   .theme-dark .approval-pdf-viewer .approval-viewer-more-menu button { color: #e2e8f0 !important; }
   .theme-dark .approval-pdf-viewer .approval-viewer-more-menu button:hover { background: #252f42 !important; color: #c7d2fe !important; }
   .approval-pdf-viewer > main {
+    position: relative;
+    z-index: 1;
     padding: 8px 4px;
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
   }
   .approval-pdf-viewer > main > div { padding: 0 !important; width: 100% !important; }
+}
+
+/* Explicit confirmation for the compact phone approval control. */
+.qaime-viewer-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 360;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 20px;
+  background: rgba(15, 23, 42, .42);
+}
+.qaime-viewer-confirm-card {
+  display: grid;
+  width: min(390px, 100%);
+  gap: 14px;
+  border: 1px solid #dfe7f1;
+  border-radius: 18px;
+  background: var(--arix-panel, #fff);
+  box-shadow: 0 24px 58px rgba(15, 23, 42, .3);
+  padding: 22px;
+  color: var(--arix-text, #10213f);
+}
+.qaime-viewer-confirm-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: #fff7e5; color: #c77700; }
+.qaime-viewer-confirm-card > div:nth-child(2) { display: grid; gap: 6px; }
+.qaime-viewer-confirm-card span { color: var(--arix-primary, #5145e5); font-size: 10px; font-weight: 800; letter-spacing: .07em; }
+.qaime-viewer-confirm-card h2 { margin: 0; font-size: 18px; line-height: 1.25; }
+.qaime-viewer-confirm-card p { margin: 0; color: var(--arix-muted, #60708a); font-size: 13px; line-height: 1.5; }
+.qaime-viewer-confirm-card footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.qaime-viewer-confirm-card footer button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; padding: 0 14px; font-size: 12px; font-weight: 750; cursor: pointer; }
+.qaime-viewer-confirm-card footer .secondary { border: 1px solid var(--arix-line, #dbe3ee); background: var(--arix-panel, #fff); color: var(--arix-text, #10213f); }
+.qaime-viewer-confirm-card footer .approve { border: 1px solid #059669; background: #059669; color: #fff; }
+@media (max-width: 760px) {
+  .qaime-viewer-confirm-backdrop { align-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px)); }
+  .qaime-viewer-confirm-card { max-width: 340px; padding: 20px; }
+  .qaime-viewer-confirm-card footer { display: grid; grid-template-columns: 1fr 1.3fr; }
+  .qaime-viewer-confirm-card footer button { min-width: 0; padding-inline: 9px; }
 }
 
 /* Qaimə creator workspace. */

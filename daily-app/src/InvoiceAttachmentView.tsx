@@ -272,6 +272,7 @@ export default function InvoiceAttachmentView({
   const [restartSourceId, setRestartSourceId] = useState<string | null>(null);
   const [pdfViewerInvoice, setPdfViewerInvoice] = useState<InvoiceRecord | null>(null);
   const [invoiceContextMenu, setInvoiceContextMenu] = useState<{ invoice: InvoiceRecord; x: number; y: number } | null>(null);
+  const [invoiceApprovalConfirmation, setInvoiceApprovalConfirmation] = useState<InvoiceRecord | null>(null);
 
   // Editor form state
   const [invoiceNo, setInvoiceNo] = useState("32609");
@@ -2027,15 +2028,7 @@ export default function InvoiceAttachmentView({
                 <button
                   type="button"
                   className="approval-viewer-approve"
-                  onClick={() => {
-                    onApproveInvoice(pdfViewerInvoice.id);
-                    setPdfViewerInvoice((current) => current ? {
-                      ...current,
-                      status: "active",
-                      approvedBy: currentUserName,
-                      approvedAt: new Date().toISOString(),
-                    } : null);
-                  }}
+                  onClick={() => setInvoiceApprovalConfirmation(pdfViewerInvoice)}
                 >
                   <Check size={16} />
                   <span>Təsdiqlə</span>
@@ -2135,6 +2128,39 @@ export default function InvoiceAttachmentView({
               />
             )}
           </main>
+        </div>
+      )}
+
+      {invoiceApprovalConfirmation && (
+        <div className="qaime-viewer-confirm-backdrop" role="dialog" aria-modal="true" aria-labelledby="qaime-viewer-confirm-title">
+          <section className="qaime-viewer-confirm-card">
+            <div className="qaime-viewer-confirm-icon" aria-hidden="true"><AlertTriangle size={22} /></div>
+            <div>
+              <span>QAİMƏ TƏSDİQİ</span>
+              <h2 id="qaime-viewer-confirm-title">Bu qaiməni təsdiqləyirsiniz?</h2>
+              <p><b>{displayInvoiceNumber(invoiceApprovalConfirmation)}</b> aktiv qaimə kimi qeyd ediləcək.</p>
+            </div>
+            <footer>
+              <button type="button" className="secondary" onClick={() => setInvoiceApprovalConfirmation(null)}>Xeyr</button>
+              <button
+                type="button"
+                className="approve"
+                onClick={() => {
+                  const target = invoiceApprovalConfirmation;
+                  setInvoiceApprovalConfirmation(null);
+                  onApproveInvoice(target.id);
+                  setPdfViewerInvoice((current) => current?.id === target.id ? {
+                    ...current,
+                    status: "active",
+                    approvedBy: currentUserName,
+                    approvedAt: new Date().toISOString(),
+                  } : current);
+                }}
+              >
+                <Check size={16} /> Bəli, təsdiqlə
+              </button>
+            </footer>
+          </section>
         </div>
       )}
 
