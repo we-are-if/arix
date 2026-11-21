@@ -45,6 +45,12 @@ html[data-ios-standalone="true"] .topbar {
   box-sizing: border-box;
 }
 html[data-ios-standalone="true"] .app-shell { min-height: 100dvh; }
+/* Full-screen invoice viewers do not live inside .topbar. They must reserve
+   the Dynamic Island area themselves now that body no longer has top padding. */
+html[data-ios-standalone="true"] .approval-pdf-viewer {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+}
 @media (max-width: 760px) {
   html[data-ios-standalone="true"] .workspace {
     min-height: calc(100dvh - 69px - env(safe-area-inset-top, 0px)) !important;
