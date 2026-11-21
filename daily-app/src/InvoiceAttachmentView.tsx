@@ -1186,6 +1186,7 @@ export default function InvoiceAttachmentView({
   };
 
   const isViewerExportBusy = viewerExportAction !== null;
+  const shouldCloseViewerAfterDecision = () => document.documentElement.dataset.dailyInvoiceViewerAfterDecision === "close";
 
   return (
     <>
@@ -2166,14 +2167,21 @@ export default function InvoiceAttachmentView({
                 className={invoiceDecisionConfirmation.action === "approve" ? "approve" : "cancel"}
                 onClick={() => {
                   const target = invoiceDecisionConfirmation;
+                  const reason = invoiceDecisionReason.trim() || undefined;
+                  const closeViewer = shouldCloseViewerAfterDecision();
                   setInvoiceDecisionConfirmation(null);
                   setInvoiceDecisionReason("");
                   if (target.action === "cancel") {
-                    onCancelInvoice(target.invoice.id, invoiceDecisionReason.trim() || undefined);
-                    setPdfViewerInvoice(null);
+                    onCancelInvoice(target.invoice.id, reason);
+                    if (closeViewer) setPdfViewerInvoice(null);
+                    else setPdfViewerInvoice((current) => current?.id === target.invoice.id ? { ...current, status: "cancelled" } : current);
                     return;
                   }
                   onApproveInvoice(target.invoice.id);
+                  if (closeViewer) {
+                    setPdfViewerInvoice(null);
+                    return;
+                  }
                   setPdfViewerInvoice((current) => current?.id === target.invoice.id ? {
                     ...current,
                     status: "active",

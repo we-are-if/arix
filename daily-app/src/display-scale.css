@@ -151,6 +151,13 @@
 
 .display-theme-toggle { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 10px; margin-bottom: 12px; border: 1px solid var(--arix-line); border-radius: 10px; background: var(--arix-panel); color: var(--arix-text); font-size: 13px; cursor: pointer; }
 .display-theme-toggle span { color: var(--arix-muted); }
+.display-viewer-after-decision { display: grid; gap: 8px; margin: 0 0 13px; border: 1px solid var(--arix-line); border-radius: 10px; padding: 10px; }
+.display-viewer-after-decision > div:first-child { display: grid; gap: 2px; }
+.display-viewer-after-decision b { color: var(--arix-text); font-size: 12px; }
+.display-viewer-after-decision small { color: var(--arix-muted); font-size: 10px; line-height: 1.35; }
+.display-viewer-after-decision > div:last-child { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.display-viewer-after-decision button { min-height: 34px; border: 1px solid var(--arix-line); border-radius: 8px; background: var(--arix-panel); color: var(--arix-muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.display-viewer-after-decision button.active { border-color: var(--arix-primary, #4f46e5); background: color-mix(in srgb, var(--arix-primary, #4f46e5) 11%, var(--arix-panel)); color: var(--arix-primary, #4f46e5); }
 
 @media screen {
   html[data-daily-display-scale] .customers-view { min-width: 0; container: daily-customers / inline-size; }

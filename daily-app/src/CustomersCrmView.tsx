@@ -180,6 +180,8 @@ export default function CustomersCrmView({
   const [newCustomerDraft, setNewCustomerDraft] = useState("");
   const [profiles, setProfiles] = useState<Record<string, CustomerProfileMeta>>(loadCustomerProfiles);
   const [previewInvoice, setPreviewInvoice] = useState<InvoiceRecord | null>(null);
+  const [invoiceDecisionConfirmation, setInvoiceDecisionConfirmation] = useState<{ invoice: InvoiceRecord; action: "approve" | "cancel" } | null>(null);
+  const [invoiceDecisionReason, setInvoiceDecisionReason] = useState("");
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [viewerExportAction, setViewerExportAction] = useState<"share" | "copy" | "print" | null>(null);
   const [activeTab, setActiveTab] = useState<"invoices" | "payments" | "profile">(() => (hasQaime ? "invoices" : "payments"));
@@ -557,6 +559,7 @@ export default function CustomersCrmView({
   };
 
   const isViewerExportBusy = viewerExportAction !== null;
+  const shouldCloseViewerAfterDecision = () => document.documentElement.dataset.dailyInvoiceViewerAfterDecision === "close";
 
   // ============================================================================
   // CUSTOMER DETAIL WINDOW (Opened when clicking a customer from the normal list)
@@ -1087,13 +1090,8 @@ export default function CustomersCrmView({
                     type="button"
                     className="approval-viewer-approve"
                     onClick={() => {
-                      onApproveInvoice(previewInvoice.id);
-                      setPreviewInvoice((current) => current ? {
-                        ...current,
-                        status: "active",
-                        approvedBy: currentUserName,
-                        approvedAt: new Date().toISOString(),
-                      } : null);
+                      setInvoiceDecisionReason("");
+                      setInvoiceDecisionConfirmation({ invoice: previewInvoice, action: "approve" });
                     }}
                   >
                     <Check size={16} />
@@ -1105,10 +1103,8 @@ export default function CustomersCrmView({
                     type="button"
                     className="approval-viewer-reject"
                     onClick={() => {
-                      const reason = window.prompt("Ləğv səbəbini yazın:", "");
-                      if (reason === null) return;
-                      onCancelInvoice(previewInvoice.id, reason);
-                      setPreviewInvoice(null);
+                      setInvoiceDecisionReason("");
+                      setInvoiceDecisionConfirmation({ invoice: previewInvoice, action: "cancel" });
                     }}
                   >
                     <X size={16} />
@@ -1176,6 +1172,51 @@ export default function CustomersCrmView({
                 mode="viewer"
               />
             </main>
+          </div>
+        )}
+
+        {invoiceDecisionConfirmation && (
+          <div className="qaime-viewer-confirm-backdrop" role="dialog" aria-modal="true" aria-labelledby="customer-qaime-viewer-confirm-title">
+            <section className="qaime-viewer-confirm-card">
+              <div className="qaime-viewer-confirm-icon" aria-hidden="true"><AlertTriangle size={22} /></div>
+              <div>
+                <span>{invoiceDecisionConfirmation.action === "approve" ? "QAİMƏ TƏSDİQİ" : "QAİMƏNİ LƏĞV ET"}</span>
+                <h2 id="customer-qaime-viewer-confirm-title">{invoiceDecisionConfirmation.action === "approve" ? "Bu qaiməni təsdiqləyirsiniz?" : "Bu qaiməni ləğv edirsiniz?"}</h2>
+                <p><b>SPF-{invoiceDecisionConfirmation.invoice.invoiceNo}</b>{" "}{invoiceDecisionConfirmation.action === "approve" ? "aktiv qaimə kimi qeyd ediləcək." : "ləğv edilmiş kimi tarixçədə qalacaq."}</p>
+              </div>
+              {invoiceDecisionConfirmation.action === "cancel" && (
+                <label className="qaime-viewer-confirm-reason">
+                  <span>Ləğv səbəbi <em>(istəyə bağlı)</em></span>
+                  <textarea autoFocus value={invoiceDecisionReason} onChange={(event) => setInvoiceDecisionReason(event.target.value)} placeholder="Məsələn: məbləğ və ya məhsul məlumatı səhvdir" />
+                </label>
+              )}
+              <footer>
+                <button type="button" className="secondary" onClick={() => { setInvoiceDecisionConfirmation(null); setInvoiceDecisionReason(""); }}>Xeyr</button>
+                <button
+                  type="button"
+                  className={invoiceDecisionConfirmation.action === "approve" ? "approve" : "cancel"}
+                  onClick={() => {
+                    const target = invoiceDecisionConfirmation;
+                    const reason = invoiceDecisionReason.trim() || undefined;
+                    const closeViewer = shouldCloseViewerAfterDecision();
+                    setInvoiceDecisionConfirmation(null);
+                    setInvoiceDecisionReason("");
+                    if (target.action === "cancel") {
+                      onCancelInvoice(target.invoice.id, reason);
+                      if (closeViewer) setPreviewInvoice(null);
+                      else setPreviewInvoice((current) => current?.id === target.invoice.id ? { ...current, status: "cancelled" } : current);
+                      return;
+                    }
+                    onApproveInvoice(target.invoice.id);
+                    if (closeViewer) { setPreviewInvoice(null); return; }
+                    setPreviewInvoice((current) => current?.id === target.invoice.id ? { ...current, status: "active", approvedBy: currentUserName, approvedAt: new Date().toISOString() } : current);
+                  }}
+                >
+                  {invoiceDecisionConfirmation.action === "approve" ? <Check size={16} /> : <X size={16} />}
+                  {invoiceDecisionConfirmation.action === "approve" ? "Bəli, təsdiqlə" : "Bəli, ləğv et"}
+                </button>
+              </footer>
+            </section>
           </div>
         )}
 
