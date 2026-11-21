@@ -6038,10 +6038,13 @@ body { background: var(--arix-page); color: var(--arix-text); }
   }
   .approval-pdf-viewer > header {
     display: flex;
-    min-height: 62px;
+    min-height: calc(62px + 3mm);
     gap: 5px;
     overflow: visible;
-    padding: 7px 8px;
+    /* Keep the compact action bar clear of the iPhone's top system overlay.
+       The document itself keeps its native scale; only the phone toolbar
+       moves down by roughly 3 mm. */
+    padding: calc(7px + 3mm) 8px 7px;
     position: relative;
     z-index: 2;
   }
